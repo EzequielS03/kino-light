@@ -195,7 +195,7 @@ fun TvCategoriasScreen(
             // ── Category rows (exactly 2 sections visible) ─────────────────────────
             // Each section is ONE LazyColumn item (label + horizontal row + spacer in a Column)
             // so the height is atomic and fits without clipping the second row.
-            CompositionLocalProvider(LocalBringIntoViewSpec provides TraerConScrollMinimo) {
+            CompositionLocalProvider(LocalBringIntoViewSpec provides MinimalScrollBringIntoView) {
                 LazyColumn(
                     state = rowsListState,
                     modifier = Modifier
@@ -206,7 +206,7 @@ fun TvCategoriasScreen(
                     items(sections, key = { it.key }) { section ->
                         Column {
                             TvRowLabel(section.label, labelHeight)
-                            CompositionLocalProvider(LocalBringIntoViewSpec provides PivotoDeTv) {
+                            CompositionLocalProvider(LocalBringIntoViewSpec provides TvPivot) {
                                 LazyRow(
                                     contentPadding = PaddingValues(horizontal = 48.dp),
                                     horizontalArrangement = Arrangement.spacedBy(16.dp),

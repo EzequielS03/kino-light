@@ -177,7 +177,7 @@ fun TvRowBrowseScreen(
             }
 
             // ── Content grid (2/3 of the screen) ────────────────────────────────────────
-            CompositionLocalProvider(LocalBringIntoViewSpec provides TraerConScrollMinimo) {
+            CompositionLocalProvider(LocalBringIntoViewSpec provides MinimalScrollBringIntoView) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()

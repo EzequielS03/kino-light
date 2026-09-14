@@ -67,7 +67,7 @@ import kotlinx.coroutines.delay
  * each section had. With rows, picking a section and seeing its content are the SAME gesture.
  *
  * Reuses the home's pieces on purpose and not copies of them ([TvRowLabel], [TvLandscapeCard] and
- * —what matters most— [PivotoDeTv] and [TraerConScrollMinimo]): Fire TV's focus behavior is
+ * —what matters most— [TvPivot] and [MinimalScrollBringIntoView]): Fire TV's focus behavior is
  * exactly what took effort to get right there, and two implementations would drift apart at the
  * first fix.
  *
@@ -274,7 +274,7 @@ fun TvCatalogSections(
         // The VERTICAL pivot is the minimal-scroll one, not the 30% one: with rows this tall, 30%
         // of the container falls mid-row and leaves half a card clipped at the top. Same problem
         // (and same fix) already solved on the home.
-        CompositionLocalProvider(LocalBringIntoViewSpec provides TraerConScrollMinimo) {
+        CompositionLocalProvider(LocalBringIntoViewSpec provides MinimalScrollBringIntoView) {
             LazyColumn(
                 state = rowsState,
                 modifier = Modifier.fillMaxWidth().height(zoneHeight).padding(top = rowsTopPad),
@@ -443,7 +443,7 @@ private fun ItemsRow(
     onFocus: (ItemDeCatalogo) -> Unit,
     onNotice: (String) -> Unit,
 ) {
-    CompositionLocalProvider(LocalBringIntoViewSpec provides PivotoDeTv) {
+    CompositionLocalProvider(LocalBringIntoViewSpec provides TvPivot) {
         LazyRow(
             // The `vertical` is NOT cosmetic: the focused card scales to 1.08 (TvLandscapeCard)
             // and a row of the exact height clips it against its own bounds — it eats the white

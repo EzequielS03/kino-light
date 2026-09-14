@@ -167,8 +167,8 @@ internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
 
 /**
  * The section with its data already loaded. Its template is [TvCatalogSections], and it uses
- * the same pieces: [TvTab] up top, horizontal rows with [PivotoDeTv], the column with
- * [TraerConScrollMinimo], the focused item's name in a fixed-height block, and the rows zone
+ * the same pieces: [TvTab] up top, horizontal rows with [TvPivot], the column with
+ * [MinimalScrollBringIntoView], the focused item's name in a fixed-height block, and the rows zone
  * measured as exactly two full rows.
  *
  * Titles go in [TvPosterCard] and not the template's [TvLandscapeCard]: the art Caracol brings is
@@ -274,7 +274,7 @@ private fun TvCaracolContent(
 
             if (live && channelList.isNotEmpty()) {
                 Column(Modifier.fillMaxWidth().height(zoneHeight).padding(top = rowsTopPad)) {
-                    CompositionLocalProvider(LocalBringIntoViewSpec provides PivotoDeTv) {
+                    CompositionLocalProvider(LocalBringIntoViewSpec provides TvPivot) {
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 48.dp, vertical = 10.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -294,7 +294,7 @@ private fun TvCaracolContent(
             } else if (!live && rows.isNotEmpty()) {
                 // The VERTICAL pivot is the minimal-scroll one, like in the template: with the
                 // 30% one, a row of this height would get clipped at the top.
-                CompositionLocalProvider(LocalBringIntoViewSpec provides TraerConScrollMinimo) {
+                CompositionLocalProvider(LocalBringIntoViewSpec provides MinimalScrollBringIntoView) {
                     LazyColumn(
                         state = rowsState,
                         modifier = Modifier.fillMaxWidth().height(zoneHeight).padding(top = rowsTopPad),
@@ -326,7 +326,7 @@ private fun TitleRow(
     onOpen: (DituItem) -> Unit,
     onFocus: (DituItem) -> Unit,
 ) {
-    CompositionLocalProvider(LocalBringIntoViewSpec provides PivotoDeTv) {
+    CompositionLocalProvider(LocalBringIntoViewSpec provides TvPivot) {
         LazyRow(
             // The `vertical` is the template's: the focused card scales to 1.08 ([TvPosterCard])
             // and in a row of the exact height the focus border would get clipped.

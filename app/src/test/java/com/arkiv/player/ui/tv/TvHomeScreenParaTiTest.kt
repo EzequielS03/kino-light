@@ -6,15 +6,15 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * Cubre la lógica pura detrás de la fila "Para ti" del inicio de TV: si se dibuja o no
- * ([mostrarFilaParaTi]) y qué muestra el hero al enfocar una tarjeta ([recommendationFeatured]).
- * Compose para TV no tiene infraestructura de tests de UI en este proyecto (mismo motivo que
- * `TvMagisLinkOfferTest`), así que estas funciones -extraídas fuera del composable a
- * propósito- son la parte que sí se puede probar en un JVM plano.
+ * Covers the pure logic behind the TV home's "Para ti" row: whether it's drawn or not
+ * ([showForYouRow]) and what the hero shows on focusing a card ([recommendationFeatured]).
+ * Compose for TV has no UI test infrastructure in this project (same reason as
+ * `TvMagisLinkOfferTest`), so these functions -extracted outside the composable on purpose- are
+ * the part that CAN be tested in a plain JVM.
  */
 class TvHomeScreenParaTiTest {
 
-    private fun recomendacion(
+    private fun recommendation(
         id: String = "r1",
         tmdbId: Int = 603,
         tipo: String = "movie",
@@ -28,45 +28,45 @@ class TvHomeScreenParaTiTest {
         porque = porque, ref = ref, orden = orden, generadoAt = 0L,
     )
 
-    // --- mostrarFilaParaTi: sin nada que mostrar, ni el título ni un hueco ---
+    // --- showForYouRow: with nothing to show, neither the title nor a gap ---
 
-    @Test fun `sin recomendaciones no se muestra la fila`() {
-        assertEquals(false, mostrarFilaParaTi(emptyList()))
+    @Test fun `with no recommendations the row isn't shown`() {
+        assertEquals(false, showForYouRow(emptyList()))
     }
 
-    @Test fun `con al menos una recomendacion vigente se muestra la fila`() {
-        assertEquals(true, mostrarFilaParaTi(listOf(recomendacion())))
+    @Test fun `with at least one current recommendation the row is shown`() {
+        assertEquals(true, showForYouRow(listOf(recommendation())))
     }
 
-    // --- recommendationFeatured: qué se pinta en el hero al enfocar una tarjeta ---
+    // --- recommendationFeatured: what gets painted in the hero on focusing a card ---
 
-    @Test fun `el porque va en meta, igual que la etiqueta de capitulo de Continuar viendo`() {
-        val f = recommendationFeatured(recomendacion(porque = "porque terminaste Dragon Ball"))
+    @Test fun `the reason goes in meta, same as Continuar viendo's chapter label`() {
+        val f = recommendationFeatured(recommendation(porque = "porque terminaste Dragon Ball"))
         assertEquals("porque terminaste Dragon Ball", f.meta)
     }
 
-    @Test fun `el titulo pasa tal cual`() {
-        val f = recommendationFeatured(recomendacion(titulo = "El Padrino"))
+    @Test fun `the title passes through as-is`() {
+        val f = recommendationFeatured(recommendation(titulo = "El Padrino"))
         assertEquals("El Padrino", f.title)
     }
 
-    @Test fun `tipo movie se traduce a Pelicula`() {
-        val f = recommendationFeatured(recomendacion(tipo = "movie"))
+    @Test fun `type movie translates to Pelicula`() {
+        val f = recommendationFeatured(recommendation(tipo = "movie"))
         assertEquals("Película", f.subtitle)
     }
 
-    @Test fun `tipo tv se traduce a Serie`() {
-        val f = recommendationFeatured(recomendacion(tipo = "tv"))
+    @Test fun `type tv translates to Serie`() {
+        val f = recommendationFeatured(recommendation(tipo = "tv"))
         assertEquals("Serie", f.subtitle)
     }
 
-    @Test fun `posterUrl vacio cae a null, no a una URL en blanco`() {
-        val f = recommendationFeatured(recomendacion(posterUrl = ""))
+    @Test fun `an empty posterUrl falls back to null, not a blank URL`() {
+        val f = recommendationFeatured(recommendation(posterUrl = ""))
         assertNull(f.imageUrl)
     }
 
-    @Test fun `posterUrl con datos se conserva`() {
-        val f = recommendationFeatured(recomendacion(posterUrl = "https://image.tmdb.org/poster.jpg"))
+    @Test fun `a posterUrl with content is kept`() {
+        val f = recommendationFeatured(recommendation(posterUrl = "https://image.tmdb.org/poster.jpg"))
         assertEquals("https://image.tmdb.org/poster.jpg", f.imageUrl)
     }
 }

@@ -110,13 +110,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Lo que muestra el héroe del fondo. [meta] es la línea de datos que se destaca en blanco debajo
- * del título: la etiqueta de capítulo ("T1 · E5  ·  La conspiración  ·  te faltan 12 min") en
- * "Continuar viendo", o el porqué de una recomendación ("porque terminaste Dragon Ball") en
- * "Para ti" (ver [recommendationFeatured]). Las filas de descubrimiento no la usan: sus títulos de
- * TMDB no son capítulos y no tienen un "porqué" que mostrar.
+ * What the background hero shows. [meta] is the data line highlighted in white below the title:
+ * the chapter label ("T1 · E5  ·  La conspiración  ·  te faltan 12 min") on "Continuar viendo", or
+ * a recommendation's reason ("porque terminaste Dragon Ball") on "Para ti" (see
+ * [recommendationFeatured]). Discovery rows don't use it: their TMDB titles aren't chapters and
+ * have no "why" to show.
  *
- * `internal` (no `private`) para que [recommendationFeatured] se pueda probar sin Compose, ver
+ * `internal` (not `private`) so [recommendationFeatured] can be tested without Compose, see
  * `TvHomeScreenParaTiTest`.
  */
 internal data class Featured(
@@ -127,20 +127,20 @@ internal data class Featured(
 )
 
 /**
- * Cuánto se agranda el fondo del héroe para poder pasearlo sin que asome un borde. El 12% deja un 6%
- * de sobrante a cada lado, o sea unos 140 px de recorrido en 1080p.
+ * How much the hero's background gets enlarged so it can drift without a border showing. 12%
+ * leaves 6% of slack on each side, i.e. about 140 px of travel at 1080p.
  *
- * Con 1.06 el movimiento existía —medido: 227 de diferencia de píxel entre dos capturas— pero no se
- * percibía: el borde derecho de la imagen es el borde de la pantalla y el izquierdo está bajo un
- * degradado, así que no hay ninguna referencia contra la cual notar un desplazamiento chico.
+ * At 1.06 the movement existed —measured: 227 pixels of difference between two captures— but
+ * wasn't perceptible: the image's right edge is the screen's edge and the left one sits under a
+ * gradient, so there's no reference to notice a small shift against.
  */
-private const val HERO_ESCALA = 1.12f
+private const val HERO_SCALE = 1.12f
 
-/** Lo que tarda la deriva en cruzar de un extremo al otro. Sigue siendo lento a propósito: se tiene
- *  que sentir como que la imagen respira, no como una animación que pide atención. */
-private const val HERO_DERIVA_MS = 14_000
+/** How long the drift takes to cross from one end to the other. Deliberately kept slow: it has to
+ *  feel like the image is breathing, not like an animation asking for attention. */
+private const val HERO_DRIFT_MS = 14_000
 
-/** Subtítulo del hero para una card de descubrimiento: tipo y año (lo que se sabe sin abrirla). */
+/** Hero subtitle for a discovery card: type and year (what's known without opening it). */
 private fun discoveryMeta(card: com.arkiv.player.ui.search.TitleCard): String {
     val kind = when (card.kind) {
         "movie" -> "Película"
@@ -151,18 +151,20 @@ private fun discoveryMeta(card: com.arkiv.player.ui.search.TitleCard): String {
 }
 
 /**
- * Si hay recomendaciones vigentes, la fila "Para ti" se dibuja; si no, ni el título ni un hueco --
- * mismo criterio que "Canales en vivo" acá al lado. Función aparte (en vez de un `.isNotEmpty()`
- * suelto en el composable) para poder probar la regla sin levantar Compose.
+ * If there are current recommendations, the "Para ti" row gets drawn; if not, neither the title
+ * nor a gap -- same criterion as "Canales en vivo" right next to it. A separate function (instead
+ * of a loose `.isNotEmpty()` in the composable) so the rule can be tested without spinning up
+ * Compose.
  */
-internal fun mostrarFilaParaTi(recomendaciones: List<RecomendacionEntity>): Boolean = recomendaciones.isNotEmpty()
+internal fun showForYouRow(recommendations: List<RecomendacionEntity>): Boolean = recommendations.isNotEmpty()
 
 /**
- * Lo que muestra el hero al enfocar una tarjeta de "Para ti": el "porqué" que trae el gateway va en
- * [Featured.meta] -- el mismo lugar donde "Continuar viendo" pone "te faltan 12 min" -- porque es
- * el dato que explica la recomendación, no una sinopsis. Top-level y no local a [TvHomeScreen] (a
- * diferencia de `continueFeatured`/`libraryFeatured`, que si leen estado del composable) para que se
- * pueda probar sin Compose: es pura, solo depende de los campos de [RecomendacionEntity].
+ * What the hero shows on focusing a "Para ti" card: the "why" the gateway brings goes in
+ * [Featured.meta] -- the same spot where "Continuar viendo" puts "te faltan 12 min" -- because
+ * it's the datum that explains the recommendation, not a synopsis. Top-level and not local to
+ * [TvHomeScreen] (unlike `continueFeatured`/`libraryFeatured`, which do read the composable's
+ * state) so it can be tested without Compose: it's pure, only depends on [RecomendacionEntity]'s
+ * fields.
  */
 internal fun recommendationFeatured(rec: RecomendacionEntity): Featured = Featured(
     title = rec.titulo,
@@ -172,62 +174,62 @@ internal fun recommendationFeatured(rec: RecomendacionEntity): Featured = Featur
 )
 
 /**
- * El pivote de TV, tal cual lo hace Compose, pero escrito acá porque el suyo es `internal`.
+ * TV's pivot, exactly as Compose does it, but written here because theirs is `internal`.
  *
- * Deja lo enfocado a un 30 % del largo del contenedor y hace que el contenido corra por debajo, en
- * vez de arrastrar la tarjeta contra el borde. Es lo que se quiere EN HORIZONTAL —la fila se mueve,
- * la tarjeta enfocada se queda quieta— y lo que NO se quiere en vertical, donde la zona mide dos
- * filas justas y ese 30 % cae a mitad de fila (ver [TraerConScrollMinimo]).
+ * Leaves the focused item at 30% of the container's length and makes the content run underneath,
+ * instead of dragging the card against the edge. It's what's wanted HORIZONTALLY —the row moves,
+ * the focused card stays still— and what's NOT wanted vertically, where the zone measures exactly
+ * two rows and that 30% falls mid-row (see [MinimalScrollBringIntoView]).
  *
- * Valores sacados del `PivotBringIntoViewSpec` de foundation 1.7.6 para que el TV se sienta igual
- * que antes: fracción 0.3 y tween de 125 ms. Contrastado con lo medido en el Fire TV: en una fila de
- * 1920 px la tarjeta enfocada queda en x=576, o sea 0,3 × 1920.
+ * Values taken from foundation 1.7.6's `PivotBringIntoViewSpec` so the TV feels the same as
+ * before: 0.3 fraction and a 125 ms tween. Checked against what was measured on the Fire TV: in a
+ * 1920 px row the focused card ends up at x=576, i.e. 0.3 × 1920.
  */
 @OptIn(ExperimentalFoundationApi::class)
-internal val PivotoDeTv = object : BringIntoViewSpec {
+internal val TvPivot = object : BringIntoViewSpec {
     override val scrollAnimationSpec = tween<Float>(
         durationMillis = 125,
         easing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1f),
     )
 
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
-        val destinoInicial = 0.3f * containerSize
-        val sobra = containerSize - destinoInicial
-        // Si en lo que queda no cabe entero, se lo pega al final en vez de dejarlo cortado.
-        val destino = if (size <= containerSize && sobra < size) containerSize - size else destinoInicial
-        return offset - destino
+        val initialTarget = 0.3f * containerSize
+        val leftover = containerSize - initialTarget
+        // If what's left over can't fit it whole, it gets pinned to the end instead of left clipped.
+        val target = if (size <= containerSize && leftover < size) containerSize - size else initialTarget
+        return offset - target
     }
 }
 
 /**
- * Trae a la vista con el scroll MÍNIMO: si lo enfocado ya se ve entero, no se mueve nada.
+ * Brings into view with the MINIMAL scroll: if what's focused is already fully visible, nothing moves.
  *
- * Es el comportamiento por defecto de Compose en celular, pero NO en TV. En un aparato leanback
- * (`android.software.leanback`, o sea el Fire TV) `LocalBringIntoViewSpec` arranca valiendo
- * `PivotBringIntoViewSpec`, que es otra cosa: no "hacelo visible" sino "dejalo SIEMPRE al 30 % del
- * alto visible" (`parentFraction = 0.3f`). Con la zona de filas midiendo exactamente dos filas,
- * ese 30 % cae a mitad de fila —158,4 px de 528— y no coincide con ninguna frontera.
+ * It's Compose's default behavior on phones, but NOT on TV. On a leanback device
+ * (`android.software.leanback`, i.e. the Fire TV) `LocalBringIntoViewSpec` starts out set to
+ * `PivotBringIntoViewSpec`, which is a different thing: not "make it visible" but "always keep it
+ * at 30% of the visible height" (`parentFraction = 0.3f`). With the rows zone measuring exactly
+ * two rows, that 30% falls mid-row —158.4 px out of 528— and doesn't line up with any boundary.
  *
- * El resultado, medido en el Fire TV: al pasar de una tarjeta a la de al lado, el pivote pedía subir
- * 106,4 px para reubicar la tarjeta en su 30 %, y el enganche de abajo la devolvía a la frontera.
- * Un rebote de arriba abajo en CADA cambio de tarjeta, aunque el movimiento fuera horizontal y no
- * hubiera absolutamente nada que traer a la vista.
+ * The result, measured on the Fire TV: moving from one card to the next one over, the pivot asked
+ * to move up 106.4 px to reposition the card at its 30%, and the snap below sent it back to the
+ * boundary. A bounce up and down on EVERY card change, even though the movement was horizontal and
+ * there was absolutely nothing that needed bringing into view.
  *
- * Con el scroll mínimo, moverse en horizontal deja el scroll vertical quieto (verificado: tres
- * pulsaciones seguidas, cero movimiento de la lista) y bajar sigue enganchando a la fila.
+ * With the minimal scroll, moving horizontally leaves the vertical scroll still (verified: three
+ * presses in a row, zero list movement) and going down still snaps to the row.
  */
 @OptIn(ExperimentalFoundationApi::class)
-internal val TraerConScrollMinimo = object : BringIntoViewSpec {
+internal val MinimalScrollBringIntoView = object : BringIntoViewSpec {
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
-        val bordeSuperior = offset
-        val bordeInferior = offset + size
+        val topEdge = offset
+        val bottomEdge = offset + size
         return when {
-            // Ya entra entero, o es más grande que el viewport: no hay nada que corregir.
-            bordeSuperior >= 0f && bordeInferior <= containerSize -> 0f
-            bordeSuperior < 0f && bordeInferior > containerSize -> 0f
-            // Se sale por un lado: se mueve lo justo por ese lado.
-            abs(bordeSuperior) < abs(bordeInferior - containerSize) -> bordeSuperior
-            else -> bordeInferior - containerSize
+            // Already fits whole, or is bigger than the viewport: nothing to correct.
+            topEdge >= 0f && bottomEdge <= containerSize -> 0f
+            topEdge < 0f && bottomEdge > containerSize -> 0f
+            // Overflows on one side: moves just enough on that side.
+            abs(topEdge) < abs(bottomEdge - containerSize) -> topEdge
+            else -> bottomEdge - containerSize
         }
     }
 }
@@ -237,18 +239,18 @@ internal val TraerConScrollMinimo = object : BringIntoViewSpec {
 fun TvHomeScreen(
     onOpenItem: (String) -> Unit,
     onPlayEpisode: (String) -> Unit,
-    /** Reproduce un canal en vivo directo (código de canal), sin pasar por "En vivo". */
+    /** Plays a live channel directly (channel code), without going through "En vivo". */
     onPlayLive: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenLibrary: () -> Unit,
     onOpenLive: () -> Unit,
-    /** La sección de Caracol: su catálogo y sus canales en vivo. */
+    /** Caracol's section: its catalog and its live channels. */
     onOpenCaracol: () -> Unit,
     onOpenSearchRoute: (String) -> Unit,
-    /** Navegar el catálogo de Magis por secciones (series y, con el código puesto, 18+). */
+    /** Navigate the Magis catalog by sections (series and, with the code set, 18+). */
     onOpenCategorias: () -> Unit,
-    /** Listado de todas las filas del home como accesos directos por categoría. */
+    /** Listing of every home row as per-category shortcuts. */
     onOpenCategoriasHome: () -> Unit,
     onBrowseRow: (rowId: String, title: String) -> Unit,
 ) {
@@ -256,7 +258,7 @@ fun TvHomeScreen(
     val vm: HomeViewModel = viewModel(
         factory = viewModelFactory { initializer { HomeViewModel(graph.repository, graph.tmdbApi, graph.aniListApi, graph.settings) } },
     )
-    val hayInternet by graph.hayInternet.collectAsStateWithLifecycle()
+    val hasInternet by graph.hayInternet.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
     val continueWatching by vm.continueWatching.collectAsStateWithLifecycle()
     val artwork by vm.artwork.collectAsStateWithLifecycle()
@@ -274,67 +276,68 @@ fun TvHomeScreen(
     // (`data/recomendaciones`) asks Kilo directly and writes here through
     // `AppGraph.generadorParaTi`, triggered from `repo.alTerminarAlgo` whenever something finishes
     // playing -- no server of its own involved.
-    val recomendacionDao = remember { graph.database.recomendacionDao() }
-    val agregador = remember { graph.agregadorDeRecomendaciones }
-    val recomendaciones by recomendacionDao.observeActive().collectAsStateWithLifecycle(initialValue = emptyList())
+    val recommendationDao = remember { graph.database.recomendacionDao() }
+    val aggregator = remember { graph.agregadorDeRecomendaciones }
+    val recommendations by recommendationDao.observeActive().collectAsStateWithLifecycle(initialValue = emptyList())
 
-    // Canales en vivo recientes -- mismo criterio que el home del celular (ver su KDoc en
-    // HomeScreen.kt): se lee directo de Room, sin levantar LiveViewModel (que habla con el
-    // gateway) solo para esta fila. Tope de 10: acceso rápido, no el historial completo.
+    // Recent live channels -- same criterion as the phone's home (see its KDoc in HomeScreen.kt):
+    // read directly from Room, without spinning up LiveViewModel (which talks to the gateway) just
+    // for this row. Capped at 10: quick access, not the full history.
     val liveRecentDao = remember { graph.database.liveRecentDao() }
     val liveCacheDao = remember { graph.database.liveChannelCacheDao() }
-    val liveRecientesCrudo by liveRecentDao.flowRecent(10).collectAsStateWithLifecycle(initialValue = emptyList())
-    var liveCachePorCodigo by remember { mutableStateOf<Map<String, LiveChannelCacheEntity>>(emptyMap()) }
-    LaunchedEffect(liveRecientesCrudo) {
-        if (liveRecientesCrudo.isNotEmpty()) {
-            liveCachePorCodigo = liveCacheDao.byCodes(liveRecientesCrudo.map { it.code }).associateBy { it.code }
+    val liveRawRecents by liveRecentDao.flowRecent(10).collectAsStateWithLifecycle(initialValue = emptyList())
+    var liveCacheByCode by remember { mutableStateOf<Map<String, LiveChannelCacheEntity>>(emptyMap()) }
+    LaunchedEffect(liveRawRecents) {
+        if (liveRawRecents.isNotEmpty()) {
+            liveCacheByCode = liveCacheDao.byCodes(liveRawRecents.map { it.code }).associateBy { it.code }
         }
     }
-    val canalesRecientes = remember(liveRecientesCrudo, liveCachePorCodigo) {
-        recentChannelsForHome(liveRecientesCrudo, liveCachePorCodigo)
+    val recentChannels = remember(liveRawRecents, liveCacheByCode) {
+        recentChannelsForHome(liveRawRecents, liveCacheByCode)
     }
 
-    // Canales del país del aparato, igual que en el home del celular (ver countryChannelsForHome):
-    // así la fila sirve desde la primera apertura, sin nada visto todavía. Acá pesa más que en el
-    // celular -- este TV puede no tener SIM, y por eso la detección mira la zona horaria antes que
-    // el idioma.
-    var canalesDelPais by remember { mutableStateOf<List<LiveChannel>>(emptyList()) }
+    // Device's country channels, same as the phone's home (see countryChannelsForHome): so the
+    // row serves something from the very first open, with nothing watched yet. It matters more
+    // here than on the phone -- this TV may have no SIM, which is why detection looks at the time
+    // zone before the language.
+    var countryChannels by remember { mutableStateOf<List<LiveChannel>>(emptyList()) }
     LaunchedEffect(Unit) {
-        canalesDelPais = countryChannelsForHome(
+        countryChannels = countryChannelsForHome(
             context = context,
             api = graph.catalogoDeVivo,
             cacheDao = liveCacheDao,
             prefs = context.getSharedPreferences(SettingsStore.PREFS_NAME, android.content.Context.MODE_PRIVATE),
         )
     }
-    val canalesFila = remember(canalesRecientes, canalesDelPais) {
-        homeChannelsRow(canalesRecientes, canalesDelPais)
+    val channelsRow = remember(recentChannels, countryChannels) {
+        homeChannelsRow(recentChannels, countryChannels)
     }
 
-    // La fila CRECE después de pintada: los recientes salen de Room (instantáneos) y los del país
-    // pueden venir de la red. Con la caché fresca (24 h, ver FRESHNESS_MS) llegan tan rápido que no
-    // se nota; con la caché vencida llegan tarde y la fila se reacomoda debajo del usuario, dejando
-    // el scroll corrido en el primero de los nuevos. De ahí que el síntoma sea intermitente.
+    // The row GROWS after being painted: recents come from Room (instant) and the country's may
+    // come from the network. With a fresh cache (24h, see FRESHNESS_MS) they arrive fast enough
+    // that it's not noticeable; with an expired cache they arrive late and the row rearranges
+    // under the user, leaving the scroll shifted onto the first new one. That's why the symptom is
+    // intermittent.
     //
-    // Al llegar los del país se vuelve al principio, que es donde están los canales que SÍ viste.
-    // La guarda de foco es lo que evita cambiar un bug por otro: si en ese momento estás navegando
-    // la fila, moverte el scroll te arrancaría de la tarjeta en la que estás.
-    val canalesFilaState = rememberLazyListState()
-    var canalesFilaEnfocada by remember { mutableStateOf(false) }
-    LaunchedEffect(canalesDelPais) {
-        if (canalesDelPais.isNotEmpty() && !canalesFilaEnfocada) {
-            runCatching { canalesFilaState.scrollToItem(0) }
+    // On the country's arriving, it goes back to the start, which is where the channels that WERE
+    // actually watched are. The focus guard is what avoids swapping one bug for another: if at
+    // that moment you're navigating the row, moving the scroll would yank you off the card you're on.
+    val channelsRowState = rememberLazyListState()
+    var channelsRowFocused by remember { mutableStateOf(false) }
+    LaunchedEffect(countryChannels) {
+        if (countryChannels.isNotEmpty() && !channelsRowFocused) {
+            runCatching { channelsRowState.scrollToItem(0) }
         }
     }
 
-    fun reproducirCanal(canal: LiveChannel) {
-        // Mismo mecanismo que TvLiveGuideScreen.verCanal: fija la lista con la que se "entró" para
-        // que arriba/abajo en el reproductor recorra los mismos canales que muestra la fila.
-        LiveZappingSource.list = canalesFila
-        onPlayLive(canal.code)
+    fun playChannel(channel: LiveChannel) {
+        // Same mechanism as TvLiveGuideScreen.verCanal: sets the list it was "entered" with so
+        // up/down in the player goes through the same channels the row shows.
+        LiveZappingSource.list = channelsRow
+        onPlayLive(channel.code)
     }
 
-    // Backdrop estable (para la tarjeta) y uno al azar (para el hero) de un ítem, con fallback al thumb.
+    // Stable backdrop (for the card) and a random one (for the hero) for an item, falling back to the thumb.
     fun backdropsOf(itemId: String): List<String> = artwork[itemId]?.backdrops ?: emptyList()
     fun cardArt(itemId: String, fallback: String?): String? = backdropsOf(itemId).firstOrNull() ?: fallback
     fun heroArt(itemId: String, fallback: String?): String? = backdropsOf(itemId).randomOrNull() ?: fallback
@@ -344,13 +347,13 @@ fun TvHomeScreen(
     // via the now-removed web/magnet sources) it falls back to the usual data. Never repeats the
     // title, which is already shown big above.
     fun continueFeatured(row: ContinueRow): Featured {
-        // El still de TMDB manda si `episode_still` lo tiene; si no, la carátula del ítem. El
-        // thumb de archive.org que iba en medio se borró en la poda de esta rama.
+        // The TMDB still wins if `episode_still` has it; if not, the item's cover. The
+        // archive.org thumb that used to go in between was removed in this branch's pruning.
         val thumb = row.stillUrl
             ?: row.itemThumbnailUrl
-        // Los datos del capítulo enfocado, que es lo que cambia al moverse entre tarjetas (la
-        // sinopsis de arriba es de la SERIE y no cambia). La regla de qué se muestra y qué se
-        // omite vive en ChapterLabel, compartida con los dos detalles.
+        // The focused chapter's data, which is what changes on moving between cards (the synopsis
+        // above is the SERIES' and doesn't change). The rule for what's shown and what's omitted
+        // lives in ChapterLabel, shared with both details.
         val meta = com.arkiv.player.ui.ChapterLabel.heroLine(
             isMovie = row.isMovie,
             season = row.season,
@@ -362,12 +365,12 @@ fun TvHomeScreen(
             positionMs = row.positionMs,
             durationMs = row.durationMs,
         )
-        // Si la línea del capítulo ya quedó con algo, el fallback de la sinopsis se apaga: sin
-        // esto, ítems sin descripción (web, anime, Magis) repetían el mismo dato dos veces
-        // seguidas, porque su `displayName` ya trae el número y el nombre adentro.
+        // If the chapter line already has something, the synopsis fallback turns off: without
+        // this, items with no description (web, anime, Magis) repeated the same datum twice in a
+        // row, because their `displayName` already carries the number and the name inside.
         val fallback = if (meta.isNotBlank()) "" else heroFallback(row.itemTitle, row.episodeTitle ?: row.displayName)
-        // El frame capturado le gana a todo lo demás (incluido el backdrop de `heroArt`), igual
-        // que en el hero del Home del celular: es la escena real de donde vas, no la carátula.
+        // The captured frame beats everything else (including `heroArt`'s backdrop), same as on
+        // the phone Home's hero: it's the real scene from where you were, not the cover.
         return Featured(
             row.itemTitle,
             heroSubtitle(row.itemTitle, row.itemDescription, fallback),
@@ -390,7 +393,7 @@ fun TvHomeScreen(
 
     val navSound = rememberNavSound()
     var featured by remember { mutableStateOf<Featured?>(null) }
-    // Destacado inicial: primer "continuar viendo" o primer ítem de la biblioteca.
+    // Initial featured item: the first "continue watching" or the first library item.
     LaunchedEffect(library, continueWatching, artwork) {
         if (featured == null) {
             featured = continueWatching.firstOrNull()?.let { continueFeatured(it) }
@@ -398,50 +401,52 @@ fun TvHomeScreen(
         }
     }
 
-    // La primera tarjeta recibe el foco al abrir, para que el hero/fondo reflejen algo de una.
-    // La key es la IDENTIDAD de esa tarjeta, no un "¿ya hay datos?": "continuar viendo" y la
-    // biblioteca llegan por flows distintos, y si la biblioteca llegaba primero el foco se clavaba
-    // en su fila; cuando después aparecía "Continuar viendo" arriba, esa fila bajaba y el
-    // LazyColumn quedaba desplazado, tapando justo lo que hay que ver primero. Con la identidad
-    // como key el efecto se repite al cambiar la primera tarjeta y el foco (y el scroll) vuelven arriba.
+    // The first card gets focus on opening, so the hero/background reflect something right away.
+    // The key is that card's IDENTITY, not "is there data yet?": "continue watching" and the
+    // library arrive through different flows, and if the library arrived first, focus got stuck on
+    // its row; when "Continuar viendo" showed up above afterward, that row moved down and the
+    // LazyColumn ended up shifted, covering exactly what needs to be seen first. With identity as
+    // the key, the effect repeats when the first card changes and focus (and scroll) go back up.
     val firstCardFocus = remember { FocusRequester() }
-    // Estado explícito de la zona de filas: sin él no había forma de asegurar que arranque arriba.
-    // Es la pieza que faltaba — si la lista quedaba desplazada, el LazyColumn NO componía la fila
-    // "Continuar viendo", el focusRequester no enganchaba y el foco no podía aterrizar ahí nunca
-    // (el scroll no era consecuencia del foco perdido: era su causa).
+    // Explicit state for the rows zone: without it there was no way to guarantee it starts at the
+    // top. It's the piece that was missing — if the list ended up shifted, the LazyColumn did NOT
+    // compose the "Continuar viendo" row, the focusRequester never attached, and focus could never
+    // land there (the scroll wasn't a consequence of lost focus: it was its cause).
     val rowsListState = rememberLazyListState()
 
     /**
-     * Engancha el scroll a la frontera de fila cuando se detiene.
+     * Snaps the scroll to the row boundary when it stops.
      *
-     * La zona mide EXACTAMENTE dos filas y todas miden lo mismo, así que alineadas entran dos
-     * enteras. El problema es que el foco trae a la vista la TARJETA, no la fila: al bajar, el
-     * scroll se detiene en el punto justo donde esa tarjeta cabe, que cae a mitad de fila y deja
-     * media arriba, una entera al medio y media abajo — tres filas asomando donde caben dos.
+     * The zone measures EXACTLY two rows and all of them are the same size, so aligned, two whole
+     * ones fit. The problem is that focus brings the CARD into view, not the row: on scrolling
+     * down, the scroll stops at the exact point where that card fits, which falls mid-row and
+     * leaves half a row up top, one whole in the middle, and half at the bottom — three rows
+     * peeking where only two fit.
      *
-     * Se redondea a la frontera MÁS CERCANA. Da igual para cuál caiga: como el foco garantiza que
-     * su tarjeta esté visible, la fila enfocada es siempre una de las dos que quedan enteras.
+     * Rounds to the NEAREST boundary. It doesn't matter which one it lands on: since focus
+     * guarantees its card is visible, the focused row is always one of the two that stay whole.
      */
     LaunchedEffect(rowsListState) {
-        snapshotFlow { rowsListState.isScrollInProgress }.collect { enMovimiento ->
-            if (enMovimiento) return@collect
-            val corrimiento = rowsListState.firstVisibleItemScrollOffset
-            if (corrimiento == 0) return@collect
-            val alto = rowsListState.layoutInfo.visibleItemsInfo.firstOrNull()?.size ?: return@collect
-            val destino = rowsListState.firstVisibleItemIndex + if (corrimiento > alto / 2) 1 else 0
-            runCatching { rowsListState.animateScrollToItem(destino) }
+        snapshotFlow { rowsListState.isScrollInProgress }.collect { inMotion ->
+            if (inMotion) return@collect
+            val offset = rowsListState.firstVisibleItemScrollOffset
+            if (offset == 0) return@collect
+            val height = rowsListState.layoutInfo.visibleItemsInfo.firstOrNull()?.size ?: return@collect
+            val target = rowsListState.firstVisibleItemIndex + if (offset > height / 2) 1 else 0
+            runCatching { rowsListState.animateScrollToItem(target) }
         }
     }
 
-    // Foco inicial. Antes caía en la primera tarjeta de biblioteca; esas filas ya no están, y dejar
-    // el foco suelto es exactamente el bug que costó el comentario largo de más abajo: Android se lo
-    // daba a lo que se fuera componiendo —las filas de descubrimiento—, que al traerse a la vista
-    // scrolleaban el home hasta "En cartelera".
+    // Initial focus. Used to land on the library's first card; those rows don't exist anymore, and
+    // leaving focus loose is exactly the bug that cost the long comment below: Android handed it to
+    // whatever got composed next —the discovery rows—, and bringing those into view scrolled the
+    // home all the way to "En cartelera".
     //
-    // Sin "Continuar viendo" el foco va a la BARRA SUPERIOR, que es la única zona determinista: no
-    // vive dentro del LazyColumn, así que siempre está compuesta y enfocarla no puede scrollear nada.
-    // Y deja al usuario a un clic de su biblioteca, que es lo que va a querer si no hay nada empezado.
-    val barraFocus = remember { FocusRequester() }
+    // With no "Continuar viendo", focus goes to the TOP BAR, the only deterministic zone: it
+    // doesn't live inside the LazyColumn, so it's always composed and focusing it can't scroll
+    // anything. And it leaves the user one click from their library, which is what they'll want if
+    // nothing's been started.
+    val barFocus = remember { FocusRequester() }
     val firstFocusKey = continueWatching.firstOrNull()?.episodeId
     LaunchedEffect(firstFocusKey) {
         delay(200)
@@ -449,19 +454,20 @@ fun TvHomeScreen(
         repeat(20) {
             if (landed) return@repeat
             if (firstFocusKey != null) {
-                // Volver arriba ANTES de pedir foco: si la lista está desplazada, la primera fila ni
-                // siquiera está compuesta y el requester no existe, así que reintentar solo no alcanza.
+                // Go back to the top BEFORE requesting focus: if the list is shifted, the first
+                // row isn't even composed and the requester doesn't exist, so retrying alone isn't
+                // enough.
                 runCatching { rowsListState.scrollToItem(0) }
                 landed = runCatching { firstCardFocus.requestFocus() }.isSuccess
             } else {
-                landed = runCatching { barraFocus.requestFocus() }.isSuccess
+                landed = runCatching { barFocus.requestFocus() }.isSuccess
             }
             if (!landed) delay(50)
         }
     }
 
-    // Tarjetas y filas de tamaño fijo: la zona de filas mide EXACTAMENTE 2 filas
-    // (etiqueta + tarjeta apaisada), y el hero de arriba —inamovible— ocupa el resto con weight(1f).
+    // Fixed-size cards and rows: the rows zone measures EXACTLY 2 rows (label + landscape card),
+    // and the hero above —immovable— takes up the rest with weight(1f).
     val cardHeight = 92.dp
     val labelHeight = 26.dp
     val rowGap = 14.dp
@@ -469,21 +475,21 @@ fun TvHomeScreen(
     val rowUnit = labelHeight + cardHeight + rowGap
     val rowsRegionHeight = rowUnit * 2 + rowsTopPad
 
-    // Deriva del fondo del héroe: 0 = todo a la izquierda del sobrante, 1 = todo a la derecha. Va y
-    // vuelve para que no haya salto al reiniciarse, y tan lento que se percibe como que la imagen
-    // "respira", no como una animación. Ver el graphicsLayer del AsyncImage.
-    val heroDeriva by rememberInfiniteTransition(label = "heroDeriva").animateFloat(
+    // Hero background drift: 0 = all the way to the left of the slack, 1 = all the way to the
+    // right. Goes back and forth so there's no jump on restarting, and slow enough that it reads
+    // as the image "breathing", not as an animation. See the AsyncImage's graphicsLayer.
+    val heroDrift by rememberInfiniteTransition(label = "heroDrift").animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = HERO_DERIVA_MS, easing = LinearEasing),
+            animation = tween(durationMillis = HERO_DRIFT_MS, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse,
         ),
-        label = "heroDerivaX",
+        label = "heroDriftX",
     )
 
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {
-        if (!hayInternet) {
+        if (!hasInternet) {
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -509,7 +515,7 @@ fun TvHomeScreen(
             }
         }
 
-        // Fondo inmersivo fijo: backdrop del ítem enfocado + degradados.
+        // Fixed immersive background: focused item's backdrop + gradients.
         Crossfade(targetState = featured?.imageUrl, animationSpec = tween(450), label = "bg") { url ->
             Box(Modifier.fillMaxSize()) {
                 AsyncImage(
@@ -520,24 +526,24 @@ fun TvHomeScreen(
                         .fillMaxWidth(0.62f)
                         .fillMaxHeight()
                         .align(Alignment.TopEnd)
-                        // Deriva lenta del fondo: la imagen se agranda un poco y se pasea DENTRO de
-                        // ese sobrante, así que nunca asoma un borde. El recorrido va justo hasta el
-                        // margen que da la escala -- de ahí que la cuenta salga de `size`, y no de un
-                        // número fijo en dp que en otra pantalla se pasaría.
+                        // Slow background drift: the image gets enlarged a bit and wanders WITHIN
+                        // that slack, so a border never shows. The travel goes exactly up to the
+                        // margin the scale gives -- that's why the math comes from `size`, not a
+                        // fixed dp number that would overshoot on another screen.
                         .graphicsLayer {
-                            val margen = size.width * (HERO_ESCALA - 1f) / 2f
-                            scaleX = HERO_ESCALA
-                            scaleY = HERO_ESCALA
-                            translationX = (heroDeriva * 2f - 1f) * margen
+                            val margin = size.width * (HERO_SCALE - 1f) / 2f
+                            scaleX = HERO_SCALE
+                            scaleY = HERO_SCALE
+                            translationX = (heroDrift * 2f - 1f) * margin
                         },
                 )
-                // Degradado horizontal: negro a la izquierda para leer el texto.
+                // Horizontal gradient: black on the left to read the text.
                 Box(
                     Modifier.fillMaxSize().background(
                         Brush.horizontalGradient(listOf(ArkivBlack, ArkivBlack, ArkivBlack.copy(alpha = 0.15f), Color.Transparent)),
                     ),
                 )
-                // Degradado vertical: negro abajo para fundir con las filas.
+                // Vertical gradient: black at the bottom to blend into the rows.
                 Box(
                     Modifier.fillMaxSize().background(
                         Brush.verticalGradient(listOf(Color.Transparent, ArkivBlack.copy(alpha = 0.4f), ArkivBlack)),
@@ -547,9 +553,9 @@ fun TvHomeScreen(
         }
 
         Column(Modifier.fillMaxSize()) {
-            // --- HERO FIJO (no scrollea; queda inamovible arriba, ocupa el espacio sobrante) ---
+            // --- FIXED HERO (doesn't scroll; stays immovable up top, takes up the leftover space) ---
             Column(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 48.dp, vertical = 28.dp)) {
-                // Barra superior.
+                // Top bar.
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -577,18 +583,18 @@ fun TvHomeScreen(
                         icon = Icons.Default.VideoLibrary,
                         label = "Mi biblioteca",
                         onClick = onOpenLibrary,
-                        modifier = Modifier.focusRequester(barraFocus),
+                        modifier = Modifier.focusRequester(barFocus),
                     )
                     TvNavButton(icon = Icons.Default.LiveTv, label = "En vivo", onClick = onOpenLive)
                     TvNavButton(icon = Icons.Default.Tv, label = "Caracol", onClick = onOpenCaracol)
-                    // Sin botón "Torrent": esta rama no tiene torrents, y ArkivTvRoot no registra
-                    // ninguna ruta "torrent".
+                    // No "Torrent" button: this branch has no torrents, and ArkivTvRoot registers
+                    // no "torrent" route.
                     TvNavButton(icon = Icons.Default.Settings, label = "Ajustes", onClick = onOpenSettings)
                 }
 
                 Spacer(Modifier.weight(1f))
 
-                // Título/descripción del ítem enfocado, abajo a la izquierda.
+                // Focused item's title/description, bottom left.
                 featured?.let { f ->
                     Text(
                         f.title,
@@ -603,9 +609,9 @@ fun TvHomeScreen(
                         Text(
                             f.meta,
                             style = MaterialTheme.typography.titleSmall,
-                            // Blanco y no ArkivRed: sobre el backdrop del héroe —que puede ser
-                            // oscuro, saturado o rojo— el rojo de marca se pierde, y esta línea es
-                            // justo la que dice por dónde ibas.
+                            // White and not ArkivRed: over the hero's backdrop —which can be dark,
+                            // saturated or red— the brand red gets lost, and this line is exactly
+                            // the one that says where you were.
                             color = Color.White,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -625,12 +631,12 @@ fun TvHomeScreen(
                 }
             }
 
-            // --- FILAS (única zona que scrollea; alto fijo = exactamente 2 filas) ---
-            // LazyColumn en vez de Column+verticalScroll: con ~40 filas de descubrimiento
-            // (Task 3), un Column compondría TODAS a la vez y dispararía todas sus cargas
-            // de red al abrir el home. LazyColumn solo compone lo visible; cada fila de
-            // descubrimiento pide sus datos recién cuando entra en pantalla (loadRow más abajo).
-            CompositionLocalProvider(LocalBringIntoViewSpec provides TraerConScrollMinimo) {
+            // --- ROWS (the only zone that scrolls; fixed height = exactly 2 rows) ---
+            // LazyColumn instead of Column+verticalScroll: with ~40 discovery rows (Task 3), a
+            // Column would compose ALL of them at once and fire all their network loads on opening
+            // the home. LazyColumn only composes what's visible; each discovery row requests its
+            // data only once it enters the screen (loadRow below).
+            CompositionLocalProvider(LocalBringIntoViewSpec provides MinimalScrollBringIntoView) {
                 LazyColumn(
                     state = rowsListState,
                     modifier = Modifier
@@ -641,30 +647,35 @@ fun TvHomeScreen(
                     if (continueWatching.isNotEmpty()) {
                         item(key = "continue_watching") {
                             TvRowLabel("Continuar viendo", labelHeight)
-                            // El pivote de TV (tarjeta enfocada al 30 %) se conserva ACÁ, en horizontal:
-                            // es el que hace que la fila corra bajo una tarjeta quieta en vez de arrastrarla
-                            // contra el borde. Lo que estorbaba era el pivote VERTICAL (ver TraerConScrollMinimo).
-                            CompositionLocalProvider(LocalBringIntoViewSpec provides PivotoDeTv) {
+                            // The TV pivot (focused card at 30%) is kept HERE, horizontally: it's
+                            // what makes the row run under a card that stays still instead of
+                            // dragging it against the edge. What got in the way was the VERTICAL
+                            // pivot (see MinimalScrollBringIntoView).
+                            CompositionLocalProvider(LocalBringIntoViewSpec provides TvPivot) {
                                 LazyRow(
                                     contentPadding = PaddingValues(horizontal = 48.dp),
                                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                                 ) {
                                     items(continueWatching, key = { it.episodeId }) { row ->
                                         val progress = if (row.durationMs > 0) row.positionMs.toFloat() / row.durationMs else 0f
-                                        // El respaldo de siempre, para cuando no hay ni still ni backdrop.
-                                        // El thumb de archive.org que iba antes se borró en la poda de esta rama.
+                                        // The usual fallback, for when there's neither a still nor
+                                        // a backdrop. The archive.org thumb that used to go before
+                                        // it was removed in this branch's pruning.
                                         val thumb = row.itemThumbnailUrl
                                         val isFirst = row.episodeId == continueWatching.first().episodeId
                                         TvWideCard(
                                             title = row.itemTitle,
-                                            // El frame capturado manda primero (es la escena real del capítulo).
-                                            // ACÁ, y solo acá, el still del CAPÍTULO le gana al backdrop de la
-                                            // serie: esta fila muestra un capítulo, no la serie. En el resto del
-                                            // home (y en el hero de fondo) sigue mandando el backdrop, que es la
-                                            // imagen del título. Sin esta inversión el still no se veía nunca:
-                                            // `cardArt` prueba primero `backdropsOf(itemId)`, y backdrop tienen
-                                            // todos —los de Magis del portal, los demás de TMDB—, así que el
-                                            // still solo entraba como respaldo de algo que jamás faltaba.
+                                            // The captured frame wins first (it's the chapter's
+                                            // real scene). HERE, and only here, the CHAPTER's still
+                                            // beats the series' backdrop: this row shows a chapter,
+                                            // not the series. Everywhere else in the home (and in
+                                            // the background hero) the backdrop still wins, since
+                                            // it's the title's image. Without this inversion the
+                                            // still never showed up: `cardArt` tries
+                                            // `backdropsOf(itemId)` first, and every item has a
+                                            // backdrop —Magis's from the portal, the rest from
+                                            // TMDB—, so the still only ever came in as a fallback
+                                            // for something that was never missing.
                                             imageUrl = ThumbnailChoice.choose(row.framePath, row.stillUrl, cardArt(row.itemId, thumb)),
                                             progress = progress,
                                             cardHeight = cardHeight,
@@ -679,53 +690,56 @@ fun TvHomeScreen(
                         }
                     }
 
-                    // Recomendaciones ("Para ti"): va ACÁ, DESPUÉS de "Continuar viendo" y no antes,
-                    // y no es estético. Esta fila llega async -- generada en el dispositivo por
-                    // `ForYouGenerator` con Kilo, que puede tardar (ver su KDoc) -- y puede aparecer
-                    // TARDE, con el home ya dibujado y el foco puesto (ver el LaunchedEffect de
-                    // `firstFocusKey` más arriba). "Continuar viendo" es el ancla de ese foco
-                    // inicial; poniendo "Para ti" DEBAJO de ella, si aparece de golpe no empuja lo de
-                    // arriba ni le roba el foco a nadie -- es exactamente el bug que ya se peleó acá
-                    // (ver el comentario largo sobre `firstFocusKey`/`rowsListState` unas líneas más
-                    // arriba).
-                    if (mostrarFilaParaTi(recomendaciones)) {
+                    // Recommendations ("Para ti"): goes HERE, AFTER "Continuar viendo" and not
+                    // before, and it's not cosmetic. This row arrives async -- generated on-device
+                    // by `ForYouGenerator` with Kilo, which can take a while (see its KDoc) -- and
+                    // can show up LATE, with the home already drawn and focus already placed (see
+                    // the `firstFocusKey` LaunchedEffect above). "Continuar viendo" is that initial
+                    // focus's anchor; putting "Para ti" BELOW it means that if it shows up all at
+                    // once, it doesn't push down what's above or steal anyone's focus -- it's
+                    // exactly the bug already fought here (see the long comment about
+                    // `firstFocusKey`/`rowsListState` a few lines up).
+                    if (showForYouRow(recommendations)) {
                         item(key = "para_ti") {
                             TvRowLabel("Para ti", labelHeight)
-                            CompositionLocalProvider(LocalBringIntoViewSpec provides PivotoDeTv) {
+                            CompositionLocalProvider(LocalBringIntoViewSpec provides TvPivot) {
                                 LazyRow(
                                     contentPadding = PaddingValues(horizontal = 48.dp),
                                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                                 ) {
-                                    items(recomendaciones, key = { it.id }) { rec ->
+                                    items(recommendations, key = { it.id }) { rec ->
                                         TvLandscapeCard(
                                             title = rec.titulo,
                                             imageUrl = rec.posterUrl.ifBlank { null },
                                             cardHeight = cardHeight,
                                             onFocus = { navSound(); featured = recommendationFeatured(rec) },
                                             onClick = {
-                                                // Guarda en la biblioteca y abre el DETALLE (mismo
-                                                // `onOpenItem` que usa "Continuar viendo"), a pedido
-                                                // explícito y no reproducir directo como hace
-                                                // TvCatalogSections: si la recomendación es una
-                                                // serie, la persona tiene que poder elegir el capítulo.
+                                                // Saves to the library and opens the DETAIL (same
+                                                // `onOpenItem` "Continuar viendo" uses), by explicit
+                                                // request and not playing directly like
+                                                // TvCatalogSections does: if the recommendation is
+                                                // a series, the person has to be able to choose the
+                                                // chapter.
                                                 //
-                                                // El guardado lo decide [RecommendationAggregator]:
-                                                // una serie entra como TEMPORADA con todos sus
-                                                // capítulos, no como el ref suelto que antes la dejaba
-                                                // con uno solo y en la fila de Películas. Y la fuente
-                                                // (Magis o Caracol) sale del `ref`, no del id de la
-                                                // fila: una recomendación de Caracol guardada como
-                                                // Magis reproduciría mal.
+                                                // What gets saved is decided by
+                                                // [RecommendationAggregator]: a series enters as a
+                                                // WHOLE SEASON with all its chapters, not as the
+                                                // loose ref that used to leave it with just one and
+                                                // in the Movies row. And the source (Magis or
+                                                // Caracol) comes from the `ref`, not the row's id: a
+                                                // Caracol recommendation saved as Magis would play
+                                                // wrong.
                                                 //
-                                                // La llave con la que se navega es la que el agregador
-                                                // devuelve. `null` significa que no hay a qué navegar,
-                                                // pero no siempre que no se guardó nada: en el borde
-                                                // en que ni el capítulo elegido se pudo guardar solo
-                                                // (ver RecommendationAggregator.add), la serie
-                                                // puede haber quedado igual en la biblioteca, solo que
-                                                // sin ese capítulo listo para reproducir.
+                                                // The key navigated with is whatever the aggregator
+                                                // returns. `null` means there's nothing to navigate
+                                                // to, but not always that nothing got saved: in the
+                                                // edge case where not even the chosen chapter could
+                                                // save on its own (see
+                                                // RecommendationAggregator.add), the series may
+                                                // still have ended up in the library, just without
+                                                // that chapter ready to play.
                                                 scope.launch {
-                                                    agregador.add(rec)?.let(onOpenItem)
+                                                    aggregator.add(rec)?.let(onOpenItem)
                                                 }
                                             },
                                         )
@@ -736,38 +750,40 @@ fun TvHomeScreen(
                         }
                     }
 
-                    // Canales en vivo -- acceso directo sin pasar por "En vivo": lo último visto a la
-                    // izquierda, después los canales del país sin repetir los ya vistos, y al final la
-                    // salida a la parrilla completa (ver `homeChannelsRow`). Sin nada que mostrar,
-                    // la fila no se dibuja: nada de un hueco vacío en medio del home.
-                    if (canalesFila.isNotEmpty()) {
+                    // Live channels -- direct access without going through "En vivo": last watched
+                    // on the left, then the country's channels without repeating the ones already
+                    // watched, and at the end the exit to the full grid (see `homeChannelsRow`).
+                    // With nothing to show, the row isn't drawn: no empty gap in the middle of the
+                    // home.
+                    if (channelsRow.isNotEmpty()) {
                         item(key = "live_recientes") {
                             TvRowLabel("Canales en vivo", labelHeight)
-                            // El pivote de TV (tarjeta enfocada al 30 %) se conserva ACÁ, en horizontal:
-                            // es el que hace que la fila corra bajo una tarjeta quieta en vez de arrastrarla
-                            // contra el borde. Lo que estorbaba era el pivote VERTICAL (ver TraerConScrollMinimo).
-                            CompositionLocalProvider(LocalBringIntoViewSpec provides PivotoDeTv) {
+                            // The TV pivot (focused card at 30%) is kept HERE, horizontally: it's
+                            // what makes the row run under a card that stays still instead of
+                            // dragging it against the edge. What got in the way was the VERTICAL
+                            // pivot (see MinimalScrollBringIntoView).
+                            CompositionLocalProvider(LocalBringIntoViewSpec provides TvPivot) {
                                 LazyRow(
-                                    state = canalesFilaState,
-                                    modifier = Modifier.onFocusChanged { canalesFilaEnfocada = it.hasFocus },
+                                    state = channelsRowState,
+                                    modifier = Modifier.onFocusChanged { channelsRowFocused = it.hasFocus },
                                     contentPadding = PaddingValues(horizontal = 48.dp),
                                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                                 ) {
-                                    items(canalesFila, key = { it.code }) { canal ->
+                                    items(channelsRow, key = { it.code }) { channel ->
                                         TvLiveChannelCard(
-                                            canal = canal,
+                                            channel = channel,
                                             cardHeight = cardHeight,
                                             onFocus = {
                                                 navSound()
-                                                featured = Featured(canal.nombre, "Canal en vivo", canal.logo)
+                                                featured = Featured(channel.nombre, "Canal en vivo", channel.logo)
                                             },
-                                            onClick = { reproducirCanal(canal) },
+                                            onClick = { playChannel(channel) },
                                         )
                                     }
-                                    // Al final de la fila, la salida hacia la parrilla completa: los
-                                    // recientes son un atajo, no el catálogo.
+                                    // At the row's end, the exit to the full grid: recents are a
+                                    // shortcut, not the catalog.
                                     item(key = "live_ver_mas") {
-                                        TvVerMasCanalesCard(
+                                        TvSeeMoreChannelsCard(
                                             cardHeight = cardHeight,
                                             onFocus = {
                                                 navSound()
@@ -782,11 +798,11 @@ fun TvHomeScreen(
                         }
                     }
 
-                    // Filas de descubrimiento (TMDB/AniList): una por género + fijas (cartelera,
-                    // populares, etc). loadRow() es idempotente (LoadGuard), así que el
-                    // LaunchedEffect solo dispara la carga real la primera vez que la fila entra
-                    // en pantalla; al reciclarse en el LazyColumn, vuelve a componerse pero no
-                    // vuelve a pedir red.
+                    // Discovery rows (TMDB/AniList): one per genre + fixed ones (billboard,
+                    // popular, etc). loadRow() is idempotent (LoadGuard), so the LaunchedEffect
+                    // only fires the real load the first time the row enters the screen; on being
+                    // recycled by the LazyColumn, it gets composed again but doesn't request the
+                    // network again.
                     items(discoveryRows, key = { it.id }) { spec ->
                         val cards = discoveryRowItems[spec.id].orEmpty()
                         val loaded = spec.id in discoveryRowsLoaded
@@ -795,23 +811,25 @@ fun TvHomeScreen(
                         Column {
                             TvRowLabel(spec.title, labelHeight)
                             if (!loaded) {
-                                // Placeholder de alto fijo: mismo alto que ocupa la fila cargada
-                                // (TvLandscapeCard mide exactamente cardHeight, igual que el resto
-                                // de las filas) para que el scroll no salte cuando llegan los datos.
+                                // Fixed-height placeholder: same height the loaded row takes up
+                                // (TvLandscapeCard measures exactly cardHeight, same as the rest of
+                                // the rows) so the scroll doesn't jump when the data arrives.
                                 Spacer(Modifier.height(cardHeight))
                             } else {
-                                // El pivote de TV (tarjeta enfocada al 30 %) se conserva ACÁ, en horizontal:
-                                // es el que hace que la fila corra bajo una tarjeta quieta en vez de arrastrarla
-                                // contra el borde. Lo que estorbaba era el pivote VERTICAL (ver TraerConScrollMinimo).
-                                CompositionLocalProvider(LocalBringIntoViewSpec provides PivotoDeTv) {
+                                // The TV pivot (focused card at 30%) is kept HERE, horizontally:
+                                // it's what makes the row run under a card that stays still instead
+                                // of dragging it against the edge. What got in the way was the
+                                // VERTICAL pivot (see MinimalScrollBringIntoView).
+                                CompositionLocalProvider(LocalBringIntoViewSpec provides TvPivot) {
                                     LazyRow(
                                         contentPadding = PaddingValues(horizontal = 48.dp),
                                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                                     ) {
                                         items(cards, key = { "${spec.id}-${it.kind}-${it.tmdbId}-${it.anilistId}" }) { card ->
-                                            // Misma card (16:9) que biblioteca y "continuar viendo": a igual
-                                            // alto, un póster 2:3 se veía diminuto. Usamos la imagen apaisada
-                                            // (backdrop de TMDB / banner de AniList) y caemos al póster si falta.
+                                            // Same card (16:9) as the library and "continue
+                                            // watching": at the same height, a 2:3 poster looked
+                                            // tiny. We use the landscape image (TMDB backdrop /
+                                            // AniList banner) and fall back to the poster if missing.
                                             val art = card.backdropUrl.ifBlank { card.posterUrl }
                                             TvLandscapeCard(
                                                 title = card.title,
@@ -829,7 +847,7 @@ fun TvHomeScreen(
                                             )
                                         }
                                         item(key = "${spec.id}-ver-mas") {
-                                            TvVerMasFilaCard(
+                                            TvSeeMoreRowCard(
                                                 cardHeight = cardHeight,
                                                 onFocus = {
                                                     navSound()
@@ -850,26 +868,26 @@ fun TvHomeScreen(
                     }
 
                     item(key = "rows_bottom_pad") { Spacer(Modifier.height(rowGap)) }
-                } // fin zona scrolleable de filas
+                } // end of the rows' scrollable zone
             }
         }
     }
 }
 
 /**
- * Tarjeta (16:9, mismo molde que [TvLandscapeCard]/[TvWideCard]) de un canal reciente para la fila
- * "Canales en vivo". Sin título superpuesto -- el nombre se lee arriba, en el hero, al enfocar
- * (mismo criterio que el resto de las filas del TV).
+ * Card (16:9, same template as [TvLandscapeCard]/[TvWideCard]) for a recent channel on the
+ * "Canales en vivo" row. No overlaid title -- the name shows up top, in the hero, on focus (same
+ * criterion as the TV's other rows).
  *
- * Logo si la caché lo tiene (ver [recentChannelsForHome]); si no, el mismo tratamiento que
- * `ChannelCard` en `LiveScreen.kt` (celular): degradado + el número del canal, deliberado en vez
- * de un logo roto. Si ni el número se conoce todavía (canal recién visto, caché sin ese `code`),
- * cae a las iniciales del nombre -- un "0" no significaría nada acá.
+ * Logo if the cache has it (see [recentChannelsForHome]); if not, the same treatment as
+ * `ChannelCard` in `LiveScreen.kt` (phone): gradient + the channel number, deliberate instead of a
+ * broken logo. If not even the number is known yet (a just-seen channel, no cache entry for that
+ * `code`), it falls back to the name's initials -- a "0" wouldn't mean anything here.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvLiveChannelCard(
-    canal: LiveChannel,
+    channel: LiveChannel,
     cardHeight: Dp,
     modifier: Modifier = Modifier,
     onFocus: () -> Unit = {},
@@ -890,10 +908,10 @@ private fun TvLiveChannelCard(
                 .aspectRatio(16f / 9f)
                 .background(ArkivSurfaceHigh),
         ) {
-            if (canal.logo != null) {
+            if (channel.logo != null) {
                 AsyncImage(
-                    model = canal.logo,
-                    contentDescription = canal.nombre,
+                    model = channel.logo,
+                    contentDescription = channel.nombre,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize().padding(12.dp),
                 )
@@ -905,7 +923,7 @@ private fun TvLiveChannelCard(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = if (canal.numero > 0) canal.numero.toString() else canal.nombre.take(2).uppercase(),
+                        text = if (channel.numero > 0) channel.numero.toString() else channel.nombre.take(2).uppercase(),
                         style = MaterialTheme.typography.headlineSmall,
                         color = Color.White.copy(alpha = 0.6f),
                     )
@@ -916,13 +934,13 @@ private fun TvLiveChannelCard(
 }
 
 /**
- * Última tarjeta de la fila "Canales en vivo": abre la sección "En vivo" con la parrilla completa.
- * Mismo molde que [TvLiveChannelCard] (alto de fila, 16:9, mismo foco y borde) para que la fila no
- * cambie de altura ni de ritmo al llegar al final.
+ * Last card on the "Canales en vivo" row: opens the "En vivo" section with the full grid. Same
+ * template as [TvLiveChannelCard] (row height, 16:9, same focus and border) so the row doesn't
+ * change height or rhythm on reaching the end.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvVerMasCanalesCard(
+private fun TvSeeMoreChannelsCard(
     cardHeight: Dp,
     modifier: Modifier = Modifier,
     onFocus: () -> Unit = {},
@@ -963,13 +981,13 @@ private fun TvVerMasCanalesCard(
 }
 
 /**
- * Última tarjeta de cada fila de descubrimiento: abre [TvRowBrowseScreen] con la parrilla completa
- * de ese género/categoría. Mismo molde que [TvLandscapeCard] (16:9, alto de fila) para que la fila
- * no cambie de ritmo al llegar al final.
+ * Last card on every discovery row: opens [TvRowBrowseScreen] with that genre/category's full
+ * grid. Same template as [TvLandscapeCard] (16:9, row height) so the row doesn't change rhythm on
+ * reaching the end.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-internal fun TvVerMasFilaCard(
+internal fun TvSeeMoreRowCard(
     cardHeight: Dp,
     modifier: Modifier = Modifier,
     onFocus: () -> Unit = {},
@@ -1009,7 +1027,7 @@ internal fun TvVerMasFilaCard(
     }
 }
 
-/** Etiqueta de fila con alto fijo, para que 2 filas quepan exactas en la zona scrolleable. */
+/** Fixed-height row label, so 2 rows fit exactly in the scrollable zone. */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 internal fun TvRowLabel(text: String, height: androidx.compose.ui.unit.Dp) {
@@ -1028,12 +1046,12 @@ internal fun TvRowLabel(text: String, height: androidx.compose.ui.unit.Dp) {
 }
 
 /**
- * Botón de la barra superior estilo Prime Video: colapsado muestra solo el ícono; al enfocarlo
- * con el D-pad se expande mostrando también el texto.
+ * Prime Video-style top bar button: collapsed it shows only the icon; focusing it with the D-pad
+ * expands it to also show the text.
  *
- * La transición la hace el propio texto con AnimatedVisibility, no el contenedor con
- * animateContentSize: ese recorta el contenido a los bounds mientras anima, así que el texto
- * salía cortado y la píldora se veía chata del lado derecho durante toda la transición.
+ * The transition is done by the text itself with AnimatedVisibility, not the container with
+ * animateContentSize: that one clips content to the bounds while animating, so the text came out
+ * cut off and the pill looked flat on the right side throughout the transition.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -1047,14 +1065,14 @@ private fun TvNavButton(
     Surface(
         onClick = onClick,
         modifier = modifier.onFocusChanged { isFocused = it.isFocused },
-        // 50 sin `.dp` es el overload de PORCENTAJE: 50% = píldora completa, el máximo redondeo
-        // posible para esta altura. Si se ve chata, el problema es un recorte, no el radio.
+        // 50 with no `.dp` is the PERCENTAGE overload: 50% = a full pill, the max rounding
+        // possible for this height. If it looks flat, the problem is clipping, not the radius.
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
-        // Sin foco no lleva fondo: el ícono va suelto sobre el backdrop. El rojo aparece solo al
-        // enfocar, y es lo que marca dónde estás parado en la barra.
-        // El contentColor va explícito en los tres estados porque el default de tv-material3 lo
-        // calcula para contrastar con el container, y elegía un tono oscuro que dejaba el texto
-        // en negro al lado de un ícono blanco.
+        // With no focus it carries no background: the icon floats loose over the backdrop. Red
+        // only shows up on focus, and it's what marks where you're standing in the bar.
+        // contentColor is explicit in all three states because tv-material3's default computes it
+        // to contrast against the container, and it was picking a dark tone that left the text
+        // black next to a white icon.
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,
             contentColor = Color.White,
@@ -1073,16 +1091,16 @@ private fun TvNavButton(
             ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Sin tint propio: hereda el contentColor del Surface, igual que el Text. Tener dos
-            // fuentes de color era justamente lo que dejaba el ícono blanco y el texto negro.
+            // No tint of its own: inherits the Surface's contentColor, same as the Text. Having
+            // two color sources was exactly what left the icon white and the text black.
             Icon(icon, contentDescription = if (isFocused) null else label)
             AnimatedVisibility(
                 visible = isFocused,
                 enter = expandHorizontally() + fadeIn(),
                 exit = shrinkHorizontally() + fadeOut(),
             ) {
-                // El Row de adentro mantiene juntos el espacio y el texto: si el Spacer quedara
-                // afuera, al colapsar dejaría un hueco de 8.dp al lado del ícono.
+                // The inner Row keeps the spacer and the text together: if the Spacer were
+                // outside, collapsing would leave an 8.dp gap next to the icon.
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Spacer(Modifier.width(8.dp))
                     Text(label, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
