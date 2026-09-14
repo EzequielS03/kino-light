@@ -449,8 +449,8 @@ private fun PlayerContent(
 
     // Cabecera del overlay y episodios vecinos: en `PlayerCabecera.kt`, los tres salen de la misma
     // consulta y cambian juntos al saltar de capítulo.
-    val cabecera = rememberEstadoDeCabecera(graph.repository)
-    EfectoDeCabecera(cabecera, episodioEnCurso)
+    val cabecera = rememberHeaderState(graph.repository)
+    HeaderEffect(cabecera, episodioEnCurso)
 
     // Foco D-pad (TV) de los controles del overlay de pausa: los doce puntos de aterrizaje viven
     // juntos en `PlayerFoco.kt`, ver su KDoc.
@@ -1621,7 +1621,7 @@ private fun PlayerContent(
             return
         }
         finAtendido = actual
-        val siguiente = cabecera.siguiente
+        val siguiente = cabecera.next
         android.util.Log.w("ArkivPlay", "end of $actual → next=$siguiente")
         if (siguiente != null) onNextEpisode(siguiente)
     }
@@ -2990,7 +2990,7 @@ private fun PlayerContent(
         val accionDelOutro = OutroSkip.decide(
             currentIndex = currentIndex,
             playlistItems = playlist?.items?.size ?: 0,
-            nextChapter = cabecera.siguiente,
+            nextChapter = cabecera.next,
         )
         // Cuál de los dos botones va, si va alguno. Se calcula acá arriba, lejos de donde se
         // dibuja, por dos motivos: el efecto de foco tiene que ver también el instante en que
@@ -3117,13 +3117,13 @@ private fun PlayerContent(
                         // todavía no cargó (se lee de la DB en un LaunchedEffect).
                         Column(modifier = Modifier.weight(1f).padding(horizontal = 8.dp)) {
                             Text(
-                                cabecera.titulo(d.title),
+                                cabecera.title(d.title),
                                 color = Color.White,
                                 style = MaterialTheme.typography.titleMedium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            cabecera.etiquetaDeEpisodio?.let { ep ->
+                            cabecera.episodeLabel?.let { ep ->
                                 Text(
                                     ep,
                                     color = Color.White.copy(alpha = 0.75f),
@@ -3429,8 +3429,8 @@ private fun PlayerContent(
                             // Se calculan ANTES de los botones para poder armar el grafo de foco
                             // completo (cada dirección explícita; dejar alguna sin definir hace que
                             // la búsqueda espacial por defecto de Compose falle y el foco "se pierda").
-                            val prev = cabecera.anterior
-                            val next = cabecera.siguiente
+                            val prev = cabecera.previous
+                            val next = cabecera.next
                             val showPrev = prev != null
                             val showNext = next != null
                             val forwardRight = if (showNext) focos.nextEpisode else if (isTv) focos.subtitles else focos.forward
@@ -3763,7 +3763,7 @@ private fun PlayerContent(
                             OutroSkip.Action.PLAYLIST_ADVANCE -> controller.seekToNextMediaItem()
                             // El mismo camino que `alTerminarElCapitulo()`: navegar a la ruta del
                             // capítulo nuevo es lo que re-arranca la resolución de la fuente.
-                            else -> cabecera.siguiente?.let(onNextEpisode)
+                            else -> cabecera.next?.let(onNextEpisode)
                         }
                     }
                 }
