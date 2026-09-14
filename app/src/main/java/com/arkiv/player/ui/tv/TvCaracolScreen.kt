@@ -58,176 +58,178 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * La sección de Caracol en el televisor: su catálogo y sus canales en vivo.
+ * Caracol's section on the TV: its catalog and its live channels.
  *
- * El catálogo lo guarda [DituFuente.fullCatalog] 6 h; "Recargar" lo pide aunque no haya
- * vencido, para cuando Caracol agrega algo. Los canales se piden cada vez que se entra.
+ * The catalog is cached by [DituFuente.fullCatalog] for 6h; "Recargar" requests it even if it
+ * hasn't expired, for when Caracol adds something. Channels are requested every time it's
+ * entered.
  *
- * Abrir un título va por el MISMO camino que la búsqueda (`playResult` de [TvSearchScreen]), no por
- * uno propio: [DituFuente.resultFrom] lo vuelve el mismo resultado que da la búsqueda, una película
- * se guarda y se abre con [SearchPlayback.playDitu], y una serie abre [TvCapitulosDeCaracol], que al
- * tocar un capítulo guarda la serie entera. Los dos guardan con id `ditu:`: la película por
- * `ArkivRepository.addDituSource`, la serie por `ArkivRepository.addDituSeason`.
+ * Opening a title goes through the SAME path as search (`playResult` from [TvSearchScreen]), not
+ * its own: [DituFuente.resultFrom] turns it into the same result search gives, a movie gets saved
+ * and opened with [SearchPlayback.playDitu], and a series opens [TvCapitulosDeCaracol], which on
+ * tapping a chapter saves the whole series. Both save with a `ditu:` id: the movie via
+ * `ArkivRepository.addDituSource`, the series via `ArkivRepository.addDituSeason`.
  *
- * Un canal en vivo no pasa por la biblioteca: viaja por [DituLive].
+ * A live channel doesn't go through the library: it travels via [DituLive].
  */
 @Composable
 internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
     val graph = rememberGraph()
     val scope = rememberCoroutineScope()
     val playback = remember { SearchPlayback(graph) }
-    var titulos by remember { mutableStateOf<List<DituItem>>(emptyList()) }
-    var canales by remember { mutableStateOf<ChannelsState>(ChannelsState.Loading) }
-    var cargando by remember { mutableStateOf(true) }
+    var titles by remember { mutableStateOf<List<DituItem>>(emptyList()) }
+    var channels by remember { mutableStateOf<ChannelsState>(ChannelsState.Loading) }
+    var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
-    var recargas by remember { mutableStateOf(0) }
-    // La serie abierta: sus capítulos tapan la sección hasta que se elige uno o se vuelve con Atrás.
-    var serieAbierta by remember { mutableStateOf<GatewayResult?>(null) }
-    var preparando by remember { mutableStateOf(false) }
-    // Lo que pasó recién (no se pudo abrir, no se pudo recargar). Se borra solo, como el aviso de
-    // [TvSeccionesDeCatalogo].
-    var aviso by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(aviso) {
-        if (aviso == null) return@LaunchedEffect
+    var reloads by remember { mutableStateOf(0) }
+    // The opened series: its chapters cover the section until one is picked or Back is pressed.
+    var openSeries by remember { mutableStateOf<GatewayResult?>(null) }
+    var preparing by remember { mutableStateOf(false) }
+    // What just happened (couldn't open, couldn't reload). Clears itself, like
+    // [TvSeccionesDeCatalogo]'s notice.
+    var notice by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(notice) {
+        if (notice == null) return@LaunchedEffect
         delay(3500)
-        aviso = null
+        notice = null
     }
 
-    LaunchedEffect(recargas) {
-        cargando = true
-        // Cada cosa falla sola: que no haya canales no puede dejar la pantalla sin catálogo.
-        runCatching { graph.dituFuente.fullCatalog(force = recargas > 0) }
-            .onSuccess { titulos = it; error = null }
+    LaunchedEffect(reloads) {
+        loading = true
+        // Each thing fails on its own: no channels can't leave the screen without a catalog.
+        runCatching { graph.dituFuente.fullCatalog(force = reloads > 0) }
+            .onSuccess { titles = it; error = null }
             .onFailure {
-                // El detalle va al log; en pantalla, en palabras de persona.
+                // The detail goes to the log; on screen, in plain words.
                 android.util.Log.w("TvCaracol", "catalog failed to load", it)
                 error = com.arkiv.player.data.ditu.CaracolFailure.onLoadCatalog(it)
-                aviso = error
+                notice = error
             }
-        // Si falla, se dice en la pestaña: no puede verse igual que "no hay canales".
-        val resultadoDeCanales = runCatching { graph.dituFuente.channels() }
-        resultadoDeCanales.exceptionOrNull()?.let { android.util.Log.w("TvCaracol", "channels failed to load", it) }
-        canales = ChannelsState.from(resultadoDeCanales)
-        cargando = false
+        // If it fails, it's said in the tab: it can't look the same as "no channels".
+        val channelsResult = runCatching { graph.dituFuente.channels() }
+        channelsResult.exceptionOrNull()?.let { android.util.Log.w("TvCaracol", "channels failed to load", it) }
+        channels = ChannelsState.from(channelsResult)
+        loading = false
     }
 
-    fun alTerminar(resultado: PlaybackResult) {
-        preparando = false
-        when (resultado) {
-            is PlaybackResult.Ready -> onPlay(resultado.episodeId)
-            is PlaybackResult.Failed -> aviso = resultado.message
+    fun onFinished(result: PlaybackResult) {
+        preparing = false
+        when (result) {
+            is PlaybackResult.Ready -> onPlay(result.episodeId)
+            is PlaybackResult.Failed -> notice = result.message
         }
     }
 
-    // Lo mismo que hace la búsqueda con un resultado de Caracol.
-    fun abrirTitulo(item: DituItem) {
-        if (preparando) return
-        val fuente = PlaySource.Ditu(DituFuente.resultFrom(item))
-        if (fuente.isSeries()) {
-            serieAbierta = fuente.result
+    // Same as what search does with a Caracol result.
+    fun openTitle(item: DituItem) {
+        if (preparing) return
+        val source = PlaySource.Ditu(DituFuente.resultFrom(item))
+        if (source.isSeries()) {
+            openSeries = source.result
             return
         }
-        preparando = true
-        aviso = null
-        scope.launch { alTerminar(playback.playDitu(fuente.result)) }
+        preparing = true
+        notice = null
+        scope.launch { onFinished(playback.playDitu(source.result)) }
     }
 
-    BackHandler(enabled = serieAbierta != null) { serieAbierta = null }
+    BackHandler(enabled = openSeries != null) { openSeries = null }
 
-    val serie = serieAbierta
-    if (serie != null) {
+    val series = openSeries
+    if (series != null) {
         Box(Modifier.fillMaxSize().background(ArkivBlack)) {
             TvCapitulosDeCaracol(
-                serie = serie,
-                posterUrl = serie.extra["poster"].orEmpty(),
-                preparing = preparando,
-                alElegir = { guardar ->
-                    serieAbierta = null
-                    preparando = true
-                    aviso = null
-                    scope.launch { alTerminar(guardar()) }
+                serie = series,
+                posterUrl = series.extra["poster"].orEmpty(),
+                preparing = preparing,
+                alElegir = { save ->
+                    openSeries = null
+                    preparing = true
+                    notice = null
+                    scope.launch { onFinished(save()) }
                 },
             )
         }
         return
     }
 
-    TvCaracolContenido(
-        titulos = titulos,
-        canales = canales,
-        cargando = cargando,
+    TvCaracolContent(
+        titles = titles,
+        channels = channels,
+        loading = loading,
         error = error,
-        aviso = if (preparando) "Preparando…" else aviso,
-        alRecargar = { recargas++ },
-        alAbrirTitulo = { abrirTitulo(it) },
-        alAbrirCanal = { canal -> onPlay(DituLive.leave(canal)) },
+        notice = if (preparing) "Preparando…" else notice,
+        onReload = { reloads++ },
+        onOpenTitle = { openTitle(it) },
+        onOpenChannel = { channel -> onPlay(DituLive.leave(channel)) },
     )
 }
 
 /**
- * La sección ya con sus datos. Su molde es [TvSeccionesDeCatalogo], y usa sus mismas piezas: [TvTab]
- * arriba, filas horizontales con [PivotoDeTv], la columna con [TraerConScrollMinimo], el nombre de lo
- * enfocado en un bloque de alto fijo, y la zona de filas medida en dos filas enteras.
+ * The section with its data already loaded. Its template is [TvSeccionesDeCatalogo], and it uses
+ * the same pieces: [TvTab] up top, horizontal rows with [PivotoDeTv], the column with
+ * [TraerConScrollMinimo], the focused item's name in a fixed-height block, and the rows zone
+ * measured as exactly two full rows.
  *
- * Los títulos van en [TvPosterCard] y no en la [TvLandscapeCard] del molde: el arte que trae Caracol
- * es vertical (`DituCatalog.POSTER`). Los canales van en [TvLandscapeCard], con su logo.
+ * Titles go in [TvPosterCard] and not the template's [TvLandscapeCard]: the art Caracol brings is
+ * vertical (`DituCatalog.POSTER`). Channels go in [TvLandscapeCard], with their logo.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TvCaracolContenido(
-    titulos: List<DituItem>,
-    canales: ChannelsState,
-    cargando: Boolean,
+private fun TvCaracolContent(
+    titles: List<DituItem>,
+    channels: ChannelsState,
+    loading: Boolean,
     error: String?,
-    aviso: String?,
-    alRecargar: () -> Unit,
-    alAbrirTitulo: (DituItem) -> Unit,
-    alAbrirCanal: (DituChannel) -> Unit,
+    notice: String?,
+    onReload: () -> Unit,
+    onOpenTitle: (DituItem) -> Unit,
+    onOpenChannel: (DituChannel) -> Unit,
 ) {
-    var enVivo by remember { mutableStateOf(false) }
-    var enfocado by remember { mutableStateOf<Enfocado?>(null) }
-    // Al cambiar de pestaña, lo enfocado ya no está en pantalla.
-    LaunchedEffect(enVivo) { enfocado = null }
+    var live by remember { mutableStateOf(false) }
+    var focused by remember { mutableStateOf<Focused?>(null) }
+    // On switching tabs, what was focused is no longer on screen.
+    LaunchedEffect(live) { focused = null }
 
-    val filas = remember(titulos) { filasDeCaracol(titulos) }
-    val listaDeCanales = (canales as? ChannelsState.Ready)?.channels.orEmpty()
+    val rows = remember(titles) { caracolRows(titles) }
+    val channelList = (channels as? ChannelsState.Ready)?.channels.orEmpty()
 
-    // Enganche al borde de fila, tal cual del molde (ver su comentario): un ítem de la lista es una
-    // fila enfocable, así que al frenar el scroll se redondea a la frontera más cercana.
-    val estadoDeLasFilas = rememberLazyListState()
-    LaunchedEffect(estadoDeLasFilas) {
-        snapshotFlow { estadoDeLasFilas.isScrollInProgress }.collect { enMovimiento ->
-            if (enMovimiento) return@collect
-            val corrimiento = estadoDeLasFilas.firstVisibleItemScrollOffset
-            if (corrimiento == 0) return@collect
-            val alto = estadoDeLasFilas.layoutInfo.visibleItemsInfo.firstOrNull()?.size ?: return@collect
-            val destino = estadoDeLasFilas.firstVisibleItemIndex + if (corrimiento > alto / 2) 1 else 0
-            runCatching { estadoDeLasFilas.animateScrollToItem(destino) }
+    // Snap to the row edge, same as the template (see its comment): a list item is a focusable
+    // row, so on stopping the scroll it rounds to the nearest boundary.
+    val rowsState = rememberLazyListState()
+    LaunchedEffect(rowsState) {
+        snapshotFlow { rowsState.isScrollInProgress }.collect { inMotion ->
+            if (inMotion) return@collect
+            val offset = rowsState.firstVisibleItemScrollOffset
+            if (offset == 0) return@collect
+            val height = rowsState.layoutInfo.visibleItemsInfo.firstOrNull()?.size ?: return@collect
+            val target = rowsState.firstVisibleItemIndex + if (offset > height / 2) 1 else 0
+            runCatching { rowsState.animateScrollToItem(target) }
         }
     }
 
-    val focoPrimerTab = remember { FocusRequester() }
+    val firstTabFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         repeat(20) {
-            if (runCatching { focoPrimerTab.requestFocus() }.isSuccess) return@LaunchedEffect
+            if (runCatching { firstTabFocus.requestFocus() }.isSuccess) return@LaunchedEffect
             delay(50)
         }
     }
 
-    val altoDePoster = 130.dp
-    val altoDeCanal = 92.dp
-    val gapEntreFilas = 8.dp
+    val posterHeight = 130.dp
+    val channelHeight = 92.dp
+    val rowGap = 8.dp
     val rowsTopPad = 6.dp
-    // +20: la fila lleva 10 dp de aire arriba y abajo para que el zoom del foco no se recorte.
-    val altoDeFila = altoDePoster + 20.dp
-    // Igual que el molde: la zona mide exactamente dos filas y el resto se lo queda el encabezado.
-    val altoDeLaZona = (altoDeFila + gapEntreFilas) * 2 + rowsTopPad
+    // +20: the row carries 10 dp of clearance top and bottom so the focus zoom doesn't clip.
+    val rowHeight = posterHeight + 20.dp
+    // Same as the template: the zone measures exactly two rows and the header keeps the rest.
+    val zoneHeight = (rowHeight + rowGap) * 2 + rowsTopPad
 
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {
         Column(Modifier.fillMaxSize().padding(top = 24.dp)) {
             Column(Modifier.fillMaxWidth().weight(1f)) {
-                // Las pestañas se pintan SIEMPRE, aunque la lista esté cargando o haya fallado: si
-                // no, no habría con qué cambiar de pestaña ni recargar.
+                // Tabs are ALWAYS painted, even while the list is loading or failed: otherwise
+                // there'd be nothing to switch tabs with or to reload with.
                 Row(
                     Modifier.fillMaxWidth().padding(start = 48.dp, end = 48.dp, bottom = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -241,71 +243,71 @@ private fun TvCaracolContenido(
                         item {
                             TvTab(
                                 label = "Catálogo",
-                                selected = !enVivo,
-                                onClick = { enVivo = false },
-                                modifier = Modifier.focusRequester(focoPrimerTab),
+                                selected = !live,
+                                onClick = { live = false },
+                                modifier = Modifier.focusRequester(firstTabFocus),
                             )
                         }
-                        item { TvTab(label = "En vivo", selected = enVivo, onClick = { enVivo = true }) }
-                        item { TvTab(label = "Recargar", selected = false, onClick = alRecargar) }
+                        item { TvTab(label = "En vivo", selected = live, onClick = { live = true }) }
+                        item { TvTab(label = "Recargar", selected = false, onClick = onReload) }
                     }
                 }
 
-                val vacia = if (enVivo) listaDeCanales.isEmpty() else titulos.isEmpty()
-                if (vacia) {
-                    Mensaje(
+                val empty = if (live) channelList.isEmpty() else titles.isEmpty()
+                if (empty) {
+                    Message(
                         when {
-                            enVivo -> when (canales) {
+                            live -> when (channels) {
                                 ChannelsState.Loading, is ChannelsState.Ready -> "Cargando…"
                                 ChannelsState.Empty -> "Caracol no tiene canales en vivo para mostrar."
-                                // Falló: se dice en palabras de persona (ver EstadoDeCanales), y "Recargar" lo reintenta.
-                                is ChannelsState.Failed -> "${canales.message}\nPrueba otra vez con «Recargar»."
+                                // Failed: said in plain words (see ChannelsState), and "Recargar" retries it.
+                                is ChannelsState.Failed -> "${channels.message}\nPrueba otra vez con «Recargar»."
                             }
-                            cargando -> "Cargando…"
+                            loading -> "Cargando…"
                             else -> error ?: "Caracol no devolvió títulos."
                         },
                     )
                 } else {
-                    TextoDelHero(enfocado, aviso)
+                    HeroText(focused, notice)
                 }
             }
 
-            if (enVivo && listaDeCanales.isNotEmpty()) {
-                Column(Modifier.fillMaxWidth().height(altoDeLaZona).padding(top = rowsTopPad)) {
+            if (live && channelList.isNotEmpty()) {
+                Column(Modifier.fillMaxWidth().height(zoneHeight).padding(top = rowsTopPad)) {
                     CompositionLocalProvider(LocalBringIntoViewSpec provides PivotoDeTv) {
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 48.dp, vertical = 10.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                         ) {
-                            items(listaDeCanales, key = { it.channelId }) { canal ->
+                            items(channelList, key = { it.channelId }) { channel ->
                                 TvLandscapeCard(
-                                    title = canal.name,
-                                    imageUrl = canal.logoUrl,
-                                    cardHeight = altoDeCanal,
-                                    onFocus = { enfocado = Enfocado("En vivo", canal.name, "") },
-                                    onClick = { alAbrirCanal(canal) },
+                                    title = channel.name,
+                                    imageUrl = channel.logoUrl,
+                                    cardHeight = channelHeight,
+                                    onFocus = { focused = Focused("En vivo", channel.name, "") },
+                                    onClick = { onOpenChannel(channel) },
                                 )
                             }
                         }
                     }
                 }
-            } else if (!enVivo && filas.isNotEmpty()) {
-                // El pivote VERTICAL es el de scroll mínimo, como en el molde: con el del 30 % una
-                // fila de este alto quedaría cortada arriba.
+            } else if (!live && rows.isNotEmpty()) {
+                // The VERTICAL pivot is the minimal-scroll one, like in the template: with the
+                // 30% one, a row of this height would get clipped at the top.
                 CompositionLocalProvider(LocalBringIntoViewSpec provides TraerConScrollMinimo) {
                     LazyColumn(
-                        state = estadoDeLasFilas,
-                        modifier = Modifier.fillMaxWidth().height(altoDeLaZona).padding(top = rowsTopPad),
+                        state = rowsState,
+                        modifier = Modifier.fillMaxWidth().height(zoneHeight).padding(top = rowsTopPad),
                     ) {
-                        items(filas, key = { it.clave }) { fila ->
+                        items(rows, key = { it.key }) { row ->
                             Column {
-                                FilaDeTitulos(
-                                    titulos = fila.titulos,
-                                    altoDePoster = altoDePoster,
-                                    alAbrir = alAbrirTitulo,
-                                    alEnfocar = { enfocado = Enfocado(fila.seccion, it.title, it.year) },
+                                TitleRow(
+                                    titles = row.titles,
+                                    posterHeight = posterHeight,
+                                    onOpen = onOpenTitle,
+                                    onFocus = { focused = Focused(row.section, it.title, it.year) },
                                 )
-                                Spacer(Modifier.height(gapEntreFilas))
+                                Spacer(Modifier.height(rowGap))
                             }
                         }
                     }
@@ -315,31 +317,31 @@ private fun TvCaracolContenido(
     }
 }
 
-/** Una fila de pósters, con el mismo pivote que las del molde. */
+/** A row of posters, with the same pivot as the template's. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun FilaDeTitulos(
-    titulos: List<DituItem>,
-    altoDePoster: Dp,
-    alAbrir: (DituItem) -> Unit,
-    alEnfocar: (DituItem) -> Unit,
+private fun TitleRow(
+    titles: List<DituItem>,
+    posterHeight: Dp,
+    onOpen: (DituItem) -> Unit,
+    onFocus: (DituItem) -> Unit,
 ) {
     CompositionLocalProvider(LocalBringIntoViewSpec provides PivotoDeTv) {
         LazyRow(
-            // El `vertical` es el del molde: la tarjeta enfocada escala a 1.08 ([TvPosterCard]) y en
-            // una fila del alto justo se recortaría el borde del foco.
+            // The `vertical` is the template's: the focused card scales to 1.08 ([TvPosterCard])
+            // and in a row of the exact height the focus border would get clipped.
             contentPadding = PaddingValues(horizontal = 48.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            items(titulos, key = { it.ref() }) { item ->
+            items(titles, key = { it.ref() }) { item ->
                 TvPosterCard(
                     title = item.title,
                     posterUrl = item.posterUrl,
-                    cardHeight = altoDePoster,
-                    // El nombre va arriba, en el bloque de lo enfocado: bajo la tarjeta no entra.
+                    cardHeight = posterHeight,
+                    // The name goes up top, in the focused block: it doesn't fit under the card.
                     showTitle = false,
-                    onFocus = { alEnfocar(item) },
-                    onClick = { alAbrir(item) },
+                    onFocus = { onFocus(item) },
+                    onClick = { onOpen(item) },
                 )
             }
         }
@@ -347,15 +349,16 @@ private fun FilaDeTitulos(
 }
 
 /**
- * El nombre de lo enfocado, o el aviso de lo que acaba de pasar, que lo pisa mientras dura. Alto fijo
- * como en el molde: si apareciera y desapareciera, las filas de abajo saltarían.
+ * The focused item's name, or the notice of what just happened, which covers it for as long as
+ * it lasts. Fixed height like in the template: if it appeared and disappeared, the rows below
+ * would jump.
  */
 @Composable
-private fun TextoDelHero(enfocado: Enfocado?, aviso: String?) {
+private fun HeroText(focused: Focused?, notice: String?) {
     Column(Modifier.fillMaxWidth(0.55f).height(96.dp).padding(start = 48.dp, bottom = 12.dp)) {
-        if (aviso != null) {
+        if (notice != null) {
             Text(
-                aviso,
+                notice,
                 style = MaterialTheme.typography.titleMedium,
                 color = Color.White,
                 maxLines = 3,
@@ -363,25 +366,25 @@ private fun TextoDelHero(enfocado: Enfocado?, aviso: String?) {
             )
             return@Column
         }
-        val e = enfocado ?: return@Column
+        val f = focused ?: return@Column
         Text(
-            e.seccion,
+            f.section,
             style = MaterialTheme.typography.labelLarge,
             color = ArkivCaracolVerde,
             maxLines = 1,
             modifier = Modifier.padding(bottom = 2.dp),
         )
         Text(
-            e.titulo,
+            f.title,
             style = MaterialTheme.typography.headlineMedium,
             color = Color.White,
             fontWeight = FontWeight.Bold,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-        if (e.detalle.isNotBlank()) {
+        if (f.detail.isNotBlank()) {
             Text(
-                e.detalle,
+                f.detail,
                 style = MaterialTheme.typography.titleSmall,
                 color = ArkivTextSecondary,
                 maxLines = 1,
@@ -392,10 +395,10 @@ private fun TextoDelHero(enfocado: Enfocado?, aviso: String?) {
 }
 
 @Composable
-private fun Mensaje(texto: String) {
+private fun Message(text: String) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text(
-            texto,
+            text,
             style = MaterialTheme.typography.bodyMedium,
             color = ArkivTextSecondary,
             textAlign = TextAlign.Center,
@@ -403,26 +406,25 @@ private fun Mensaje(texto: String) {
     }
 }
 
-/** Lo enfocado, para el bloque de arriba: de qué fila es, cómo se llama y su año (o nada). */
-private data class Enfocado(val seccion: String, val titulo: String, val detalle: String)
+/** What's focused, for the block up top: which row it's from, its name, and its year (or nothing). */
+private data class Focused(val section: String, val title: String, val detail: String)
 
-/** Una fila del catálogo: el ítem del `LazyColumn`. */
-private data class FilaDeCaracol(val clave: String, val seccion: String, val titulos: List<DituItem>)
+/** A catalog row: the `LazyColumn`'s item. */
+private data class CaracolRow(val key: String, val section: String, val titles: List<DituItem>)
 
 /**
- * Las series primero y después las películas, de a [TITULOS_POR_FILA]. Son unos 330 títulos (ver
- * [com.arkiv.player.data.ditu.DituCatalog]), y una fila con todos los de un tipo se recorre tarjeta
- * por tarjeta con el D-pad; partidas, se baja entre filas, que es el gesto del molde.
+ * Series first and then movies, [TITLES_PER_ROW] at a time. It's about 330 titles (see
+ * [com.arkiv.player.data.ditu.DituCatalog]), and a row with all of one type is gone through card
+ * by card with the D-pad; split up, you go down between rows, which is the template's gesture.
  *
- * El split en series/películas (sin repetidos, por [CaracolCatalog]) es compartido con la sección
- * del celular; el chunking en filas de a [TITULOS_POR_FILA] es solo de la fila horizontal del
- * televisor, así que se queda acá.
+ * The series/movies split (deduplicated, by [CaracolCatalog]) is shared with the phone's section;
+ * chunking into rows of [TITLES_PER_ROW] is only the TV's horizontal row, so it stays here.
  */
-private fun filasDeCaracol(titulos: List<DituItem>): List<FilaDeCaracol> {
-    val catalogo = CaracolCatalog.split(titulos)
-    return listOf("Series" to catalogo.series, "Películas" to catalogo.movies).flatMap { (nombre, lista) ->
-        lista.chunked(TITULOS_POR_FILA).mapIndexed { i, fila -> FilaDeCaracol("$nombre:$i", nombre, fila) }
+private fun caracolRows(titles: List<DituItem>): List<CaracolRow> {
+    val catalog = CaracolCatalog.split(titles)
+    return listOf("Series" to catalog.series, "Películas" to catalog.movies).flatMap { (name, list) ->
+        list.chunked(TITLES_PER_ROW).mapIndexed { i, row -> CaracolRow("$name:$i", name, row) }
     }
 }
 
-private const val TITULOS_POR_FILA = 20
+private const val TITLES_PER_ROW = 20
