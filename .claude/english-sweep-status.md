@@ -708,6 +708,46 @@ like an internal-only string still needs its call chain traced before translatin
 Exception("...")` is not on its own evidence of being developer-facing, unlike a `Log.*` tag or
 message, which never flows into UI by construction.
 
+**Update, same session: a systematic class/function/file symbol scan** (requested by the user
+directly — "no hay forma de hacer un listado con grep... para saber si nos quedó alguna función en
+español"). Wrote a small Python script (not checked into the repo — it lived in the session's
+scratchpad; rebuild it if needed, it's ~100 lines) that:
+1. Extracts every `class`/`object`/`interface` name, every `fun` name (including backtick test
+   names), every top-level/member `val`/`var` name, and every file's own stem, across all of
+   `app/src`.
+2. Splits each identifier on camelCase boundaries into lowercase word-parts.
+3. Flags any word-part matching a curated Spanish word list (~250 common words/verb
+   forms/nouns), MINUS an allowlist of brand names (`magis`, `ditu`, `caracol`, ...) and English
+   words that are also valid Spanish cognates (`video`, `error`, `color`, `menu`, `final`,
+   `resolver`, `decide`, `visible`, `actual` — these produced the bulk of the ~170 raw hits and are
+   ALL false positives; tune the word list to exclude them rather than re-deriving this by hand
+   next time).
+
+Out of ~170 raw hits, all but three were either false positives (English/Spanish cognates above)
+or already-documented frozen Room bare properties (`tipo`, `nombre`, `numero`, `categoria`,
+`porque`, `orden`, `siguienteEpisodeId`, `ultimoVistoMs`, `ultimaMs`, `episodio` — all `@Entity`
+properties with no `@ColumnInfo`, several forming actual composite primary keys e.g.
+`LiveChannelCacheEntity`'s `(code, categoria)` — correctly untouched, category (c)). **Three
+genuine, previously-undocumented findings, fixed in commit `35197cba`**:
+- `TvSettingsCuenta.kt`/`TvSettingsCuenta()` composable → `TvSettingsAccount` (file+function),
+  matching the phone-side `AccountSection.kt` it mirrors — its Spanish UI label
+  `Text("Cuenta", ...)` correctly stays.
+- `TvHomeScreenParaTiTest.kt`/`TvHomeScreenParaTiTest` → `TvHomeScreenForYouTest`, matching this
+  session's earlier `ArkivParaTi`→`ArkivForYou` tag rename.
+- `MissingChaptersTest.kt`'s test method name quoted the stale identifier `temporadaGuardada` for
+  what its own KDoc, one line above, already correctly calls `DituEntities.savedSeason` — another
+  case of a rename's ripple missing a natural-language reference to the OLD name (same failure
+  mode as the earlier `RecomendacionDao.reemplazar` stale KDoc found this session).
+
+**This method is more thorough than the accent grep for catching class/function/file names
+specifically** (it would have caught `GatewaySerie`, the Room DTO renames, and `SourceTab.TODO`
+from earlier this session too, had it been run first) — worth reusing as the PRIMARY check for
+future audits of this kind, with the accent grep as a secondary/faster pass. It does NOT
+substitute for reading comments/KDoc prose (still needs the accent grep + manual reading for
+that), and it does not check local variables inside function bodies exhaustively (the `val`/`var`
+regex used was declaration-line-only, not full-body-aware) — a genuinely exhaustive local-variable
+pass would need a real Kotlin parser, not regex.
+
 **Lessons worth keeping for any future rename/translation work in this repo:**
 
 1. **Before any blanket regex rename touching a file with `const val KEY_* = "literal"`-style
