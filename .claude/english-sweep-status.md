@@ -668,7 +668,7 @@ find app/src/main/java app/src/debug/java app/src/test/java -name "*.kt" | while
 # 2. Non-.kt files that can carry dev-facing Spanish (Gradle, manifest, ALL XML resources, CI) —
 #    check every res/**/*.xml, not just res/xml/: a Spanish comment in res/values/themes.xml was
 #    missed on the first pass of this exact check for having too narrow a path filter:
-find app -name "*.gradle.kts" -o -name "AndroidManifest.xml" -o -name "*.xml" -path "*/res/*" | \
+find app -path "*/build/*" -prune -o \( -name "*.gradle.kts" -o -name "AndroidManifest.xml" -o \( -name "*.xml" -path "*/res/*" \) \) -print | \
   xargs command grep -l "<!--"
 
 # 3. Package (directory) names under app/src/*/java — accent sweep never looks at these:
