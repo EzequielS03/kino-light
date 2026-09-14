@@ -7,8 +7,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * Agrupación de la biblioteca: la MISMA serie entrada por varias fuentes tiene que dar UNA tarjeta.
- * Los casos son los medidos en la DB real del Fire TV el 2026-08-10 (ver el plan).
+ * Library grouping: the SAME series entered through several sources has to give ONE card. The
+ * cases are the ones measured against the Fire TV's real DB on 2026-08-10 (see the plan).
  */
 class LibraryGroupingTest {
 
@@ -39,7 +39,7 @@ class LibraryGroupingTest {
         ArtworkEntity(itemId = id, tmdbId = tmdbId, tmdbType = type, backdropsJson = "[]", fetchedAt = 0L)
 
     @Test
-    fun `una serie con tmdbId de tv resuelto agrupa por ese id`() {
+    fun `a series with a resolved tv tmdbId groups by that id`() {
         val a = row("web:series:tt30217403", "DAN DA DAN", 24)
         val b = row("web:series:anilist171018", "DAN DA DAN", 1)
         val artwork = mapOf(
@@ -50,9 +50,9 @@ class LibraryGroupingTest {
         assertEquals("tv:240411", LibraryGrouping.groupKeyOf(b, artwork[b.identifier]))
     }
 
-    /** El resolver de artwork confunde películas distintas (Lego Batman vs Batman 1966): nunca agrupar. */
+    /** The artwork resolver confuses distinct movies (Lego Batman vs Batman 1966): never group. */
     @Test
-    fun `las peliculas nunca se agrupan aunque compartan tmdbId`() {
+    fun `movies never group even if they share a tmdbId`() {
         val a = row("torrent:aaa", "Lego Batman: la película", 1, source = "torrent", category = null)
         val b = row("torrent:bbb", "Batman: La película (1966)", 1, source = "torrent", category = null)
         val artA = art(a.identifier, 324849, "movie")
@@ -61,71 +61,71 @@ class LibraryGroupingTest {
         assertEquals("item:torrent:bbb", LibraryGrouping.groupKeyOf(b, artB))
     }
 
-    /** Sin artwork resuelto se cae al seriesId del identifier, que es exacto. */
+    /** With no artwork resolved it falls to the identifier's seriesId, which is exact. */
     @Test
-    fun `sin tmdbId cae al seriesId del identifier`() {
+    fun `with no tmdbId it falls to the identifier's seriesId`() {
         val r = row("web:series:tt0409591", "Naruto", 300)
         assertEquals("series:tt0409591", LibraryGrouping.groupKeyOf(r, art(r.identifier, null, null)))
         assertEquals("series:tt0409591", LibraryGrouping.groupKeyOf(r, null))
     }
 
-    /** Sin nada de lo anterior, el ítem es su propio grupo (comportamiento de hoy). */
+    /** With none of the above, the item is its own group (today's behavior). */
     @Test
-    fun `sin tmdbId ni seriesId el item queda solo`() {
+    fun `with no tmdbId or seriesId the item is left alone`() {
         val r = row("alfa:series:jkanime:3f7d7ee2", "Naruto", 1, source = "alfa")
         assertEquals("item:alfa:series:jkanime:3f7d7ee2", LibraryGrouping.groupKeyOf(r, null))
     }
 
-    /** Series distintas con el mismo título no se fusionan: Ranma 1989 y el remake de 2024. */
+    /** Different series with the same title don't merge: Ranma 1989 and the 2024 remake. */
     @Test
-    fun `dos series homonimas con tmdbId distinto quedan separadas`() {
-        val vieja = row("web:series:tt0096686", "Ranma ½", 161)
-        val nueva = row("web:series:tt32766897", "Ranma1/2", 24)
-        val grupos = LibraryGrouping.group(
-            listOf(vieja, nueva),
+    fun `two same-named series with different tmdbIds stay separate`() {
+        val old = row("web:series:tt0096686", "Ranma ½", 161)
+        val new_ = row("web:series:tt32766897", "Ranma1/2", 24)
+        val groups = LibraryGrouping.group(
+            listOf(old, new_),
             mapOf(
-                vieja.identifier to art(vieja.identifier, 33840, "tv"),
-                nueva.identifier to art(nueva.identifier, 240909, "tv"),
+                old.identifier to art(old.identifier, 33840, "tv"),
+                new_.identifier to art(new_.identifier, 240909, "tv"),
             ),
         )
-        assertEquals(2, grupos.size)
+        assertEquals(2, groups.size)
     }
 
     @Test
-    fun `el representante del grupo es el de mas capitulos`() {
-        val pocos = row("web:series:anilist171018", "DAN DA DAN", 1, addedAt = 200)
-        val muchos = row("web:series:tt30217403", "DAN DA DAN", 24, addedAt = 100)
-        val grupos = LibraryGrouping.group(
-            listOf(pocos, muchos),
+    fun `the group's representative is the one with the most chapters`() {
+        val few = row("web:series:anilist171018", "DAN DA DAN", 1, addedAt = 200)
+        val many = row("web:series:tt30217403", "DAN DA DAN", 24, addedAt = 100)
+        val groups = LibraryGrouping.group(
+            listOf(few, many),
             mapOf(
-                pocos.identifier to art(pocos.identifier, 240411, "tv"),
-                muchos.identifier to art(muchos.identifier, 240411, "tv"),
+                few.identifier to art(few.identifier, 240411, "tv"),
+                many.identifier to art(many.identifier, 240411, "tv"),
             ),
         )
-        assertEquals(1, grupos.size)
-        assertEquals("web:series:tt30217403", grupos[0].primary.identifier)
-        assertEquals(2, grupos[0].sourceCount)
-        // episodeCount es el máximo entre fuentes (24), NO la suma (25): son copias alternativas
-        // de la misma serie, no contenido disjunto.
-        assertEquals(24, grupos[0].episodeCount)
+        assertEquals(1, groups.size)
+        assertEquals("web:series:tt30217403", groups[0].primary.identifier)
+        assertEquals(2, groups[0].sourceCount)
+        // episodeCount is the maximum across sources (24), NOT the sum (25): they're alternative
+        // copies of the same series, not disjoint content.
+        assertEquals(24, groups[0].episodeCount)
     }
 
-    /** El orden del home es por lo más reciente del grupo, para que agrupar no reordene la fila. */
+    /** The home's order is by the group's most recent member, so grouping doesn't reorder the row. */
     @Test
-    fun `los grupos salen ordenados por el miembro mas reciente`() {
-        val viejo = row("web:series:tt1", "Vieja", 10, addedAt = 100)
-        val nuevo = row("web:series:tt2", "Nueva", 10, addedAt = 300)
-        val grupos = LibraryGrouping.group(listOf(viejo, nuevo), emptyMap())
-        assertEquals(listOf("Nueva", "Vieja"), grupos.map { it.primary.title })
+    fun `groups come out ordered by their most recent member`() {
+        val old = row("web:series:tt1", "Vieja", 10, addedAt = 100)
+        val new_ = row("web:series:tt2", "Nueva", 10, addedAt = 300)
+        val groups = LibraryGrouping.group(listOf(old, new_), emptyMap())
+        assertEquals(listOf("Nueva", "Vieja"), groups.map { it.primary.title })
     }
 
     /**
-     * El combine de los dos flows: si el arte llega DESPUÉS que la biblioteca (que es lo normal —
-     * `ensureArtwork` sale a la red), el grupo tiene que recalcularse solo. Si no, el home se
-     * queda con las tarjetas separadas hasta reabrir la app.
+     * The combine of the two flows: if the artwork arrives AFTER the library (which is normal --
+     * `ensureArtwork` goes out to the network), the group has to recompute on its own. Otherwise
+     * the home screen is left with separate cards until the app reopens.
      */
     @Test
-    fun `los grupos se recalculan cuando llega el artwork`() = kotlinx.coroutines.runBlocking {
+    fun `groups recompute when the artwork arrives`() = kotlinx.coroutines.runBlocking {
         val a = row("web:series:tt30217403", "DAN DA DAN", 24)
         val b = row("web:series:anilist171018", "DAN DA DAN", 1)
         val artwork = kotlinx.coroutines.flow.MutableStateFlow<Map<String, ArtworkEntity>>(emptyMap())
@@ -148,92 +148,93 @@ class LibraryGroupingTest {
 
     // --- resolveMembers ------------------------------------------------------------------
 
-    /** (i) Una llave de grupo viva devuelve sus miembros, del más completo al menos. */
+    /** (i) A live group key returns its members, most complete first. */
     @Test
-    fun `resolveMembers con una llave de grupo viva devuelve sus miembros, mas completo primero`() {
-        val pocos = row("web:series:anilist171018", "DAN DA DAN", 1)
-        val muchos = row("web:series:tt30217403", "DAN DA DAN", 24)
+    fun `resolveMembers with a live group key returns its members, most complete first`() {
+        val few = row("web:series:anilist171018", "DAN DA DAN", 1)
+        val many = row("web:series:tt30217403", "DAN DA DAN", 24)
         val groups = LibraryGrouping.group(
-            listOf(pocos, muchos),
+            listOf(few, many),
             mapOf(
-                pocos.identifier to art(pocos.identifier, 240411, "tv"),
-                muchos.identifier to art(muchos.identifier, 240411, "tv"),
+                few.identifier to art(few.identifier, 240411, "tv"),
+                many.identifier to art(many.identifier, 240411, "tv"),
             ),
         )
         val result = LibraryGrouping.resolveMembers("tv:240411", groups, groups.flatMap { it.members })
-        assertEquals(listOf(muchos.identifier, pocos.identifier), result.map { it.identifier })
+        assertEquals(listOf(many.identifier, few.identifier), result.map { it.identifier })
     }
 
     /**
-     * (ii) LA REGRESIÓN de Finding 2: una llave `item:<identifier>` que el detalle abrió cuando
-     * el ítem todavía no tenía tmdbId. Si el arte resuelve DESPUÉS (mientras el detalle sigue
-     * abierto), el ítem se muda a un grupo `tv:`, la llave `item:` deja de existir, y sin este
-     * fallback `observeGroupMembers` devolvía vacío -> pantalla negra en el detalle.
+     * (ii) Finding 2's REGRESSION: an `item:<identifier>` key the detail screen opened with when
+     * the item didn't have a tmdbId yet. If the artwork resolves AFTERWARD (while the detail
+     * screen is still open), the item moves to a `tv:` group, the `item:` key stops existing, and
+     * without this fallback `observeGroupMembers` returned empty -> black screen in the detail.
      */
     @Test
-    fun `resolveMembers con una llave item cuyo item se sumo a un grupo tv resuelve a ese grupo`() {
+    fun `resolveMembers with an item key whose item joined a tv group resolves to that group`() {
         val naruto = row("torrent:abc123", "Naruto — Pack", 220, source = "torrent")
-        // Llave que tenía el ítem al momento de navegar: sin tmdbId todavía.
-        val groupKeyDeLaRuta = LibraryGrouping.groupKeyOf(naruto, null)
-        assertEquals("item:torrent:abc123", groupKeyDeLaRuta)
+        // The key the item had at the moment of navigating: no tmdbId yet.
+        val routeGroupKey = LibraryGrouping.groupKeyOf(naruto, null)
+        assertEquals("item:torrent:abc123", routeGroupKey)
 
-        // El arte resuelve DESPUÉS: ahora el ítem (y un hermano de otra fuente) viven en tv:46260.
-        val otraFuente = row("web:series:tt0409591", "Naruto", 300)
+        // The artwork resolves AFTERWARD: now the item (and a sibling from another source) live in tv:46260.
+        val otherSource = row("web:series:tt0409591", "Naruto", 300)
         val groups = LibraryGrouping.group(
-            listOf(naruto, otraFuente),
+            listOf(naruto, otherSource),
             mapOf(
                 naruto.identifier to art(naruto.identifier, 46260, "tv"),
-                otraFuente.identifier to art(otraFuente.identifier, 46260, "tv"),
+                otherSource.identifier to art(otherSource.identifier, 46260, "tv"),
             ),
         )
-        assertEquals(emptyList<LibraryGroup>(), groups.filter { it.key == groupKeyDeLaRuta }) // la llave vieja ya no existe
+        assertEquals(emptyList<LibraryGroup>(), groups.filter { it.key == routeGroupKey }) // the old key no longer exists
 
-        val result = LibraryGrouping.resolveMembers(groupKeyDeLaRuta, groups, groups.flatMap { it.members })
-        assertEquals(setOf(naruto.identifier, otraFuente.identifier), result.map { it.identifier }.toSet())
+        val result = LibraryGrouping.resolveMembers(routeGroupKey, groups, groups.flatMap { it.members })
+        assertEquals(setOf(naruto.identifier, otherSource.identifier), result.map { it.identifier }.toSet())
     }
 
     /**
-     * (iii) La MISMA regresión que (ii) pero para una llave `series:<seriesId>` (Finding del
-     * closeout 2026-08-10): a diferencia de `item:<identifier>`, un `series:` nunca es igual a
-     * ningún identifier (los identifiers van prefijados `web:series:`/`torrent:series:`), así que
-     * el paso 3 de antes (`rows.filter { it.identifier == groupKey }`) jamás la encontraba. Sin
-     * este fallback, TvHomeScreen navega con `series:tt...`, el arte resuelve mientras el detalle
-     * sigue abierto, la llave `series:` deja de existir y el detalle queda en pantalla negra.
+     * (iii) The SAME regression as (ii) but for a `series:<seriesId>` key (2026-08-10 closeout
+     * finding): unlike `item:<identifier>`, a `series:` is never equal to any identifier
+     * (identifiers come prefixed `web:series:`/`torrent:series:`), so the earlier step 3
+     * (`rows.filter { it.identifier == groupKey }`) never found it. Without this fallback,
+     * TvHomeScreen navigates with `series:tt...`, the artwork resolves while the detail screen is
+     * still open, the `series:` key stops existing and the detail screen is left with a black
+     * screen.
      */
     @Test
-    fun `resolveMembers con una llave series cuyo item se sumo a un grupo tv resuelve a ese grupo`() {
-        val pocos = row("web:series:tt30217403", "DAN DA DAN", 24)
-        // Llave que tenía el ítem al momento de navegar: sin tmdbId todavía.
-        val groupKeyDeLaRuta = LibraryGrouping.groupKeyOf(pocos, null)
-        assertEquals("series:tt30217403", groupKeyDeLaRuta)
+    fun `resolveMembers with a series key whose item joined a tv group resolves to that group`() {
+        val few = row("web:series:tt30217403", "DAN DA DAN", 24)
+        // The key the item had at the moment of navigating: no tmdbId yet.
+        val routeGroupKey = LibraryGrouping.groupKeyOf(few, null)
+        assertEquals("series:tt30217403", routeGroupKey)
 
-        // El arte resuelve DESPUÉS: ahora el ítem (y un hermano de otra fuente) viven en tv:240411.
-        val muchos = row("torrent:series:tt30217403", "DAN DA DAN — Pack", 25, source = "torrent")
+        // The artwork resolves AFTERWARD: now the item (and a sibling from another source) live in tv:240411.
+        val many = row("torrent:series:tt30217403", "DAN DA DAN — Pack", 25, source = "torrent")
         val groups = LibraryGrouping.group(
-            listOf(pocos, muchos),
+            listOf(few, many),
             mapOf(
-                pocos.identifier to art(pocos.identifier, 240411, "tv"),
-                muchos.identifier to art(muchos.identifier, 240411, "tv"),
+                few.identifier to art(few.identifier, 240411, "tv"),
+                many.identifier to art(many.identifier, 240411, "tv"),
             ),
         )
-        assertEquals(emptyList<LibraryGroup>(), groups.filter { it.key == groupKeyDeLaRuta }) // la llave vieja ya no existe
+        assertEquals(emptyList<LibraryGroup>(), groups.filter { it.key == routeGroupKey }) // the old key no longer exists
 
-        val result = LibraryGrouping.resolveMembers(groupKeyDeLaRuta, groups, groups.flatMap { it.members })
-        assertEquals(setOf(pocos.identifier, muchos.identifier), result.map { it.identifier }.toSet())
+        val result = LibraryGrouping.resolveMembers(routeGroupKey, groups, groups.flatMap { it.members })
+        assertEquals(setOf(few.identifier, many.identifier), result.map { it.identifier }.toSet())
     }
 
-    /** (iv) Un identifier crudo (Continuar viendo / menú de mantener presionado) resuelve a esa sola fila. */
+    /** (iv) A bare identifier (Continue watching / long-press menu) resolves to that single row. */
     @Test
-    fun `resolveMembers con un identifier crudo resuelve a esa sola fila`() {
-        val suelto = row("torrent:xyz789", "Alguna película", 1, category = null)
-        val groups = LibraryGrouping.group(listOf(suelto), emptyMap())
+    fun `resolveMembers with a bare identifier resolves to that single row`() {
+        val standalone = row("torrent:xyz789", "Alguna película", 1, category = null)
+        val groups = LibraryGrouping.group(listOf(standalone), emptyMap())
         val result = LibraryGrouping.resolveMembers("torrent:xyz789", groups, groups.flatMap { it.members })
         assertEquals(listOf("torrent:xyz789"), result.map { it.identifier })
     }
 
-    /** (v) Una llave que no matchea nada (ni grupo ni fila) devuelve vacío. */
+    /** (v) A key that matches nothing (neither group nor row) returns empty. */
     @Test
-    fun `resolveMembers con una llave desconocida devuelve vacio`() {
+    fun `resolveMembers with an unknown key returns empty`() {
         val r = row("web:series:tt1", "Algo", 5)
         val groups = LibraryGrouping.group(listOf(r), emptyMap())
         val result = LibraryGrouping.resolveMembers("tv:99999999", groups, groups.flatMap { it.members })
@@ -244,20 +245,20 @@ class LibraryGroupingTest {
 
     private val sevenDaysMs = 7 * 24 * 60 * 60 * 1000L
 
-    /** Ya resuelto (tmdbId != null): nunca se reintenta, sin importar la antigüedad. */
+    /** Already resolved (tmdbId != null): never retried, no matter how old. */
     @Test
-    fun `shouldRefetchArtwork con tmdbId resuelto es false aunque sea vieja`() {
+    fun `shouldRefetchArtwork with a resolved tmdbId is false even if old`() {
         val existing = ArtworkEntity(itemId = "x", tmdbId = 240411, tmdbType = "tv", backdropsJson = "[]", fetchedAt = 0L)
         assertEquals(false, LibraryGrouping.shouldRefetchArtwork(existing, now = sevenDaysMs * 100))
     }
 
     /**
-     * LA REGRESIÓN de Finding 1: sin tmdbId pero CON backdrops (el caso Magis, que guarda el
-     * backdrop del portal con tmdbId=null). Antes del fix esto se reintentaba tras 7 días y
-     * `ensureArtwork` pisaba el backdrop con un `"[]"` si TMDB no encontraba match.
+     * Finding 1's REGRESSION: no tmdbId but WITH backdrops (the Magis case, which saves the
+     * portal's backdrop with tmdbId=null). Before the fix this was retried after 7 days and
+     * `ensureArtwork` would overwrite the backdrop with a `"[]"` if TMDB found no match.
      */
     @Test
-    fun `shouldRefetchArtwork con backdrops pero sin tmdbId es false aunque sea vieja`() {
+    fun `shouldRefetchArtwork with backdrops but no tmdbId is false even if old`() {
         val existing = ArtworkEntity(
             itemId = "magis:1", tmdbId = null, tmdbType = null,
             backdropsJson = """["https://portal/backdrop.jpg"]""", fetchedAt = 0L,
@@ -265,34 +266,34 @@ class LibraryGroupingTest {
         assertEquals(false, LibraryGrouping.shouldRefetchArtwork(existing, now = sevenDaysMs * 100))
     }
 
-    /** Vacía (sin tmdbId ni backdrops) y ya pasó la ventana de 7 días: sí se reintenta. */
+    /** Empty (no tmdbId or backdrops) and the 7-day window has already passed: yes, retry. */
     @Test
-    fun `shouldRefetchArtwork vacia y vieja es true`() {
+    fun `shouldRefetchArtwork empty and old is true`() {
         val existing = ArtworkEntity(itemId = "x", tmdbId = null, tmdbType = null, backdropsJson = "[]", fetchedAt = 0L)
         assertEquals(true, LibraryGrouping.shouldRefetchArtwork(existing, now = sevenDaysMs + 1))
     }
 
-    /** Vacía pero reciente (dentro de la ventana): no se reintenta todavía. */
+    /** Empty but recent (within the window): not retried yet. */
     @Test
-    fun `shouldRefetchArtwork vacia y fresca es false`() {
+    fun `shouldRefetchArtwork empty and fresh is false`() {
         val existing = ArtworkEntity(itemId = "x", tmdbId = null, tmdbType = null, backdropsJson = "[]", fetchedAt = 1000L)
         assertEquals(false, LibraryGrouping.shouldRefetchArtwork(existing, now = 1000L + sevenDaysMs - 1))
     }
 
-    /** Sin fila previa: se pide por primera vez. */
+    /** No previous row: asked for the first time. */
     @Test
-    fun `shouldRefetchArtwork sin fila previa es true`() {
+    fun `shouldRefetchArtwork with no previous row is true`() {
         assertEquals(true, LibraryGrouping.shouldRefetchArtwork(null, now = 0L))
     }
 
-    // ---- tmdbId del propio ítem: el que llena el gateway con la canonización ----
+    // ---- the item's own tmdbId: the one the gateway fills in by canonizing ----
 
     @Test
-    fun `sin arte resuelto agrupa por el tmdbId del item`() {
-        // El gateway escribe `library_items.tmdbId` con la obra canónica, verificada
-        // contra TMDB. Es la llave que a estas filas les falta: su título no existe en
-        // TMDB ("T1 - E7: Construido por los hombres") así que `ensureArtwork` nunca
-        // les resolvió nada y cada una quedaba en su propia tarjeta.
+    fun `with no artwork resolved it groups by the item's own tmdbId`() {
+        // The gateway writes `library_items.tmdbId` with the canonical work, verified against
+        // TMDB. It's the key these rows are missing: their title doesn't exist on TMDB ("T1 - E7:
+        // Construido por los hombres") so `ensureArtwork` never resolved anything for them and
+        // each one was left on its own card.
         val a = row("web:9c9f5748", "T1 - E7: Construido por los hombres", 1, tmdbId = 890)
         val b = row("web:a59ba433", "T1 - E5: Rei, más allá de su corazón", 1, tmdbId = 890)
 
@@ -301,19 +302,19 @@ class LibraryGroupingTest {
     }
 
     @Test
-    fun `el arte exacto sigue mandando sobre el tmdbId del item`() {
-        // El tmdbId del ítem es RESPALDO, no reemplazo: lo que hoy agrupa tiene que
-        // seguir agrupando igual. Si alguna vez discrepan, gana lo que el aparato
-        // resolvió por su cuenta, que es el comportamiento que ya estaba probado.
+    fun `exact artwork still wins over the item's own tmdbId`() {
+        // The item's tmdbId is a FALLBACK, not a replacement: whatever groups today has to keep
+        // grouping the same way. If they ever disagree, what the artwork resolved on its own
+        // wins, which is the behavior that was already proven.
         val a = row("web:series:x", "DAN DA DAN", 24, tmdbId = 999)
 
         assertEquals("tv:240411", LibraryGrouping.groupKeyOf(a, art(a.identifier, 240411, "tv")))
     }
 
     @Test
-    fun `una pelicula no agrupa aunque traiga tmdbId`() {
-        // Misma razón por la que no agrupa con el tmdbId del arte: en películas juntar
-        // dos filas es peor que dejar el duplicado.
+    fun `a movie doesn't group even with a tmdbId`() {
+        // Same reason it doesn't group by the artwork's tmdbId: for movies, joining two rows is
+        // worse than leaving the duplicate.
         val a = row("web:1", "Batman", 1, category = "movie", tmdbId = 414906)
         val b = row("web:2", "Batman", 1, category = "movie", tmdbId = 414906)
 
@@ -322,10 +323,10 @@ class LibraryGroupingTest {
     }
 
     @Test
-    fun `un tmdbId en cero no es un id`() {
-        // El campo numérico de PocketBase nace en 0 en las filas que todavía no lo
-        // tienen. Agrupar por "tv:0" juntaría TODA la biblioteca sin canonizar en una
-        // sola tarjeta, que es el peor resultado posible de este cambio.
+    fun `a tmdbId of zero isn't an id`() {
+        // PocketBase's numeric field starts at 0 on rows that don't have it yet. Grouping by
+        // "tv:0" would join the ENTIRE un-canonized library into a single card, the worst
+        // possible outcome of this change.
         val a = row("web:1", "Algo", 5, tmdbId = 0)
         val b = row("web:2", "Otra cosa", 5, tmdbId = 0)
 
@@ -334,12 +335,12 @@ class LibraryGroupingTest {
     }
 
     @Test
-    fun `un capitulo suelto se agrupa con su serie aunque parezca pelicula`() {
-        // Medido en la base del Fire TV: los capítulos sueltos entran con UN solo video
-        // y sin categoryOverride, así que `isMovie` los llama película por la regla de
-        // "1 video = película" -- y las películas nunca se agrupan. Resultado: las cinco
-        // filas de Evangelion seguían separadas justo después de darles su tmdbId.
-        // El tipo canónico lo verificó el gateway contra TMDB: si dice serie, es serie.
+    fun `a standalone chapter groups with its series even though it looks like a movie`() {
+        // Measured against the Fire TV's database: standalone chapters come in with a SINGLE
+        // video and no categoryOverride, so `isMovie` calls them movies by the "1 video = movie"
+        // rule -- and movies never group. Result: all five Evangelion rows stayed separate right
+        // after they got their tmdbId. The gateway verified the canonical type against TMDB: if
+        // it says series, it's a series.
         val a = row("web:9c9f5748", "T1 - E7: Construido por los hombres", 1, category = null,
             tmdbId = 890, tipo = "tv")
         val b = row("web:a59ba433", "Shin seiki evangerion Temp.1", 26, tmdbId = 890, tipo = "tv")
@@ -349,9 +350,9 @@ class LibraryGroupingTest {
     }
 
     @Test
-    fun `una pelicula de verdad sigue sin agruparse`() {
-        // La regla que protege del match difuso del arte no se toca: si el tipo canónico
-        // dice película, se queda sola aunque comparta id con otra.
+    fun `a real movie still doesn't group`() {
+        // The rule that guards against the artwork's fuzzy match isn't touched: if the canonical
+        // type says movie, it stays alone even if it shares an id with another.
         val a = row("web:1", "Batman", 1, category = "movie", tmdbId = 414906, tipo = "movie")
         val b = row("web:2", "Batman", 1, category = "movie", tmdbId = 414906, tipo = "movie")
 
@@ -360,8 +361,8 @@ class LibraryGroupingTest {
     }
 
     @Test
-    fun `sin tipo canonico una pelicula sigue sin agruparse`() {
-        // Lo que no sabemos no habilita nada: sin tipo, manda la heurística de siempre.
+    fun `with no canonical type a movie still doesn't group`() {
+        // What isn't known doesn't enable anything: with no type, the usual heuristic wins.
         val a = row("web:1", "Algo", 1, category = null, tmdbId = 555)
 
         assertEquals("item:web:1", LibraryGrouping.groupKeyOf(a, null))

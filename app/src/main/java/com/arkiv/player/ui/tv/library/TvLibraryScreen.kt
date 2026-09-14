@@ -243,7 +243,7 @@ private fun TvMenuItem(
 private fun seriesSubtitle(group: LibraryGroup): String? {
     if (group.primary.isMovie) return null
     val base = "${group.episodeCount} ep."
-    return if (group.nuevos > 0) "$base  ·  +${group.nuevos} nuevos" else base
+    return if (group.newEpisodes > 0) "$base  ·  +${group.newEpisodes} nuevos" else base
 }
 
 /**
