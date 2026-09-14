@@ -11,22 +11,22 @@ import com.arkiv.player.data.ditu.CaracolFailure
  * says so in plain words ([CaracolFailure.onLoadChannels]; the detail goes to whichever
  * screen's log) and the person can retry with "Recargar".
  */
-internal sealed interface EstadoDeCanales {
+internal sealed interface ChannelsState {
 
-    /** Todavía no volvió la primera llamada. */
-    object Cargando : EstadoDeCanales
+    /** The first call hasn't come back yet. */
+    object Loading : ChannelsState
 
-    data class Listos(val canales: List<DituChannel>) : EstadoDeCanales
+    data class Ready(val channels: List<DituChannel>) : ChannelsState
 
-    /** Caracol respondió, y sin canales. */
-    object Vacio : EstadoDeCanales
+    /** Caracol responded, and with no channels. */
+    object Empty : ChannelsState
 
-    data class Fallo(val mensaje: String) : EstadoDeCanales
+    data class Failed(val message: String) : ChannelsState
 
     companion object {
-        fun de(resultado: Result<List<DituChannel>>): EstadoDeCanales = resultado.fold(
-            onSuccess = { if (it.isEmpty()) Vacio else Listos(it) },
-            onFailure = { Fallo(CaracolFailure.onLoadChannels(it)) },
+        fun from(result: Result<List<DituChannel>>): ChannelsState = result.fold(
+            onSuccess = { if (it.isEmpty()) Empty else Ready(it) },
+            onFailure = { Failed(CaracolFailure.onLoadChannels(it)) },
         )
     }
 }

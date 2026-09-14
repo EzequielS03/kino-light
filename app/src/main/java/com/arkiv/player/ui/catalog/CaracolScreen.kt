@@ -92,7 +92,7 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
     val playback = remember { SearchPlayback(graph) }
 
     var titles by remember { mutableStateOf<List<DituItem>>(emptyList()) }
-    var channels by remember { mutableStateOf<EstadoDeCanales>(EstadoDeCanales.Cargando) }
+    var channels by remember { mutableStateOf<ChannelsState>(ChannelsState.Loading) }
     var loading by remember { mutableStateOf(true) }
     var catalogError by remember { mutableStateOf<String?>(null) }
     var reloads by remember { mutableStateOf(0) }
@@ -103,10 +103,10 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
     var dituSeason by remember { mutableStateOf<GatewayResult?>(null) }
     var preparing by remember { mutableStateOf(false) }
     var playError by remember { mutableStateOf<String?>(null) }
-    // El permiso de notificaciones (API 33+) se pide recién al disparar una descarga, que es lo
-    // único de esta pantalla que notifica. Mismo criterio que en la búsqueda.
-    val pedirNotificaciones = com.arkiv.player.ui.offline.rememberPostNotificationsRequest()
-    val caracolSeBaja = remember {
+    // Notification permission (API 33+) is only asked when triggering a download, which is the
+    // only thing on this screen that notifies. Same criterion as in search.
+    val askNotifications = com.arkiv.player.ui.offline.rememberPostNotificationsRequest()
+    val caracolDownloadable = remember {
         com.arkiv.player.data.local.DownloadSource.hasStrategy("ditu", graph.downloadStrategies.keys)
     }
 
@@ -123,7 +123,7 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
         val channelsResult = runCatching { graph.dituFuente.channels() }
         channelsResult.exceptionOrNull()
             ?.let { android.util.Log.w("CaracolScreen", "channels failed to load", it) }
-        channels = EstadoDeCanales.de(channelsResult)
+        channels = ChannelsState.from(channelsResult)
         loading = false
     }
 
@@ -139,7 +139,7 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
     fun openTitle(item: DituItem) {
         if (preparing) return
         val source = PlaySource.Ditu(DituFuente.resultFrom(item))
-        if (source.esSerie()) {
+        if (source.isSeries()) {
             dituSeason = source.result
             return
         }
@@ -236,19 +236,19 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
             // for a few KB over the network, because Caracol grants no persistent licences. See
             // `CaracolStore`. Offered only when a strategy is registered, the same gate the
             // rest of the app uses.
-            onSave = if (!caracolSeBaja) null else { todos, elegidos, series ->
-                pedirNotificaciones()
+            onSave = if (!caracolDownloadable) null else { all, chosen, series ->
+                askNotifications()
                 scope.launch {
-                    val encolados = playback.enqueueCaracolDownload(season, todos, elegidos, series)
+                    val queued = playback.enqueueCaracolDownload(season, all, chosen, series)
                     playError = when {
-                        encolados == 0 -> "Esos capítulos ya estaban guardados."
-                        encolados == elegidos.size -> null
-                        else -> "Se encolaron $encolados de ${elegidos.size} (el resto ya estaba)."
+                        queued == 0 -> "Esos capítulos ya estaban guardados."
+                        queued == chosen.size -> null
+                        else -> "Se encolaron $queued de ${chosen.size} (el resto ya estaba)."
                     }
                 }
             },
-            etiqueta = "Caracol",
-            acento = ArkivCaracolVerde,
+            sourceLabel = "Caracol",
+            accent = ArkivCaracolVerde,
         )
     }
 }
@@ -282,24 +282,24 @@ private fun CaracolGrid(
     }
 }
 
-/** The "En vivo" tab: the channel list, or the empty/error state from [EstadoDeCanales]. */
+/** The "En vivo" tab: the channel list, or the empty/error state from [ChannelsState]. */
 @Composable
 private fun CaracolChannels(
-    channels: EstadoDeCanales,
+    channels: ChannelsState,
     contentPadding: PaddingValues,
     onOpen: (DituChannel) -> Unit,
 ) {
     when (channels) {
-        EstadoDeCanales.Cargando -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        ChannelsState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(color = ArkivRed)
         }
-        EstadoDeCanales.Vacio -> EmptyState(title = "Caracol no tiene canales en vivo para mostrar.")
-        is EstadoDeCanales.Fallo -> EmptyState(
-            title = channels.mensaje,
+        ChannelsState.Empty -> EmptyState(title = "Caracol no tiene canales en vivo para mostrar.")
+        is ChannelsState.Failed -> EmptyState(
+            title = channels.message,
             subtitle = "Probá otra vez con «Recargar».",
         )
-        is EstadoDeCanales.Listos -> LazyColumn(contentPadding = contentPadding, modifier = Modifier.fillMaxSize()) {
-            items(channels.canales, key = { it.channelId }) { channel ->
+        is ChannelsState.Ready -> LazyColumn(contentPadding = contentPadding, modifier = Modifier.fillMaxSize()) {
+            items(channels.channels, key = { it.channelId }) { channel ->
                 CaracolChannelRow(channel = channel, onClick = { onOpen(channel) })
             }
         }

@@ -46,9 +46,9 @@ import com.arkiv.player.data.gateway.GatewayResult
 import com.arkiv.player.playback.DituLive
 import com.arkiv.player.ui.catalog.ArkivCaracolVerde
 import com.arkiv.player.ui.catalog.CaracolCatalog
-import com.arkiv.player.ui.catalog.EstadoDeCanales
+import com.arkiv.player.ui.catalog.ChannelsState
 import com.arkiv.player.ui.catalog.PlaySource
-import com.arkiv.player.ui.catalog.esSerie
+import com.arkiv.player.ui.catalog.isSeries
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.search.PlaybackResult
 import com.arkiv.player.ui.search.SearchPlayback
@@ -77,7 +77,7 @@ internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
     val scope = rememberCoroutineScope()
     val playback = remember { SearchPlayback(graph) }
     var titulos by remember { mutableStateOf<List<DituItem>>(emptyList()) }
-    var canales by remember { mutableStateOf<EstadoDeCanales>(EstadoDeCanales.Cargando) }
+    var canales by remember { mutableStateOf<ChannelsState>(ChannelsState.Loading) }
     var cargando by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var recargas by remember { mutableStateOf(0) }
@@ -107,7 +107,7 @@ internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
         // Si falla, se dice en la pestaña: no puede verse igual que "no hay canales".
         val resultadoDeCanales = runCatching { graph.dituFuente.channels() }
         resultadoDeCanales.exceptionOrNull()?.let { android.util.Log.w("TvCaracol", "channels failed to load", it) }
-        canales = EstadoDeCanales.de(resultadoDeCanales)
+        canales = ChannelsState.from(resultadoDeCanales)
         cargando = false
     }
 
@@ -123,7 +123,7 @@ internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
     fun abrirTitulo(item: DituItem) {
         if (preparando) return
         val fuente = PlaySource.Ditu(DituFuente.resultFrom(item))
-        if (fuente.esSerie()) {
+        if (fuente.isSeries()) {
             serieAbierta = fuente.result
             return
         }
@@ -176,7 +176,7 @@ internal fun TvCaracolScreen(onPlay: (episodeId: String) -> Unit) {
 @Composable
 private fun TvCaracolContenido(
     titulos: List<DituItem>,
-    canales: EstadoDeCanales,
+    canales: ChannelsState,
     cargando: Boolean,
     error: String?,
     aviso: String?,
@@ -190,7 +190,7 @@ private fun TvCaracolContenido(
     LaunchedEffect(enVivo) { enfocado = null }
 
     val filas = remember(titulos) { filasDeCaracol(titulos) }
-    val listaDeCanales = (canales as? EstadoDeCanales.Listos)?.canales.orEmpty()
+    val listaDeCanales = (canales as? ChannelsState.Ready)?.channels.orEmpty()
 
     // Enganche al borde de fila, tal cual del molde (ver su comentario): un ítem de la lista es una
     // fila enfocable, así que al frenar el scroll se redondea a la frontera más cercana.
@@ -256,10 +256,10 @@ private fun TvCaracolContenido(
                     Mensaje(
                         when {
                             enVivo -> when (canales) {
-                                EstadoDeCanales.Cargando, is EstadoDeCanales.Listos -> "Cargando…"
-                                EstadoDeCanales.Vacio -> "Caracol no tiene canales en vivo para mostrar."
+                                ChannelsState.Loading, is ChannelsState.Ready -> "Cargando…"
+                                ChannelsState.Empty -> "Caracol no tiene canales en vivo para mostrar."
                                 // Falló: se dice en palabras de persona (ver EstadoDeCanales), y "Recargar" lo reintenta.
-                                is EstadoDeCanales.Fallo -> "${canales.mensaje}\nPrueba otra vez con «Recargar»."
+                                is ChannelsState.Failed -> "${canales.message}\nPrueba otra vez con «Recargar»."
                             }
                             cargando -> "Cargando…"
                             else -> error ?: "Caracol no devolvió títulos."

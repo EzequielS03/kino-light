@@ -83,13 +83,13 @@ fun AnimeShowDetailScreen(
     // The per-source download control this screen used to show (observing `downloadRows` and
     // matching them with `data.local.DescargasPorFuente`) was archive.org search UI, removed with
     // the rest of that source in this branch's pruning; `DescargasPorFuente` itself was deleted as
-    // dead code in the cleanup. `porConfirmar` stays wired to the dialog below, but nothing sets
-    // it anymore.
-    var porConfirmar by remember { mutableStateOf<Pair<DownloadRow, DownloadAction>?>(null) }
+    // dead code in the cleanup. `pendingConfirmation` stays wired to the dialog below, but nothing
+    // sets it anymore.
+    var pendingConfirmation by remember { mutableStateOf<Pair<DownloadRow, DownloadAction>?>(null) }
 
-    // Episodios expandidos (clave = nº de episodio).
+    // Expanded episodes (key = episode number).
     val expanded = remember { mutableStateMapOf<Int, Boolean>() }
-    // Episodios pedidos a mano (fuera del rango 1..total), p.ej. numeración absoluta de long-runners.
+    // Episodes requested by hand (outside the 1..total range), e.g. absolute numbering for long-runners.
     val manualEpisodes = remember { mutableStateListOf<Int>() }
     var manualEpText by remember { mutableStateOf("") }
 
@@ -99,13 +99,13 @@ fun AnimeShowDetailScreen(
         loading = false
     }
 
-    // La búsqueda de fuentes por episodio era archive.org ([graph.api], borrado en la poda de esta
-    // rama: ver CLAUDE.md "Cero servidor propio"); magis no tiene wiring acá todavía (ver Task 6
-    // del plan de poda, "Simplificar búsqueda a solo-Magis").
+    // Per-episode source search was archive.org ([graph.api], deleted in this branch's pruning:
+    // see CLAUDE.md "Cero servidor propio"); magis has no wiring here yet (see Task 6 of the
+    // pruning plan, "Simplificar búsqueda a solo-Magis").
 
-    // Deep-link opcional (handoff desde la búsqueda por fases): apenas cargue el show, expandir el
-    // episodio pedido una sola vez. Se agrega a manualEpisodes (como el botón "Ir al episodio")
-    // para que se renderice también si cae fuera del rango 1..total (numeración absoluta).
+    // Optional deep link (handoff from the phased search): as soon as the show loads, expand the
+    // requested episode once. Added to manualEpisodes (like the "Ir al episodio" button) so it
+    // also renders if it falls outside the 1..total range (absolute numbering).
     var animeDeepLinkHandled by remember { mutableStateOf(false) }
     LaunchedEffect(show, deepLinkEpisode) {
         if (animeDeepLinkHandled) return@LaunchedEffect
@@ -166,8 +166,8 @@ fun AnimeShowDetailScreen(
                         )
                     }
 
-                    // MOVIE/MUSIC (o cualquier formato de 1 solo episodio, p.ej. OVA/SPECIAL) no
-                    // tienen lista "1..N" real: es reproducción única por título.
+                    // MOVIE/MUSIC (or any single-episode format, e.g. OVA/SPECIAL) has no real
+                    // "1..N" list: it's a single playback per title.
                     val singlePlay = s.format == "MOVIE" || s.format == "MUSIC" || s.episodes == 1
 
                     if (singlePlay) {
@@ -177,8 +177,8 @@ fun AnimeShowDetailScreen(
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(top = 20.dp, bottom = 6.dp),
                         )
-                        // La fuente de este título era archive.org, borrada en la poda de esta rama
-                        // (ver CLAUDE.md "Cero servidor propio"); magis no tiene wiring acá todavía.
+                        // This title's source was archive.org, deleted in this branch's pruning
+                        // (see CLAUDE.md "Cero servidor propio"); magis has no wiring here yet.
                         Text(
                             "No se encontraron fuentes para este título.",
                             color = ArkivTextSecondary,
@@ -236,8 +236,8 @@ fun AnimeShowDetailScreen(
                                 )
                             }
                             if (open) {
-                                // La fuente de este episodio era archive.org, borrada en la poda de
-                                // esta rama; magis no tiene wiring acá todavía.
+                                // This episode's source was archive.org, deleted in this branch's
+                                // pruning; magis has no wiring here yet.
                                 Text(
                                     "Sin resultados", color = ArkivTextSecondary, style = MaterialTheme.typography.labelSmall,
                                     modifier = Modifier.padding(start = 32.dp, top = 4.dp, bottom = 4.dp),
@@ -270,23 +270,23 @@ fun AnimeShowDetailScreen(
         }
     }
 
-    // Confirmación de cancelar / sacar de la cola / borrar. Misma pregunta y mismas palabras que en
-    // la biblioteca: es la misma acción sobre la misma cola.
+    // Confirmation to cancel / remove from queue / delete. Same question and same wording as in
+    // the library: it's the same action on the same queue.
     DownloadConfirmDialog(
-        action = porConfirmar?.second,
-        chapterName = porConfirmar?.first?.displayName,
+        action = pendingConfirmation?.second,
+        chapterName = pendingConfirmation?.first?.displayName,
         onConfirm = {
-            porConfirmar?.let { (fila, accion) ->
+            pendingConfirmation?.let { (row, action) ->
                 scope.launch {
-                    when (accion) {
-                        DownloadAction.CANCEL -> graph.localDownloads.cancel(fila.episodeId)
+                    when (action) {
+                        DownloadAction.CANCEL -> graph.localDownloads.cancel(row.episodeId)
                         DownloadAction.REMOVE_FROM_QUEUE, DownloadAction.DELETE ->
-                            graph.localDownloads.remove(fila.episodeId)
+                            graph.localDownloads.remove(row.episodeId)
                     }
                 }
             }
-            porConfirmar = null
+            pendingConfirmation = null
         },
-        onClose = { porConfirmar = null },
+        onClose = { pendingConfirmation = null },
     )
 }

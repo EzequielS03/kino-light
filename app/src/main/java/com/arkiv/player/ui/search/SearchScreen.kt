@@ -77,12 +77,12 @@ import com.arkiv.player.data.RecentTitle
 import com.arkiv.player.data.local.DownloadSource
 import com.arkiv.player.ui.catalog.PlaySource
 import com.arkiv.player.ui.catalog.SourceRow
-import com.arkiv.player.ui.catalog.posterDe
+import com.arkiv.player.ui.catalog.posterFor
 import com.arkiv.player.ui.catalog.SourceCard
 import com.arkiv.player.ui.catalog.SourceSectionHeader
 import com.arkiv.player.ui.catalog.ArkivMagisBlue
 import com.arkiv.player.ui.catalog.ArkivCaracolVerde
-import com.arkiv.player.ui.catalog.esSerie
+import com.arkiv.player.ui.catalog.isSeries
 import com.arkiv.player.ui.catalog.MetaChip
 import com.arkiv.player.ui.home.buildRowSpecs
 import com.arkiv.player.ui.home.matchCategoryRow
@@ -225,7 +225,7 @@ fun SearchScreen(
 
     fun playDituResult(source: PlaySource.Ditu) {
         // Series → open its chapters. Movie → play directly (and it stays in the library).
-        if (source.esSerie()) { dituSeason = source.result; return }
+        if (source.isSeries()) { dituSeason = source.result; return }
         preparing = true; playError = null
         scope.launch { applyResult(playback.playDitu(source.result)) }
     }
@@ -398,8 +398,8 @@ fun SearchScreen(
                     }
                 }
             },
-            etiqueta = "Caracol",
-            acento = ArkivCaracolVerde,
+            sourceLabel = "Caracol",
+            accent = ArkivCaracolVerde,
         )
     }
 
@@ -805,7 +805,7 @@ private fun ResultsContent(
                     )
                 }
             }
-            if (shown.any { posterDe(it).isNotBlank() }) {
+            if (shown.any { posterFor(it).isNotBlank() }) {
                 twoColumnCards("tab", shown, enabled, onPlay)
             } else {
                 items(shown, key = { sourceKey(it) }) { s ->
@@ -971,7 +971,7 @@ private fun sourceSection(
         }
     }
     if (expanded) {
-        if (items.any { posterDe(it).isNotBlank() }) {
+        if (items.any { posterFor(it).isNotBlank() }) {
             scope.twoColumnCards(tag, items, enabled, onPlay)
         } else {
             scope.items(items, key = { "$tag-${sourceKey(it)}" }) { s ->

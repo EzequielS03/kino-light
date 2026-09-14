@@ -43,26 +43,26 @@ import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
 /**
- * Una fuente reproducible: Magis o Caracol Streaming (Ditu).
+ * A playable source: Magis or Caracol Streaming (Ditu).
  *
- * Hasta la poda de esta rama (light-magis) había también una variante `Archive`, borrada junto con
- * el resto de archive.org. Ditu se borró en esa misma poda y volvió con un cliente directo, sin
- * servidor propio (`com.arkiv.player.data.ditu`).
+ * Up until this branch's pruning (light-magis) there was also an `Archive` variant, deleted along
+ * with the rest of archive.org. Ditu was deleted in that same pruning and came back with a direct
+ * client, no server of its own (`com.arkiv.player.data.ditu`).
  */
 sealed interface PlaySource {
-    /** Resultado del portal Magis (solo VOD). El `ref` es opaco: se manda tal cual a
-     *  `MagisResolve.resolveVod` y la app nunca lo interpreta. */
+    /** Result from the Magis portal (VOD only). The `ref` is opaque: it's sent as-is to
+     *  `MagisResolve.resolveVod` and the app never interprets it. */
     data class Magis(val result: com.arkiv.player.data.gateway.GatewayResult) : PlaySource
 
-    /** Resultado de Caracol Streaming. A diferencia de Magis, su `ref` SÍ se puede guardar en la
-     *  biblioteca: codifica ids de Caracol, que son estables (ver `DituRef`). */
+    /** Result from Caracol Streaming. Unlike Magis, its `ref` CAN be saved to the library: it
+     *  encodes Caracol ids, which are stable (see `DituRef`). */
     data class Ditu(val result: com.arkiv.player.data.gateway.GatewayResult) : PlaySource
 }
 
-/** Azul de Magis: el color de acento de su fila, su sección y su chip de filtro. */
+/** Magis blue: the accent color of its row, its section and its filter chip. */
 val ArkivMagisBlue = Color(0xFF64B5F6)
 
-/** Verde de Caracol: el color de acento de su fila, su sección y su chip de filtro. */
+/** Caracol green: the accent color of its row, its section and its filter chip. */
 val ArkivCaracolVerde = Color(0xFF66BB6A)
 
 fun accentOf(source: PlaySource): Color = when (source) {
@@ -71,14 +71,14 @@ fun accentOf(source: PlaySource): Color = when (source) {
 }
 
 /**
- * Si un resultado de Caracol es una serie —hay que elegir capítulo antes de reproducir— o una
- * película. `DituFuente` le pone `kind = "series"` a todo lo que no es un `VOD` (un `BUNDLE` o un
- * `GROUP_OF_BUNDLES`). Una sola regla para el celular y el televisor.
+ * Whether a Caracol result is a series --a chapter has to be chosen before playing-- or a movie.
+ * `DituFuente` sets `kind = "series"` on everything that isn't a `VOD` (a `BUNDLE` or a
+ * `GROUP_OF_BUNDLES`). A single rule for the phone and the TV.
  */
-fun PlaySource.Ditu.esSerie(): Boolean = result.kind == "series"
+fun PlaySource.Ditu.isSeries(): Boolean = result.kind == "series"
 
-/** Dato suelto de una fuente (calidad, idioma, seeds, tamaño) como pastilla. Leer una línea corrida
- *  de "Latino · 1080p · 12 seeds · 4.2 GB" cuesta; separados se escanean de un vistazo. */
+/** A source's loose datum (quality, language, seeds, size) as a pill. Reading a run-on line like
+ *  "Latino · 1080p · 12 seeds · 4.2 GB" costs effort; separated they scan at a glance. */
 @Composable
 fun MetaChip(text: String, color: Color = ArkivTextSecondary, strong: Boolean = false) {
     Box(
@@ -93,7 +93,7 @@ fun MetaChip(text: String, color: Color = ArkivTextSecondary, strong: Boolean = 
     }
 }
 
-/** Cabecera de una sección, aparte para poder usarla suelta dentro de un LazyColumn. */
+/** A section's header, kept apart so it can be used loose inside a LazyColumn. */
 @Composable
 fun SourceSectionHeader(
     tag: String,
@@ -123,18 +123,18 @@ fun SourceSectionHeader(
 }
 
 /**
- * Fila de una fuente, como tarjeta: barra de acento del color del origen a la izquierda, nombre en
- * blanco y los datos sueltos (calidad/idioma/seeds/tamaño) en pastillas. El color de la barra dice
- * el origen sin gastar una etiqueta de texto en cada fila.
+ * A source row, as a card: accent bar in the origin's color on the left, name in white and the
+ * loose data (quality/language/seeds/size) as pills. The bar's color says the origin without
+ * spending a text label on every row.
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun SourceRow(source: PlaySource, enabled: Boolean, download: RowDownload? = null, onClick: () -> Unit) {
     val accent = accentOf(source)
     Row(
-        // height(IntrinsicSize.Min) para que la barra de color de la izquierda pueda medirse
-        // contra el alto real de la fila: con las pastillas en dos líneas, una barra fija de
-        // 56 dp quedaba como un muñón corto al costado de una fila alta.
+        // height(IntrinsicSize.Min) so the left color bar can measure itself against the row's
+        // real height: with pills wrapping to two lines, a fixed 56 dp bar was left as a short
+        // stub next to a tall row.
         modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(vertical = 4.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(ArkivSurfaceHigh.copy(alpha = 0.55f))
@@ -142,11 +142,11 @@ fun SourceRow(source: PlaySource, enabled: Boolean, download: RowDownload? = nul
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.width(3.dp).fillMaxHeight().background(accent))
-        // Magis y Caracol traen carátula por resultado ([posterDe]). Sin póster no se dibuja nada.
-        val miniatura = posterDe(source)
-        if (miniatura.isNotBlank()) {
+        // Magis and Caracol bring a cover per result ([posterFor]). With no poster, nothing gets drawn.
+        val thumbnail = posterFor(source)
+        if (thumbnail.isNotBlank()) {
             AsyncImage(
-                model = miniatura,
+                model = thumbnail,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.padding(start = 8.dp).size(width = 38.dp, height = 56.dp)
@@ -188,7 +188,7 @@ fun SourceRow(source: PlaySource, enabled: Boolean, download: RowDownload? = nul
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         MetaChip("Caracol", ArkivCaracolVerde)
-                        if (source.esSerie()) MetaChip("Serie")
+                        if (source.isSeries()) MetaChip("Serie")
                         if (r.year.isNotBlank()) MetaChip(r.year)
                     }
                 }
@@ -200,23 +200,23 @@ fun SourceRow(source: PlaySource, enabled: Boolean, download: RowDownload? = nul
     }
 }
 
-/** La carátula de una fuente, o "" si esa fuente no tiene. Magis y Caracol la traen en
+/** A source's cover, or "" if that source has none. Magis and Caracol bring it in
  *  `extra["poster"]`. */
-fun posterDe(source: PlaySource): String = when (source) {
+fun posterFor(source: PlaySource): String = when (source) {
     is PlaySource.Magis -> source.result.extra["poster"].orEmpty()
     is PlaySource.Ditu -> source.result.extra["poster"].orEmpty()
 }
 
 /**
- * Una fuente como TARJETA de carátula, para pintar en dos columnas.
+ * A source as a cover CARD, to paint in two columns.
  *
- * Es la alternativa a [SourceRow] cuando la fuente trae imagen: veinte resultados de Magis en
- * filas de texto son un muro donde todos los títulos se parecen; con la carátula se reconoce de
- * un vistazo cuál es cuál. Las fuentes sin imagen siguen en fila — ver [SourceRow].
+ * The alternative to [SourceRow] when the source brings an image: twenty Magis results in text
+ * rows are a wall where every title looks alike; with the cover, which is which is recognized at
+ * a glance. Sources with no image stay in a row -- see [SourceRow].
  */
 @Composable
 fun SourceCard(source: PlaySource, enabled: Boolean, onClick: () -> Unit) {
-    val poster = posterDe(source)
+    val poster = posterFor(source)
     Column(
         Modifier.clip(RoundedCornerShape(10.dp))
             .background(ArkivSurfaceHigh.copy(alpha = 0.55f))
@@ -238,7 +238,7 @@ fun SourceCard(source: PlaySource, enabled: Boolean, onClick: () -> Unit) {
             )
         }
         Text(
-            tituloDe(source), color = Color.White, style = MaterialTheme.typography.bodySmall,
+            titleOf(source), color = Color.White, style = MaterialTheme.typography.bodySmall,
             maxLines = 2, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 6.dp),
         )
@@ -254,7 +254,7 @@ fun SourceCard(source: PlaySource, enabled: Boolean, onClick: () -> Unit) {
                 }
                 is PlaySource.Ditu -> {
                     MetaChip("Caracol", ArkivCaracolVerde)
-                    if (source.esSerie()) MetaChip("Serie")
+                    if (source.isSeries()) MetaChip("Serie")
                     if (source.result.year.isNotBlank()) MetaChip(source.result.year)
                 }
             }
@@ -262,7 +262,7 @@ fun SourceCard(source: PlaySource, enabled: Boolean, onClick: () -> Unit) {
     }
 }
 
-private fun tituloDe(source: PlaySource): String = when (source) {
+private fun titleOf(source: PlaySource): String = when (source) {
     is PlaySource.Magis -> source.result.title
     is PlaySource.Ditu -> source.result.title
 }

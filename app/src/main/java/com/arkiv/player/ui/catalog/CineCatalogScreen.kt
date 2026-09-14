@@ -71,7 +71,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** Tarjeta del grid: item de TMDB. */
+/** Grid card: a TMDB item. */
 data class GridCard(val item: TmdbItem)
 
 class CineCatalogViewModel(
@@ -100,13 +100,13 @@ class CineCatalogViewModel(
     init {
         reload()
         loadGenres()
-        // El VM sobrevive al cambio de pestaña (su viewModelScope sigue vivo aunque la pantalla no
-        // esté compuesta), así que escuchamos la señal acá y no en el composable.
+        // The VM survives the tab switch (its viewModelScope stays alive even when the screen
+        // isn't composed), so the signal is listened to here and not in the composable.
         viewModelScope.launch { resetSignal.collect { resetSearch() } }
     }
 
     fun setType(t: String) { if (t != _type.value) { _type.value = t; _genreId.value = null; loadGenres(); reload() } }
-    // Elegir categoría limpia el género (son selección mutuamente excluyente: género tiene prioridad en load()).
+    // Choosing a category clears the genre (they're a mutually exclusive selection: genre takes priority in load()).
     fun setCategory(c: TmdbCategory) { _category.value = c; _genreId.value = null; reload() }
     fun setGenre(id: Int?) { _genreId.value = id; reload() }
     fun search(q: String) { query = q.trim().ifBlank { null }; reload() }
@@ -115,7 +115,7 @@ class CineCatalogViewModel(
         viewModelScope.launch { _genres.value = runCatching { api.genres(_type.value) }.getOrDefault(emptyList()) }
     }
 
-    /** Vuelve al browse si había una búsqueda activa. Si ya estaba en browse, no recarga. */
+    /** Returns to browsing if there was an active search. If already browsing, doesn't reload. */
     fun resetSearch() { if (query != null) { query = null; reload() } }
     fun loadMore() { if (!_loading.value && !endReached) load(false) }
 
@@ -192,8 +192,8 @@ fun CineCatalogScreen(
 
     LaunchedEffect(type) { refreshRecent() }
 
-    // Si se resetea la búsqueda estando ya en el catálogo (re-tocar la pestaña), limpiar el campo
-    // para que no muestre texto viejo sobre resultados de browse.
+    // If the search resets while already in the catalog (re-tapping the tab), clear the field so
+    // it doesn't show old text over browse results.
     LaunchedEffect(Unit) { graph.catalogResetSignal.collect { queryText = "" } }
 
     Column(Modifier.fillMaxSize().padding(top = contentPadding.calculateTopPadding())) {

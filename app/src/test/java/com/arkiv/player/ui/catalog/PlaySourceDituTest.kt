@@ -7,7 +7,7 @@ import org.junit.Test
 
 class PlaySourceDituTest {
 
-    @Test fun `una fuente de Caracol tiene su propio color`() {
+    @Test fun `a Caracol source has its own color`() {
         val ditu = PlaySource.Ditu(GatewayResult(source = "ditu", title = "Rigo", ref = "ditu1:BUNDLE:1"))
         val magis = PlaySource.Magis(GatewayResult(source = "magis", title = "Rigo", ref = "magis1:movie:0:C1"))
 

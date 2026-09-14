@@ -53,18 +53,18 @@ import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
 /**
- * Ventana de una temporada de Magis.
+ * Window for a Magis season.
  *
- * También abre las series de Caracol, con su [etiqueta] y su [acento]. La ventana no guarda nada:
- * qué pasa al tocar un capítulo lo decide quien la abre, en [onPlay] y [onSave].
+ * Also opens Caracol series, with its [sourceLabel] and its [accent]. The window saves nothing:
+ * what happens on tapping a chapter is decided by whoever opens it, in [onPlay] and [onSave].
  *
- * Existe porque un resultado de serie del portal **es una temporada entera**, no un capítulo:
- * "Breaking Bad T5" son 16 capítulos bajo un solo ítem. Sin esta pantalla, tocar ese resultado
- * reproducía el capítulo 1 en silencio, sin forma de elegir.
+ * Exists because a series result from the portal **is a whole season**, not a chapter: "Breaking
+ * Bad T5" is 16 chapters under a single item. Without this screen, tapping that result played
+ * chapter 1 silently, with no way to choose.
  *
- * Los capítulos se piden al abrir (`MagisCatalog.detail`): no vienen en el resultado de búsqueda
- * porque el portal los entrega en otra llamada, y pedirlos para las 20 series de una búsqueda
- * gastaría el rate-limit del portal en listas que nadie va a mirar.
+ * Chapters are requested on opening (`MagisCatalog.detail`): they don't come in the search
+ * result because the portal delivers them in a separate call, and requesting them for the 20
+ * series of a search would spend the portal's rate limit on lists nobody's going to look at.
  */
 @Composable
 fun MagisSeasonDialog(
@@ -72,32 +72,33 @@ fun MagisSeasonDialog(
     client: ContentSource,
     onDismiss: () -> Unit,
     onPlay: (List<GatewayEpisode>, GatewayEpisode, GatewaySerie?) -> Unit,
-    // La [GatewaySerie] viaja también en el guardado, no solo en el play: guardar escribe la fila
-    // del episodio entera (REPLACE), así que sin ella los capítulos marcados perderían la temporada
-    // que el play ya había guardado bien. Ver `SearchPlayback.magisEpisodeIdFor`.
-    // Null = descarga deshabilitada.
+    // The [GatewaySerie] also travels in the save, not just in play: saving writes the episode's
+    // entire row (REPLACE), so without it the marked chapters would lose the season play had
+    // already saved correctly. See `SearchPlayback.magisEpisodeIdFor`.
+    // Null = download disabled.
     //
-    // Van las DOS listas: los capítulos elegidos y la temporada entera que la ventana ya cargó.
-    // Magis solo necesita los elegidos, pero Caracol guarda la serie completa para poder guardar
-    // uno (`ArkivRepository.addDituSeason`), y sin fila en `episodes` la descarga después no
-    // encuentra el `ref`.
-    onSave: ((todos: List<GatewayEpisode>, elegidos: List<GatewayEpisode>, GatewaySerie?) -> Unit)? = null,
-    // El nombre y el color de la fuente. La ventana también abre las series de Caracol.
-    etiqueta: String = "Magis",
-    acento: Color = ArkivMagisBlue,
+    // BOTH lists go: the chosen chapters and the whole season the window already loaded. Magis
+    // only needs the chosen ones, but Caracol saves the complete series to be able to save one
+    // (`ArkivRepository.addDituSeason`), and with no row in `episodes` the download afterward
+    // can't find the `ref`.
+    onSave: ((all: List<GatewayEpisode>, chosen: List<GatewayEpisode>, GatewaySerie?) -> Unit)? = null,
+    // The source's name and color. The window also opens Caracol series.
+    sourceLabel: String = "Magis",
+    accent: Color = ArkivMagisBlue,
 ) {
-    var capitulos by remember(season.ref) { mutableStateOf<List<GatewayEpisode>?>(null) }
-    // El bloque `series` de la misma respuesta: de ahí sale el `tmdbId` que necesita
-    // `SearchPlayback.playMagisSeason` para guardarlo en el ítem, sin pedirlo de nuevo al tocar un
-    // capítulo (ver su KDoc).
-    var serie by remember(season.ref) { mutableStateOf<GatewaySerie?>(null) }
+    var chapters by remember(season.ref) { mutableStateOf<List<GatewayEpisode>?>(null) }
+    // The `series` block from the same response: that's where the `tmdbId`
+    // `SearchPlayback.playMagisSeason` needs to save it on the item comes from, without asking
+    // for it again on tapping a chapter (see its KDoc).
+    var series by remember(season.ref) { mutableStateOf<GatewaySerie?>(null) }
     var error by remember(season.ref) { mutableStateOf<String?>(null) }
-    // Selección para guardar. Arranca vacía: el gesto principal de esta ventana es reproducir, y
-    // marcar los 16 capítulos por defecto invitaría a bajar una temporada entera sin querer.
-    val marcados = remember(season.ref) { mutableStateListOf<Int>() }
-    val puedeGuardar = onSave != null
-    // El capítulo que se tocó y todavía no decidió si se ve o se baja. Ver el diálogo del final.
-    var porElegir by remember(season.ref) { mutableStateOf<GatewayEpisode?>(null) }
+    // Selection to save. Starts empty: this window's main gesture is playing, and checking all 16
+    // chapters by default would invite downloading a whole season by accident.
+    val checked = remember(season.ref) { mutableStateListOf<Int>() }
+    val canSave = onSave != null
+    // The chapter that was tapped and hasn't decided yet whether it's watched or downloaded. See
+    // the dialog at the end.
+    var pendingChoice by remember(season.ref) { mutableStateOf<GatewayEpisode?>(null) }
 
     LaunchedEffect(season.ref) {
         // What the dialog was opened with. `program_type` is what decides this is a series (see
@@ -111,8 +112,8 @@ fun MagisSeasonDialog(
         try {
             val (caps, s) = client.episodesWithSeries(season.ref)
             android.util.Log.w("ArkivGw", "season: ok caps=${caps.size}")
-            capitulos = caps
-            serie = s
+            chapters = caps
+            series = s
         } catch (e: kotlinx.coroutines.CancellationException) {
             android.util.Log.w("ArkivGw", "season: cancelled (CancellationException) ${e.message}")
             throw e
@@ -122,35 +123,35 @@ fun MagisSeasonDialog(
         }
     }
 
-    val esperados = season.extra["episode_count"]?.toIntOrNull() ?: 0
+    val expected = season.extra["episode_count"]?.toIntOrNull() ?: 0
 
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (puedeGuardar && marcados.isNotEmpty()) {
-                    val caps = capitulos.orEmpty()
-                    val elegidos = caps.filter { it.number in marcados }
-                    TextButton(onClick = { onSave!!(caps, elegidos, serie); onDismiss() }) {
-                        Icon(Icons.Default.Download, contentDescription = null, tint = acento)
+                if (canSave && checked.isNotEmpty()) {
+                    val caps = chapters.orEmpty()
+                    val chosen = caps.filter { it.number in checked }
+                    TextButton(onClick = { onSave!!(caps, chosen, series); onDismiss() }) {
+                        Icon(Icons.Default.Download, contentDescription = null, tint = accent)
                         Spacer(Modifier.size(6.dp))
-                        Text("Guardar ${elegidos.size}", color = acento)
+                        Text("Guardar ${chosen.size}", color = accent)
                     }
                 }
                 TextButton(onClick = onDismiss) { Text("Cerrar") }
             }
         },
         dismissButton = {
-            val caps = capitulos.orEmpty()
-            if (puedeGuardar && caps.isNotEmpty()) {
+            val caps = chapters.orEmpty()
+            if (canSave && caps.isNotEmpty()) {
                 TextButton(onClick = {
-                    // Alterna entre "toda la temporada" y "ninguno": el caso frecuente es querer
-                    // la temporada completa, y marcar 16 casillas a mano sería absurdo.
-                    if (marcados.size == caps.size) marcados.clear()
-                    else { marcados.clear(); marcados.addAll(caps.map { it.number }) }
+                    // Toggles between "the whole season" and "none": the frequent case is wanting
+                    // the complete season, and checking 16 boxes by hand would be absurd.
+                    if (checked.size == caps.size) checked.clear()
+                    else { checked.clear(); checked.addAll(caps.map { it.number }) }
                 }) {
                     Text(
-                        if (marcados.size == caps.size) "Ninguno" else "Toda la temporada",
+                        if (checked.size == caps.size) "Ninguno" else "Toda la temporada",
                         color = ArkivTextSecondary,
                     )
                 }
@@ -160,11 +161,11 @@ fun MagisSeasonDialog(
             Column {
                 Text(season.title, color = Color.White, fontWeight = FontWeight.SemiBold)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 6.dp)) {
-                    MetaChip(etiqueta, acento)
+                    MetaChip(sourceLabel, accent)
                     if (season.year.isNotBlank()) MetaChip(season.year)
-                    // El conteo del portal se muestra aunque la lista aún no llegue: da idea del
-                    // tamaño de la temporada mientras carga.
-                    if (esperados > 0) MetaChip("$esperados capítulos")
+                    // The portal's count shows even before the list arrives: gives a sense of the
+                    // season's size while it loads.
+                    if (expected > 0) MetaChip("$expected capítulos")
                 }
             }
         },
@@ -172,48 +173,49 @@ fun MagisSeasonDialog(
             when {
                 error != null -> Text(error!!, color = ArkivTextSecondary)
 
-                capitulos == null -> Row(
+                chapters == null -> Row(
                     Modifier.fillMaxWidth().padding(vertical = 24.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    CircularProgressIndicator(Modifier.size(20.dp), color = acento)
+                    CircularProgressIndicator(Modifier.size(20.dp), color = accent)
                     Spacer(Modifier.size(12.dp))
                     Text("Cargando capítulos…", color = ArkivTextSecondary)
                 }
 
-                capitulos!!.isEmpty() -> Text(
+                chapters!!.isEmpty() -> Text(
                     "Esta temporada no trae capítulos.",
                     color = ArkivTextSecondary,
                 )
 
                 else -> {
-                    // Con varias temporadas (una serie de Caracol), por temporada y número, y cada
-                    // fila dice la suya. Sin temporada —Magis— queda como llegó. Ver
-                    // [CapitulosPorTemporada].
-                    val enOrden = CapitulosPorTemporada.ordenar(capitulos!!)
-                    val variasTemporadas = CapitulosPorTemporada.variasTemporadas(capitulos!!)
+                    // With several seasons (a Caracol series), by season and number, and each row
+                    // states its own. With no season --Magis-- it stays as it arrived. See
+                    // [ChaptersBySeason].
+                    val ordered = ChaptersBySeason.sorted(chapters!!)
+                    val multipleSeasons = ChaptersBySeason.hasMultipleSeasons(chapters!!)
                     LazyColumn(
                         Modifier.heightIn(max = 420.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        items(enOrden, key = { it.ref }) { cap ->
+                        items(ordered, key = { it.ref }) { cap ->
                             EpisodeRow(
                                 cap = cap,
-                                etiqueta = CapitulosPorTemporada.etiqueta(cap, variasTemporadas),
-                                marcado = cap.number in marcados,
-                                mostrarCasilla = puedeGuardar,
-                                acento = acento,
-                                onMarcar = {
-                                    if (cap.number in marcados) marcados.remove(cap.number)
-                                    else marcados.add(cap.number)
+                                label = ChaptersBySeason.label(cap, multipleSeasons),
+                                checked = cap.number in checked,
+                                showCheckbox = canSave,
+                                accent = accent,
+                                onCheck = {
+                                    if (cap.number in checked) checked.remove(cap.number)
+                                    else checked.add(cap.number)
                                 },
                                 onPlay = {
-                                    // Donde se puede bajar, tocar un capítulo PREGUNTA; donde no
-                                    // (Caracol es Widevine, ver `DownloadSource`), ver es el único
-                                    // gesto posible y un diálogo de una sola opción solo estorba.
-                                    if (puedeGuardar) porElegir = cap
-                                    else onPlay(capitulos!!, cap, serie)
+                                    // Where it can be downloaded, tapping a chapter ASKS; where it
+                                    // can't (Caracol is Widevine, see `DownloadSource`), watching
+                                    // is the only possible gesture and a single-option dialog only
+                                    // gets in the way.
+                                    if (canSave) pendingChoice = cap
+                                    else onPlay(chapters!!, cap, series)
                                 },
                             )
                         }
@@ -223,29 +225,30 @@ fun MagisSeasonDialog(
         },
     )
 
-    // Ver o bajar ESTE capítulo. Es el gemelo del diálogo que ya tenían las películas
-    // (`MagisTapDecision.ShowMovieDialog`): hasta ahora bajar un capítulo solo se podía marcando su
-    // casilla, que es un gesto para varios capítulos a la vez y que nadie encuentra cuando quiere
-    // uno. Va como un Dialog HERMANO y no dentro del `text` del de arriba: uno anidado en el
-    // contenido del otro hereda su ancho y su scroll.
-    porElegir?.let { cap ->
-        val caps = capitulos.orEmpty()
+    // Watch or download THIS chapter. It's the twin of the dialog movies already had
+    // (`MagisTapDecision.ShowMovieDialog`): until now downloading a chapter could only be done by
+    // checking its box, which is a gesture for several chapters at once and that nobody finds when
+    // they want just one. Goes as a SIBLING Dialog and not inside the one above's `text`: one
+    // nested in the other's content would inherit its width and its scroll.
+    pendingChoice?.let { cap ->
+        val caps = chapters.orEmpty()
         AlertDialog(
-            onDismissRequest = { porElegir = null },
-            title = { Text(nombreDeCapitulo(cap), color = Color.White, fontWeight = FontWeight.SemiBold) },
+            onDismissRequest = { pendingChoice = null },
+            title = { Text(chapterName(cap), color = Color.White, fontWeight = FontWeight.SemiBold) },
             confirmButton = {
-                TextButton(onClick = { porElegir = null; onPlay(caps, cap, serie) }) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = acento)
+                TextButton(onClick = { pendingChoice = null; onPlay(caps, cap, series) }) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = accent)
                     Spacer(Modifier.size(6.dp))
-                    Text("Ver", color = acento)
+                    Text("Ver", color = accent)
                 }
             },
             dismissButton = {
                 TextButton(onClick = {
-                    porElegir = null
-                    onSave!!(caps, listOf(cap), serie)
-                    // Se cierra la temporada, igual que al guardar varios: quien encola es la
-                    // pantalla de atrás y ahí es donde se ve si entró en la cola o ya estaba.
+                    pendingChoice = null
+                    onSave!!(caps, listOf(cap), series)
+                    // The season closes, same as when saving several: the screen behind is what
+                    // queues it, and that's where it shows whether it entered the queue or was
+                    // already there.
                     onDismiss()
                 }) {
                     Icon(Icons.Default.Download, contentDescription = null, tint = ArkivTextSecondary)
@@ -258,63 +261,63 @@ fun MagisSeasonDialog(
 }
 
 /**
- * Cómo se llama un capítulo en pantalla.
+ * How a chapter is named on screen.
  *
- * El número del portal MANDA: identifica el capítulo que se va a reproducir, y si el cruce con
- * TMDB quedara corrido para esta temporada, sigue siendo el dato cierto. El nombre va al lado,
- * nunca en su lugar. Prioridad: título de TMDB (el real) -> título del portal (salvo que solo
- * repita el número) -> "Capítulo N" como último respaldo.
+ * The portal's number WINS: it identifies the chapter that's about to play, and if the TMDB match
+ * were off for this season, it's still the reliable data. The name goes next to it, never in its
+ * place. Priority: TMDB title (the real one) -> portal title (unless it only repeats the number)
+ * -> "Capítulo N" as a last resort.
  */
-private fun nombreDeCapitulo(cap: GatewayEpisode): String =
+private fun chapterName(cap: GatewayEpisode): String =
     cap.tmdbTitle?.takeIf { it.isNotBlank() }
         ?: cap.title.takeIf { it.isNotBlank() && it != cap.number.toString() }
         ?: "Capítulo ${cap.number}"
 
-/** Una fila de capítulo: casilla para guardar, número (o temporada y número, ver
- *  [CapitulosPorTemporada]), nombre y play. */
+/** A chapter row: checkbox to save, number (or season and number, see
+ *  [ChaptersBySeason]), name and play. */
 @Composable
 private fun EpisodeRow(
     cap: GatewayEpisode,
-    etiqueta: String = cap.number.toString(),
-    marcado: Boolean,
-    mostrarCasilla: Boolean = true,
-    acento: Color = ArkivMagisBlue,
-    onMarcar: () -> Unit,
+    label: String = cap.number.toString(),
+    checked: Boolean,
+    showCheckbox: Boolean = true,
+    accent: Color = ArkivMagisBlue,
+    onCheck: () -> Unit,
     onPlay: () -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(6.dp))
             .background(ArkivSurfaceHigh)
-            // Tocar la fila REPRODUCE; la casilla es un objetivo aparte. Al revés, marcar para
-            // guardar se llevaría por delante el gesto más común.
+            // Tapping the row PLAYS; the checkbox is a separate target. The other way around,
+            // checking to save would run over the more common gesture.
             .clickable(onClick = onPlay)
             .padding(horizontal = 10.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        if (mostrarCasilla) {
+        if (showCheckbox) {
             Box(
-                Modifier.size(28.dp).clickable(onClick = onMarcar),
+                Modifier.size(28.dp).clickable(onClick = onCheck),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    if (marcado) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
-                    contentDescription = if (marcado) "Quitar de la descarga" else "Guardar este capítulo",
-                    tint = if (marcado) acento else ArkivTextSecondary,
+                    if (checked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                    contentDescription = if (checked) "Quitar de la descarga" else "Guardar este capítulo",
+                    tint = if (checked) accent else ArkivTextSecondary,
                 )
             }
         }
-        // "T2 · E1" no cabe en el cuadro de 28dp: con temporada se ensancha. El número pelado —el de
-        // Magis, siempre— queda en el cuadro de siempre.
-        val conTemporada = etiqueta != cap.number.toString()
+        // "T2 · E1" doesn't fit in the 28dp box: with a season it widens. The bare number --Magis's,
+        // always-- stays in the usual box.
+        val withSeason = label != cap.number.toString()
         Box(
-            if (conTemporada) Modifier.height(28.dp).widthIn(min = 28.dp) else Modifier.size(28.dp),
+            if (withSeason) Modifier.height(28.dp).widthIn(min = 28.dp) else Modifier.size(28.dp),
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                etiqueta,
-                color = acento,
+                label,
+                color = accent,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -333,13 +336,13 @@ private fun EpisodeRow(
             }
         }
         Text(
-            nombreDeCapitulo(cap),
+            chapterName(cap),
             color = Color.White,
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.height(20.dp).weight(1f).padding(start = 8.dp),
         )
-        Icon(Icons.Default.PlayArrow, contentDescription = "Reproducir", tint = acento)
+        Icon(Icons.Default.PlayArrow, contentDescription = "Reproducir", tint = accent)
     }
 }

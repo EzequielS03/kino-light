@@ -51,14 +51,14 @@ import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.launch
 
 /**
- * Ficha de una película/serie de TMDB (browse-only): título, sinopsis, temporadas y capítulos.
+ * A TMDB movie/series card (browse-only): title, synopsis, seasons and chapters.
  *
- * Ya no ofrece reproducir desde acá — "Buscar fuentes" abría un panel que solo listaba resultados
- * de archive.org, borrado en la poda de esta rama; Magis nunca llegó a engancharse a este panel
- * (quedaba siempre vacío, ver el hallazgo de la revisión final de
- * `docs/superpowers/specs/2026-09-08-arkiv-light-magis-poda-design.md`). El camino real para
- * reproducir Magis desde TMDB ya existe y sigue intacto: el buscador (`SearchScreen`/
- * `SearchViewModel.runSourceSearch`), al que se llega desde "Categorías" → una fila → una card.
+ * No longer offers playing from here -- "Buscar fuentes" opened a panel that only listed
+ * archive.org results, deleted in this branch's pruning; Magis never got hooked up to this panel
+ * (it always stayed empty, see the finding from the final review of
+ * `docs/superpowers/specs/2026-09-08-arkiv-light-magis-poda-design.md`). The real path to play
+ * Magis from TMDB already exists and stays intact: the search (`SearchScreen`/
+ * `SearchViewModel.runSourceSearch`), reached from "Categorías" → a row → a card.
  */
 @Composable
 fun CineDetailScreen(
@@ -76,15 +76,15 @@ fun CineDetailScreen(
     // the local downloads worker's "download complete" notification isn't silently dropped. See
     // rememberPostNotificationsRequest.
     val askNotifications = com.arkiv.player.ui.offline.rememberPostNotificationsRequest()
-    // Avisa "eso ya lo tenés bajado" cuando la cola saltea una descarga duplicada (ver
-    // DuplicateDownloadPolicy): si no, el botón parecería no hacer nada.
+    // Shows "you already have that downloaded" when the queue skips a duplicate download (see
+    // DuplicateDownloadPolicy): otherwise the button would look like it does nothing.
     val notifyDuplicates = com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice()
     // The per-source download control this screen used to show (observing `downloadRows` and
     // matching them with `data.local.DescargasPorFuente`) was archive.org search UI, removed with
     // the rest of that source in this branch's pruning; `DescargasPorFuente` itself was deleted as
-    // dead code in the cleanup. `porConfirmar` stays wired to the dialog below, but nothing sets
-    // it anymore.
-    var porConfirmar by remember { mutableStateOf<Pair<DownloadRow, DownloadAction>?>(null) }
+    // dead code in the cleanup. `pendingConfirmation` stays wired to the dialog below, but nothing
+    // sets it anymore.
+    var pendingConfirmation by remember { mutableStateOf<Pair<DownloadRow, DownloadAction>?>(null) }
 
     var detail by remember { mutableStateOf<TmdbDetail?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -96,22 +96,22 @@ fun CineDetailScreen(
         loading = true
         val d = runCatching { graph.tmdbApi.detail(type, tmdbId) }.getOrNull()
         detail = d
-        // Si viene un deep-link de temporada, respetarlo en vez de pisarlo con la temporada por
-        // defecto (si no, este efecto se ejecuta después de LaunchedEffect(deepLinkSeason) y lo clobbers).
+        // If a season deep link comes in, honor it instead of overwriting it with the default
+        // season (otherwise this effect runs after LaunchedEffect(deepLinkSeason) and clobbers it).
         selectedSeason = deepLinkSeason
             ?: d?.seasons?.firstOrNull { it.seasonNumber > 0 }?.seasonNumber
             ?: d?.seasons?.firstOrNull()?.seasonNumber
         loading = false
     }
 
-    // Cargar los capítulos de la temporada elegida (bajo demanda).
+    // Load the chosen season's chapters (on demand).
     LaunchedEffect(selectedSeason, detail) {
         val s = selectedSeason
         val d = detail
         if (s == null || d == null || !d.isSeries) { episodes = emptyList(); return@LaunchedEffect }
         loadingEps = true
-        // `.orEmpty()`: acá solo se pinta una lista, así que "no se pudo consultar" (null) y "TMDB
-        // no tenía capítulos" se ven igual. La distinción solo le importa a quien cachea en base.
+        // `.orEmpty()`: only a list gets painted here, so "couldn't query" (null) and "TMDB had no
+        // chapters" look the same. The distinction only matters to whoever caches to the database.
         episodes = runCatching { graph.tmdbApi.seasonEpisodes(d.id, s) }.getOrNull().orEmpty()
         loadingEps = false
     }
@@ -183,22 +183,22 @@ fun CineDetailScreen(
         ) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver", tint = Color.White) }
     }
 
-    // Misma pregunta y mismas palabras que en la biblioteca: es la misma acción sobre la misma cola.
+    // Same question and same wording as in the library: it's the same action on the same queue.
     DownloadConfirmDialog(
-        action = porConfirmar?.second,
-        chapterName = porConfirmar?.first?.displayName,
+        action = pendingConfirmation?.second,
+        chapterName = pendingConfirmation?.first?.displayName,
         onConfirm = {
-            porConfirmar?.let { (fila, accion) ->
+            pendingConfirmation?.let { (row, action) ->
                 scope.launch {
-                    when (accion) {
-                        DownloadAction.CANCEL -> graph.localDownloads.cancel(fila.episodeId)
+                    when (action) {
+                        DownloadAction.CANCEL -> graph.localDownloads.cancel(row.episodeId)
                         DownloadAction.REMOVE_FROM_QUEUE, DownloadAction.DELETE ->
-                            graph.localDownloads.remove(fila.episodeId)
+                            graph.localDownloads.remove(row.episodeId)
                     }
                 }
             }
-            porConfirmar = null
+            pendingConfirmation = null
         },
-        onClose = { porConfirmar = null },
+        onClose = { pendingConfirmation = null },
     )
 }
