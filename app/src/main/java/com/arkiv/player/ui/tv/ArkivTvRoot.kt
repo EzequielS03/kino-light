@@ -51,7 +51,7 @@ fun ArkivTvRoot(
     // Magis vinculado en ESTE aparato?), nunca con `AccountState`/`AccountManager`. Sirve para las DOS
     // rutas que dejan un aparato sin Magis
     // vinculado (recién instalado, o vinculado y luego desvinculado). Ver el KDoc de
-    // `debeOfrecerVincularMagis` para la condición exacta.
+    // `shouldOfferMagisLink` para la condición exacta.
     //
     // `mostrarOferta` se decide UNA SOLA VEZ, al confirmarse el estado real -no en cada
     // recomposición-: esto es una oferta DE ENTRADA, no un gate que se reevalúa todo el tiempo. Si
@@ -69,7 +69,7 @@ fun ArkivTvRoot(
     var mostrarOferta by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         graph.magisAccount.refresh()
-        mostrarOferta = debeOfrecerVincularMagis(
+        mostrarOferta = shouldOfferMagisLink(
             graph.magisAccount.state.value,
             graph.settings.magisOfertaDescartada.value,
         )
@@ -93,12 +93,12 @@ fun ArkivTvRoot(
         LaunchedEffect(estadoMagis) {
             if (estadoMagis is MagisAccountState.Linked) mostrarOferta = false
         }
-        TvOfertaVincularMagis(
-            cuenta = graph.magisAccount,
+        TvMagisLinkOffer(
+            account = graph.magisAccount,
             // Se guarda la decisión (Task 10, ver SettingsStore.magisOfertaDescartada): "Ahora no" no
             // vuelve a preguntar en cada arranque. El camino sigue vivo en Ajustes
             // (TvSettingsCuenta), a propósito -esto es un atajo, no la única puerta-.
-            onAhoraNo = {
+            onNotNow = {
                 graph.settings.setMagisOfertaDescartada(true)
                 mostrarOferta = false
             },

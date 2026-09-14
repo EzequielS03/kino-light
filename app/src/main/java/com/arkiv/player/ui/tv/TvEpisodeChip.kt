@@ -35,9 +35,9 @@ import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 
 /**
- * Tarjeta de episodio para un carrusel horizontal (usada en el overlay de pausa del player y en
- * el detalle de una serie): miniatura + número + progreso ("10 de 25 min" / "Visto") + barra fina.
- * Reutilizable con D-pad: [modifier] es donde el llamador cuelga focusRequester/focusProperties.
+ * Episode card for a horizontal carousel (used in the player's pause overlay and in a series'
+ * detail): thumbnail + number + progress ("10 de 25 min" / "Visto") + thin bar.
+ * Reusable with D-pad: [modifier] is where the caller hangs focusRequester/focusProperties.
  */
 @Composable
 fun TvEpisodeChip(
@@ -50,14 +50,14 @@ fun TvEpisodeChip(
      *  that used to be the fallback was removed in this branch's pruning (see where it's drawn). */
     stillUrl: String? = null,
     /**
-     * Nombre real del capítulo (TMDB o el que trajo el gateway de Magis). Va DEBAJO del número, no
-     * en su lugar: el número identifica el capítulo que se va a reproducir y sigue siendo el dato
-     * cierto aunque el cruce con TMDB quede corrido. Null (o el capítulo sin nombre resuelto) deja
-     * el chip exactamente como estaba.
+     * The chapter's real name (TMDB, or whatever the Magis gateway brought). Goes BELOW the
+     * number, not in its place: the number identifies the chapter that's about to play and stays
+     * the trustworthy datum even if the TMDB cross-reference drifts. Null (or a chapter with no
+     * resolved name) leaves the chip exactly as it was.
      */
     episodeTitle: String? = null,
-    /** Se llama cuando este chip TOMA el foco, para que la pantalla de arriba siga al capítulo
-     *  enfocado (fondo + textos), igual que el hero del Home sigue a la card enfocada. */
+    /** Called when this chip TAKES focus, so the screen above follows the focused chapter
+     *  (background + texts), same as the Home's hero follows the focused card. */
     onFocus: (() -> Unit)? = null,
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -81,9 +81,9 @@ fun TvEpisodeChip(
         modifier = modifier
             .width(168.dp)
             .onFocusChanged {
-                // Solo al GANAR el foco: si se avisara también al perderlo, al pasar de un chip al
-                // siguiente llegaría el "perdí" del viejo después del "gané" del nuevo y el hero
-                // quedaría mostrando el capítulo equivocado.
+                // Only on GAINING focus: if losing it also notified, moving from one chip to the
+                // next would have the old one's "lost it" arrive after the new one's "got it" and
+                // the hero would end up showing the wrong chapter.
                 if (it.isFocused && !isFocused) onFocus?.invoke()
                 isFocused = it.isFocused
             }
@@ -104,8 +104,8 @@ fun TvEpisodeChip(
                 .clip(RoundedCornerShape(6.dp))
                 .background(Color.Black),
         ) {
-            // Preferencia: still real del capítulo (TMDB). La miniatura de archive.org que iba
-            // después se borró en la poda de esta rama; sin ninguna de las dos queda fondo negro.
+            // Preference: the chapter's real still (TMDB). The archive.org thumbnail that used to
+            // follow was removed in this branch's pruning; with neither, it stays black.
             val thumb = stillUrl
             AsyncImage(
                 model = thumb,
@@ -142,8 +142,9 @@ fun TvEpisodeChip(
                 it,
                 color = Color.White,
                 style = MaterialTheme.typography.labelSmall,
-                // Una línea: el chip mide 168 dp y abajo todavía va el progreso. Un nombre largo
-                // ("La conspiración de los Saiyajin") se corta, no empuja el resto del carrusel.
+                // One line: the chip is 168 dp and the progress still goes below. A long name
+                // ("La conspiración de los Saiyajin") gets cut off, not pushing the rest of the
+                // carousel.
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -161,10 +162,10 @@ fun TvEpisodeChip(
 }
 
 /**
- * Chip de una fuente de la serie ("web · 300 ep."), para elegir de cuál ver los capítulos cuando
- * la misma serie entró a la biblioteca desde varias. Mismo tratamiento de foco que
- * [TvEpisodeChip]: solo avisa al GANAR el foco, porque el "perdí" del chip viejo llega después
- * del "gané" del nuevo y dejaría la pantalla mostrando la fuente equivocada.
+ * Chip for one of the series' sources ("web · 300 ep."), to pick which one to watch the chapters
+ * from when the same series entered the library from several. Same focus treatment as
+ * [TvEpisodeChip]: only notifies on GAINING focus, because the old chip's "lost it" arrives after
+ * the new one's "got it" and would leave the screen showing the wrong source.
  */
 @Composable
 fun TvSourceChip(

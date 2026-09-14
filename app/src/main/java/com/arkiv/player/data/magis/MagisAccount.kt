@@ -18,7 +18,7 @@ sealed interface MagisAccountState {
 /**
  * The link with Magis as seen from the UI. Replaces the only thing that was still alive from
  * `AccountManager` in the three screens that consumed it (`AccountSection`, `TvSettingsCuenta`,
- * `TvOfertaVincularMagis`): holding whether there's an account and notifying when it changes.
+ * `TvMagisLinkOffer`): holding whether there's an account and notifying when it changes.
  * `AccountManager` -along with `PantallaDeEntrada`/`TvPantallaDeEntrada`, which used it for Kino's
  * login- was deleted entirely in Task 9 (sub-project 2B).
  */

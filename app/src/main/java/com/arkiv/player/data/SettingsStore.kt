@@ -26,7 +26,7 @@ class SettingsStore(context: Context) {
     val artworkRematchDone: StateFlow<Boolean> = _artworkRematchDone
 
     // "Ahora no" a la oferta de vincular Magis apenas se entra a la TV (Task 10, ver
-    // `debeOfrecerVincularMagis` en ui/tv/TvOfertaVincularMagis.kt). Es una decisión del DISPOSITIVO,
+    // `shouldOfferMagisLink` en ui/tv/TvMagisLinkOffer.kt). Es una decisión del DISPOSITIVO,
     // no de la cuenta -mismo criterio que [artworkRematchDone] acá arriba-: este es un TV
     // de uso personal, no un kiosco compartido entre cuentas. Ya NO se resetea en ningún logout
     // -Task 8 (sub-proyecto 2B) sacó los botones de "Cerrar sesión" de las pantallas de Magis, que

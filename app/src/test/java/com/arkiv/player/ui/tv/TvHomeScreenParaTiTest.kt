@@ -9,7 +9,7 @@ import org.junit.Test
  * Cubre la lógica pura detrás de la fila "Para ti" del inicio de TV: si se dibuja o no
  * ([mostrarFilaParaTi]) y qué muestra el hero al enfocar una tarjeta ([recommendationFeatured]).
  * Compose para TV no tiene infraestructura de tests de UI en este proyecto (mismo motivo que
- * `TvOfertaVincularMagisTest`), así que estas funciones -extraídas fuera del composable a
+ * `TvMagisLinkOfferTest`), así que estas funciones -extraídas fuera del composable a
  * propósito- son la parte que sí se puede probar en un JVM plano.
  */
 class TvHomeScreenParaTiTest {

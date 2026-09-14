@@ -62,7 +62,7 @@ fun TvSettingsScreen() {
     val graph = rememberGraph()
     val magisAccount = graph.magisAccount
 
-    // Linking Magis opens the SAME screen as the offer shown on entry ([TvOfertaVincularMagis]),
+    // Linking Magis opens the SAME screen as the offer shown on entry ([TvMagisLinkOffer]),
     // not a form unfolded inside the Settings list. There used to be two different UIs for the
     // same thing: here, loose fields with the system keyboard -awkward with the remote-, and in
     // the offer, the on-screen keyboard with "Log in" and "Create account". Keeping both meant
@@ -72,7 +72,7 @@ fun TvSettingsScreen() {
     var linkingMagis by remember { mutableStateOf(false) }
     if (linkingMagis) {
         val magisState by magisAccount.state.collectAsStateWithLifecycle()
-        // And it closes itself on linking. `TvOfertaVincularMagis` doesn't signal success: it
+        // And it closes itself on linking. `TvMagisLinkOffer` doesn't signal success: it
         // didn't need to, because in its original use (`ArkivTvRoot`, the offer shown on entry)
         // whoever composes it re-evaluates whether it still needs to be offered and stops
         // painting it. Here the `if` above is what governs this screen, so if nobody watches the
@@ -82,11 +82,11 @@ fun TvSettingsScreen() {
         LaunchedEffect(magisState) {
             if (magisState is MagisAccountState.Linked) linkingMagis = false
         }
-        TvOfertaVincularMagis(
-            cuenta = magisAccount,
+        TvMagisLinkOffer(
+            account = magisAccount,
             // Closing goes back to Settings, not dismissing the offer forever: the person came
             // in to link ON PURPOSE here. That's why `magisOfertaDescartada` isn't touched.
-            onAhoraNo = { linkingMagis = false },
+            onNotNow = { linkingMagis = false },
         )
         return
     }
