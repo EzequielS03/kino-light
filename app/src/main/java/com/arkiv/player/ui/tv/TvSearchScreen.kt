@@ -1221,12 +1221,12 @@ private fun TvResultsContent(
             // Una fila horizontal por fuente. El foco inicial va a la primera tarjeta de la PRIMERA
             // fila: si cada fila pidiera el foco, se lo robarían entre ellas al ir llegando.
             filas.forEach { (fuente, deLaFuente) ->
-                tvFilaDeFuente(
-                    fuente = fuente,
+                tvSourceRow(
+                    source = fuente,
                     items = deLaFuente,
                     enabled = !preparing,
                     loading = loadingOf[fuente] == true,
-                    primeraTarjeta = if (fuente == filas.first().first) firstFocus else null,
+                    firstCard = if (fuente == filas.first().first) firstFocus else null,
                     onPlay = { onSelect(it) },
                 )
             }

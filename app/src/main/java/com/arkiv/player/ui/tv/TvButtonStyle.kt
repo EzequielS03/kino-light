@@ -1,9 +1,9 @@
 package com.arkiv.player.ui.tv
 
-// Estilo único de los botones de acción en TV: inactivo = negro + borde blanco 1dp;
-// enfocado/presionado = fondo rojo Arkiv sin borde blanco; deshabilitado = superficie oscura
-// atenuada. Fuente única de verdad para que ningún botón vuelva a caer en los colores default de
-// tv.material3 (blanco inactivo / negro enfocado, exactamente al revés de lo que queremos).
+// Single style for action buttons on TV: idle = black + 1dp white border; focused/pressed =
+// Arkiv red background with no white border; disabled = dimmed dark surface. Single source of
+// truth so no button ever falls back to tv.material3's default colors (white idle / black
+// focused, exactly the opposite of what we want).
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.tv.material3.Border

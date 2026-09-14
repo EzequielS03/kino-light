@@ -29,8 +29,8 @@ import com.arkiv.player.ui.theme.ArkivTextPrimary
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
 /**
- * Tarjeta de póster (2:3, ancho = alto × 2/3) con título debajo, hasta 2 líneas.
- * Mismo patrón de foco/color que [TvLandscapeCard].
+ * Poster card (2:3, width = height x 2/3) with a title below, up to 2 lines.
+ * Same focus/color pattern as [TvLandscapeCard].
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -40,10 +40,10 @@ fun TvPosterCard(
     cardHeight: Dp,
     modifier: Modifier = Modifier,
     showTitle: Boolean = true,
-    /** Segunda línea bajo el título ("24 ep.", "12 capítulos vistos"). Null = no se dibuja. */
+    /** Second line under the title ("24 ep.", "12 capítulos vistos"). Null = not drawn. */
     subtitle: String? = null,
     onFocus: () -> Unit = {},
-    /** Mantener pulsado. Null = la tarjeta no ofrece menú contextual. */
+    /** Long press. Null = the card offers no context menu. */
     onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
@@ -88,8 +88,8 @@ fun TvPosterCard(
                 color = ArkivTextPrimary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                // 16 dp y no 6: al enfocar, la tarjeta escala 1.08 desde su centro, así que una
-                // carátula de 200 dp crece ~8 dp hacia abajo y con 6 dp de aire tapaba el título.
+                // 16 dp and not 6: on focus, the card scales 1.08 from its center, so a 200 dp
+                // cover grows ~8 dp downward and with 6 dp of clearance it covered the title.
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 16.dp),

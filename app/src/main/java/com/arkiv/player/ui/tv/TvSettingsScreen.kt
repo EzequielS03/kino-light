@@ -117,8 +117,8 @@ fun TvSettingsScreen() {
             items(TabDeAjustesTv.entries.size) { i ->
                 val t = TabDeAjustesTv.entries[i]
                 TvTab(
-                    etiqueta = t.etiqueta,
-                    seleccionada = t == tab,
+                    label = t.etiqueta,
+                    selected = t == tab,
                     onClick = { tab = t },
                     modifier = if (i == 0) Modifier.focusRequester(focoPrimerTab) else Modifier,
                 )
@@ -131,7 +131,7 @@ fun TvSettingsScreen() {
         ) {
             when (tab) {
                 TabDeAjustesTv.SUBTITULOS -> TvSettingsSubtitulos()
-                TabDeAjustesTv.CUENTA -> TvSettingsCuenta(cuentaMagis, onVincularMagis = { vinculandoMagis = true })
+                TabDeAjustesTv.CUENTA -> TvSettingsCuenta(cuentaMagis, onLinkMagis = { vinculandoMagis = true })
                 TabDeAjustesTv.APP -> TvSettingsApp()
             }
         }

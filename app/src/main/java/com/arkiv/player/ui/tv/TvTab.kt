@@ -21,32 +21,32 @@ import androidx.tv.material3.Text
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurface
 
-private val ALTO_TAB = 52.dp
+private val TAB_HEIGHT = 52.dp
 
 /**
- * Tab de una fila horizontal de TV: el gesto de "cambiar de sección grande" con el control.
+ * Tab in a TV horizontal row: the "switch big section" gesture with the remote.
  *
- * Nació como las raíces del catálogo ([TvSeccionesDeCatalogo]) y lo comparte Ajustes
- * ([TvSettingsScreen]), para que las dos filas se vean y se enfoquen igual. Si divergieran, el
- * mismo movimiento del control tendría dos aspectos distintos según la pantalla.
+ * Started with the catalog's roots ([TvSeccionesDeCatalogo]) and Settings ([TvSettingsScreen])
+ * shares it, so both rows look and focus the same way. If they diverged, the same remote
+ * movement would look different depending on the screen.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 internal fun TvTab(
-    etiqueta: String,
-    seleccionada: Boolean,
+    label: String,
+    selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.height(ALTO_TAB),
+        modifier = modifier.height(TAB_HEIGHT),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(24.dp)),
         colors = ClickableSurfaceDefaults.colors(
-            // Seleccionada y enfocada NO pueden ser el mismo rojo: con los dos iguales, mirando la
-            // pantalla no se distingue en qué tab estás parado de cuál está abierto.
-            containerColor = if (seleccionada) ArkivRed else ArkivSurface,
-            focusedContainerColor = if (seleccionada) ArkivRed else ArkivSurface,
+            // Selected and focused CANNOT be the same red: with both the same, looking at the
+            // screen you can't tell which tab you're on from which is open.
+            containerColor = if (selected) ArkivRed else ArkivSurface,
+            focusedContainerColor = if (selected) ArkivRed else ArkivSurface,
             contentColor = Color.White,
             focusedContentColor = Color.White,
         ),
@@ -59,9 +59,9 @@ internal fun TvTab(
     ) {
         Box(Modifier.fillMaxSize().padding(horizontal = 22.dp), contentAlignment = Alignment.Center) {
             Text(
-                etiqueta,
+                label,
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (seleccionada) FontWeight.Bold else FontWeight.Normal,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                 maxLines = 1,
             )
         }

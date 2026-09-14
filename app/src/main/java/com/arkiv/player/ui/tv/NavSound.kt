@@ -9,8 +9,8 @@ import androidx.compose.ui.platform.LocalContext
 import com.arkiv.player.R
 
 /**
- * Devuelve una función que reproduce un "tick" corto de navegación (estilo Netflix)
- * al cambiar de ítem enfocado en la TV. Libera el SoundPool al salir.
+ * Returns a function that plays a short navigation "tick" (Netflix-style) when the focused item
+ * changes on TV. Releases the SoundPool on exit.
  */
 @Composable
 fun rememberNavSound(): () -> Unit {

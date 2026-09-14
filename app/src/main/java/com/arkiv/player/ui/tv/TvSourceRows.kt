@@ -22,70 +22,70 @@ import com.arkiv.player.ui.theme.ArkivTextPrimary
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
 /**
- * Los resultados del buscador del TV, como una fila horizontal por fuente.
+ * The TV search's results, as one horizontal row per source.
  *
- * Antes era una sola lista vertical: con 536 torrents y 20 de magis en la misma columna, magis
- * quedaba sepultado y no había forma de llegar con el control remoto. Con una fila por fuente se
- * ven todas de un vistazo, y el D-pad hace lo natural — derecha recorre una fuente, abajo salta a
- * la siguiente. Es además el lenguaje que el Home del TV ya usa.
+ * It used to be a single vertical list: with 536 torrents and 20 from magis in the same column,
+ * magis got buried with no way to reach it with the remote. With one row per source they're all
+ * visible at a glance, and the D-pad does the natural thing -- right goes through one source,
+ * down jumps to the next. It's also the language the TV Home already uses.
  */
 
-/** Alto de las carátulas de Magis y Caracol. */
-private val ALTO_TARJETA = 220.dp
+/** Height of Magis and Caracol's covers. */
+private val CARD_HEIGHT = 220.dp
 
-/** El margen lateral de las filas del Home ([TvHomeScreen]), para que las dos pantallas alineen. */
-private val MARGEN = 48.dp
+/** The Home rows' ([TvHomeScreen]) side margin, so the two screens line up. */
+private val MARGIN = 48.dp
 
 /**
- * Una fila etiquetada con los resultados de UNA fuente.
+ * A labeled row with ONE source's results.
  *
- * Magis y Caracol traen imagen propia, así que las dos van con carátula ([TvPosterCard]).
+ * Magis and Caracol bring their own image, so both go with a cover ([TvPosterCard]).
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
-fun LazyListScope.tvFilaDeFuente(
-    fuente: SourceTab,
+fun LazyListScope.tvSourceRow(
+    source: SourceTab,
     items: List<PlaySource>,
     enabled: Boolean,
     loading: Boolean,
-    /** Solo la PRIMERA fila lo recibe: el foco inicial va a su primera tarjeta, no a la de cada fila. */
-    primeraTarjeta: FocusRequester?,
+    /** Only the FIRST row receives it: the initial focus goes to its first card, not each row's. */
+    firstCard: FocusRequester?,
     onPlay: (PlaySource) -> Unit,
 ) {
-    item(key = "fila-${fuente.name}") {
+    item(key = "fila-${source.name}") {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxWidth().padding(start = MARGEN, top = 20.dp, bottom = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = MARGIN, top = 20.dp, bottom = 8.dp),
         ) {
-            Text(fuente.label, style = MaterialTheme.typography.titleSmall, color = ArkivTextPrimary)
+            Text(source.label, style = MaterialTheme.typography.titleSmall, color = ArkivTextPrimary)
             Text("${items.size}", style = MaterialTheme.typography.labelSmall, color = ArkivTextSecondary)
             if (loading) {
                 Text("buscando…", style = MaterialTheme.typography.labelSmall, color = ArkivTextSecondary)
             }
         }
     }
-    item(key = "row-${fuente.name}") {
+    item(key = "row-${source.name}") {
         LazyRow(
-            contentPadding = PaddingValues(horizontal = MARGEN),
+            contentPadding = PaddingValues(horizontal = MARGIN),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             items(items, key = { sourceKey(it) }) { s ->
-                // El foco arranca en la primera tarjeta de la primera fila. `===` y no `==`: dos
-                // resultados pueden ser iguales por valor y no queremos pedir foco dos veces.
-                val mod = if (primeraTarjeta != null && s === items.first()) {
-                    Modifier.focusRequester(primeraTarjeta)
+                // Focus starts on the first row's first card. `===` and not `==`: two results
+                // can be equal by value and we don't want to request focus twice.
+                val mod = if (firstCard != null && s === items.first()) {
+                    Modifier.focusRequester(firstCard)
                 } else {
                     Modifier
                 }
-                // Las dos fuentes que hay traen carátula, así que las dos van como póster.
-                val (titulo, poster) = when (s) {
+                // Both sources here bring a cover, so both go as a poster.
+                val (title, poster) = when (s) {
                     is PlaySource.Magis -> s.result.title to s.result.extra["poster"]
                     is PlaySource.Ditu -> s.result.title to s.result.extra["poster"]
                 }
                 TvPosterCard(
-                    title = titulo,
+                    title = title,
                     posterUrl = poster,
-                    cardHeight = ALTO_TARJETA,
+                    cardHeight = CARD_HEIGHT,
                     modifier = mod,
                 ) { onPlay(s) }
             }

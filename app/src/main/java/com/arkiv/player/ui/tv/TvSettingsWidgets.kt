@@ -12,20 +12,20 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 
-// Los renglones de Ajustes de TV. Los comparten los cuatro tabs (TvSettings*.kt), así que viven
-// acá y no dentro de ninguno: si cada tab tuviera el suyo, el foco se vería distinto según dónde
-// estés parado.
+// TV Settings' rows. Shared by all four tabs (TvSettings*.kt), so they live here and not inside
+// any of them: if each tab had its own, focus would look different depending on where you are.
 
-// Estilo único de los botones de Ajustes (TvActionOption): inactivo = negro + borde blanco 1dp;
-// enfocado/presionado = fondo rojo Arkiv, sin borde blanco. Delega al estilo compartido de
-// botones-acción de TV (TvButtonStyle.kt) para que Ajustes no se desincronice del resto de la app.
+// Single style for Settings' buttons (TvActionOption): idle = black + 1dp white border;
+// focused/pressed = Arkiv red background, no white border. Delegates to TV's shared
+// action-button style (TvButtonStyle.kt) so Settings doesn't drift out of sync with the rest of
+// the app.
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-internal fun tvBotonColors() = arkivTvSurfaceColors()
+internal fun tvButtonColors() = arkivTvSurfaceColors()
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-internal fun tvBotonBorder() = arkivTvSurfaceBorder()
+internal fun tvButtonBorder() = arkivTvSurfaceBorder()
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -34,11 +34,11 @@ internal fun TvActionOption(label: String, onClick: () -> Unit) {
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(0.6f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-        // Superficie negra + borde blanco inactivo, rojo Arkiv al enfocar/presionar (estándar
-        // compartido en TvButtonStyle.kt). Sin colores explícitos el Surface de tv.material3 cae
-        // en el esquema claro por defecto de la librería y el botón se veía BLANCO.
-        colors = tvBotonColors(),
-        border = tvBotonBorder(),
+        // Black surface + white idle border, Arkiv red on focus/press (shared standard in
+        // TvButtonStyle.kt). Without explicit colors, tv.material3's Surface falls back to the
+        // library's default light scheme and the button looked WHITE.
+        colors = tvButtonColors(),
+        border = tvButtonBorder(),
     ) {
         Text(label, color = Color.White, modifier = Modifier.padding(16.dp))
     }

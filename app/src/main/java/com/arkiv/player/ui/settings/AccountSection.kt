@@ -86,7 +86,7 @@ private fun LinkedSection(account: MagisAccount, state: MagisAccountState.Linked
                 // try/finally, not try/catch: unlink() doesn't throw -MagisSession.logout() never
                 // throws, it returns a MagisResult-, but without the finally an unexpected
                 // exception left the button stuck on "Desvinculando…" forever. Same pattern as the
-                // TV (TvSettingsCuenta.TvVinculadaSection).
+                // TV (TvSettingsCuenta.TvLinkedSection).
                 try {
                     account.unlink()
                 } finally {

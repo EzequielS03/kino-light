@@ -242,8 +242,8 @@ fun TvSeccionesDeCatalogo(
             ) {
                 items(raices.size) { i ->
                     TvTab(
-                        etiqueta = raices[i].second,
-                        seleccionada = i == raizIdx,
+                        label = raices[i].second,
+                        selected = i == raizIdx,
                         onClick = { raizIdx = i },
                         modifier = if (i == 0) Modifier.focusRequester(focoPrimerTab) else Modifier,
                     )

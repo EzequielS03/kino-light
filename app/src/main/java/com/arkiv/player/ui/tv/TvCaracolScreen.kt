@@ -240,14 +240,14 @@ private fun TvCaracolContenido(
                     ) {
                         item {
                             TvTab(
-                                etiqueta = "Catálogo",
-                                seleccionada = !enVivo,
+                                label = "Catálogo",
+                                selected = !enVivo,
                                 onClick = { enVivo = false },
                                 modifier = Modifier.focusRequester(focoPrimerTab),
                             )
                         }
-                        item { TvTab(etiqueta = "En vivo", seleccionada = enVivo, onClick = { enVivo = true }) }
-                        item { TvTab(etiqueta = "Recargar", seleccionada = false, onClick = alRecargar) }
+                        item { TvTab(label = "En vivo", selected = enVivo, onClick = { enVivo = true }) }
+                        item { TvTab(label = "Recargar", selected = false, onClick = alRecargar) }
                     }
                 }
 
