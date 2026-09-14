@@ -223,7 +223,7 @@ fun CaracolScreen(onPlay: (episodeId: String) -> Unit, contentPadding: PaddingVa
     dituSeason?.let { season ->
         MagisSeasonDialog(
             season = season,
-            client = graph.fuenteDeContenido,
+            client = graph.contentSource,
             onDismiss = { dituSeason = null },
             onPlay = { chapters, chapter, series ->
                 dituSeason = null

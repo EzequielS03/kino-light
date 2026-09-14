@@ -56,7 +56,7 @@ class ArkivApp : Application(), ImageLoaderFactory {
             }.onFailure { reportar(it, "startup: purge recents") }
         }
 
-        graph.iniciarMonitorDeRed()
+        graph.startNetworkMonitor()
 
         // OTA: periodic check every 6 hours + immediate check on startup.
         androidx.work.WorkManager.getInstance(this).enqueueUniquePeriodicWork(
@@ -77,7 +77,7 @@ class ArkivApp : Application(), ImageLoaderFactory {
         // lives inside because app startup happens many times a day (just leaving and coming back
         // does it), and checking every single time would waste network for nothing.
         graph.applicationScope.launch {
-            runCatching { graph.buscarCapitulosNuevos() }
+            runCatching { graph.lookForNewChapters() }
                 .onFailure { reportar(it, "startup: look for new episodes") }
         }
     }

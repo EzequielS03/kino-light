@@ -341,7 +341,7 @@ data class EpisodeFrameEntity(
  * A recommendation generated ON THE DEVICE by
  * [com.arkiv.player.data.recomendaciones.ForYouGenerator], with Kilo's free models, from the
  * local history, for the home's "Para ti" row. The app DOES write here directly
- * (`RecomendacionDao.reemplazar`, called from `AppGraph.generadorParaTi`): there's no PocketBase
+ * (`RecomendacionDao.reemplazar`, called from `AppGraph.forYouGenerator`): there's no PocketBase
  * or sync behind it -- `CloudSyncManager` doesn't exist in this branch.
  *
  * The local key is [id] (the already-resolved source's id, see

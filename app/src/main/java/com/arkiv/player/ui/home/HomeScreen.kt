@@ -181,7 +181,7 @@ fun HomeScreen(
     LaunchedEffect(Unit) {
         countryChannels = countryChannelsForHome(
             context = context,
-            api = graph.catalogoDeVivo,
+            api = graph.liveCatalog,
             cacheDao = liveCacheDao,
             prefs = context.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE),
         )
@@ -197,7 +197,7 @@ fun HomeScreen(
         onPlayLive(channel.code)
     }
 
-    val hasInternet by graph.hayInternet.collectAsStateWithLifecycle()
+    val hasInternet by graph.hasInternet.collectAsStateWithLifecycle()
 
     if (!hasInternet) {
         Box(

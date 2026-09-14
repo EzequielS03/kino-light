@@ -123,7 +123,7 @@ fun TvSearchScreen(
             initializer {
                 SearchViewModel(
                     graph.tmdbApi, graph.aniListApi,
-                    graph.settings, graph.fuenteDeContenido,
+                    graph.settings, graph.contentSource,
                     graph.searchHistory,
                 )
             }
@@ -519,7 +519,7 @@ fun TvSearchScreen(
                 if (currentMagis != null) {
                     TvMagisSeasonContent(
                         season = currentMagis,
-                        client = graph.fuenteDeContenido,
+                        client = graph.contentSource,
                         posterUrl = resultPoster,
                         preparing = preparing,
                         onPlayOne = { chapters, chapter, series ->
@@ -1277,7 +1277,7 @@ internal fun TvCaracolChapters(
     TvMagisSeasonContent(
         season = series,
         // The composed source: with a Caracol ref, `episodesWithSeries` reaches `DituSource`.
-        client = graph.fuenteDeContenido,
+        client = graph.contentSource,
         posterUrl = posterUrl,
         preparing = preparing,
         // With the whole list the screen already loaded: all get saved, the tapped one plays.

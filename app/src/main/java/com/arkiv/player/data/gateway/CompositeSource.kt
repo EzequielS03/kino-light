@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.onEach
 
 /**
  * Several sources behind a single one. Exists so that adding Caracol -- and later RCN -- doesn't
- * force touching any screen: `AppGraph.fuenteDeContenido` stays as ONE object.
+ * force touching any screen: `AppGraph.contentSource` stays as ONE object.
  *
  * Two rules govern the search:
  *

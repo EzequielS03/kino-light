@@ -246,7 +246,7 @@ class SearchViewModel(
 
             fun append(new: List<PlaySource>) { _sources.value = _sources.value + new }
 
-            // `arkivApiClient` is the composite source (`AppGraph.fuenteDeContenido`: Magis and
+            // `arkivApiClient` is the composite source (`AppGraph.contentSource`: Magis and
             // Caracol, each straight to its own API). This used to sit behind a flag (`useGateway`)
             // so it could be turned off without publishing an APK and fall back "to the old path":
             // there's no more old path or flag -- nobody had a way to turn it off.

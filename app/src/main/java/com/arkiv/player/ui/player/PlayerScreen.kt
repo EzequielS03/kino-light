@@ -362,10 +362,10 @@ private fun PlayerContent(
                     graph.localLibrary, graph.localFileServer, graph.frameCapturer,
                     graph.liveController, graph.database.liveRecentDao(),
                     isTv = isTv,
-                    source = graph.fuenteDeContenido,
+                    source = graph.contentSource,
                     dituSource = graph.dituSource,
                     hasMagisAccount = { graph.magisSession.hasAccountLinked },
-                    triviaFacts = graph.datosCuriosos,
+                    triviaFacts = graph.triviaFacts,
                 )
             }
         },
@@ -2691,7 +2691,7 @@ private fun PlayerContent(
                 drmLicenseUrl = dPlay.playable.drmLicenseUrl,
                 drmLicenseHeaders = dPlay.playable.drmLicenseHeaders,
                 localDownload = dPlay.localDownload,
-                store = graph.almacenDeCaracol,
+                store = graph.caracolStore,
                 mirror = mirror,
                 startPositionMs = dPlay.startPositionMs,
                 autoStart = dPlay.autoStart,
@@ -3682,7 +3682,7 @@ private fun PlayerContent(
                 DlnaCastButtons(casting = casting, castContext = castContext, onDiscoverDlna = dlnaState::discover)
             }
             // This card is for Magis live: its channel and its EPG. Caracol doesn't have it.
-            if (isMagisLive) ChannelCard(state = liveState, channel = liveChannel, liveApi = graph.catalogoDeVivo)
+            if (isMagisLive) ChannelCard(state = liveState, channel = liveChannel, liveApi = graph.liveCatalog)
         }
 
         // Whether the button HAD focus. It's a latch, not the live reading of `isFocused`: when

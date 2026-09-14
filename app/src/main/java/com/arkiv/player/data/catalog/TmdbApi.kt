@@ -136,7 +136,7 @@ class TmdbApi(
     /**
      * A 45 s `callTimeout` ON TOP OF the loose timeouts: those reset with every byte that
      * arrives, so a response that trickles in would never time out without a cap on the whole
-     * call (same reason as `AppGraph.httpDelPortal`'s `callTimeout`).
+     * call (same reason as `AppGraph.portalHttp`'s `callTimeout`).
      */
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)

@@ -49,33 +49,33 @@ class AppGraph(context: Context) {
     private val _updateInfo = kotlinx.coroutines.flow.MutableStateFlow<UpdateInfo?>(null)
     val updateInfo: kotlinx.coroutines.flow.StateFlow<UpdateInfo?> = _updateInfo
 
-    private val _hayInternet = kotlinx.coroutines.flow.MutableStateFlow(true)
-    val hayInternet: kotlinx.coroutines.flow.StateFlow<Boolean> = _hayInternet
+    private val _hasInternet = kotlinx.coroutines.flow.MutableStateFlow(true)
+    val hasInternet: kotlinx.coroutines.flow.StateFlow<Boolean> = _hasInternet
 
-    private val monitorDeRed: android.net.ConnectivityManager.NetworkCallback by lazy {
+    private val networkMonitor: android.net.ConnectivityManager.NetworkCallback by lazy {
         object : android.net.ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: android.net.Network) { _hayInternet.value = true }
+            override fun onAvailable(network: android.net.Network) { _hasInternet.value = true }
             override fun onLost(network: android.net.Network) {
                 val cm = appContext.getSystemService(android.net.ConnectivityManager::class.java)
-                val activa = cm?.activeNetwork
-                if (activa == null) _hayInternet.value = false
+                val active = cm?.activeNetwork
+                if (active == null) _hasInternet.value = false
             }
-            override fun onUnavailable() { _hayInternet.value = false }
+            override fun onUnavailable() { _hasInternet.value = false }
         }.also { cb ->
             runCatching {
                 val cm = appContext.getSystemService(android.net.ConnectivityManager::class.java)
                     ?: return@runCatching
                 // Initial state: check whether there's already a network at startup
-                val activa = cm.activeNetwork
-                val caps = activa?.let { cm.getNetworkCapabilities(it) }
-                _hayInternet.value = caps?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+                val active = cm.activeNetwork
+                val caps = active?.let { cm.getNetworkCapabilities(it) }
+                _hasInternet.value = caps?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
                 cm.registerDefaultNetworkCallback(cb)
-            }.onFailure { android.util.Log.w("ArkivRed", "monitorDeRed: ${it.message}") }
+            }.onFailure { android.util.Log.w("ArkivRed", "networkMonitor: ${it.message}") }
         }
     }
 
     /** Starts the connectivity monitor; call from Application.onCreate. */
-    fun iniciarMonitorDeRed() { monitorDeRed }  // access forces the lazy to initialize
+    fun startNetworkMonitor() { networkMonitor }  // access forces the lazy to initialize
 
     val apkDownloader: ApkDownloader by lazy { ApkDownloader(appContext) }
 
@@ -91,7 +91,7 @@ class AppGraph(context: Context) {
      * `readTimeout`, 25s, because the portal takes up to ~11s to resolve some channels (measured)
      * and OkHttp's default read timeout is 10 -it was killing it right before it landed-.
      */
-    val httpDelPortal: okhttp3.OkHttpClient by lazy {
+    val portalHttp: okhttp3.OkHttpClient by lazy {
         okhttp3.OkHttpClient.Builder()
             .callTimeout(45, java.util.concurrent.TimeUnit.SECONDS)
             .build()
@@ -118,7 +118,7 @@ class AppGraph(context: Context) {
             // default read timeout is 10, i.e. it was killing them right before they landed.
             // `newBuilder()` and not a new client: shares the connection pool with the rest of the
             // calls to the portal.
-            http = httpDelPortal.newBuilder()
+            http = portalHttp.newBuilder()
                 .readTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
                 .build(),
         )
@@ -143,7 +143,7 @@ class AppGraph(context: Context) {
         com.arkiv.player.data.magis.MagisCatalog(magisPortal, magisSession)
     }
 
-    /** Magis titles, straight from the portal. Only visible from outside through [fuenteDeContenido]. */
+    /** Magis titles, straight from the portal. Only visible from outside through [contentSource]. */
     private val magisSource: com.arkiv.player.data.gateway.ContentSource by lazy {
         com.arkiv.player.data.magis.MagisSource(
             catalog = magisCatalog,
@@ -161,7 +161,7 @@ class AppGraph(context: Context) {
         com.arkiv.player.data.ditu.DituClient()
     }
 
-    /** Caracol as a title source. `internal` in addition to being inside [fuenteDeContenido]:
+    /** Caracol as a title source. `internal` in addition to being inside [contentSource]:
      *  the channels and the full catalog aren't part of the common contract. */
     internal val dituSource: com.arkiv.player.data.ditu.DituSource by lazy {
         com.arkiv.player.data.ditu.DituSource(
@@ -177,7 +177,7 @@ class AppGraph(context: Context) {
      * object. To resolve and list episodes it dispatches by `ref` (each source recognizes its
      * own); to search, it merges both. See [com.arkiv.player.data.gateway.CompositeSource].
      */
-    val fuenteDeContenido: com.arkiv.player.data.gateway.ContentSource by lazy {
+    val contentSource: com.arkiv.player.data.gateway.ContentSource by lazy {
         com.arkiv.player.data.gateway.CompositeSource(listOf(magisSource, dituSource))
     }
 
@@ -186,7 +186,7 @@ class AppGraph(context: Context) {
     }
 
     /** Live categories and channels + the catalog's section tree, straight from the portal. */
-    internal val catalogoDeVivo: com.arkiv.player.data.magis.MagisLiveCatalog by lazy {
+    internal val liveCatalog: com.arkiv.player.data.magis.MagisLiveCatalog by lazy {
         com.arkiv.player.data.magis.MagisLiveCatalog(magisCatalog, magisPortal, magisSession)
     }
 
@@ -202,7 +202,7 @@ class AppGraph(context: Context) {
             // After an unrecoverable double 403 (expired session, no signature): invalidates THAT
             // channel's cached session so the next abrir()/precalentar() resolves against the
             // gateway again instead of reusing the one we already know is dead for up to 300s more.
-            onSessionDead = { canal -> liveController.invalidate(canal) },
+            onSessionDead = { channel -> liveController.invalidate(channel) },
         )
     }
 
@@ -211,7 +211,7 @@ class AppGraph(context: Context) {
     val liveController: com.arkiv.player.ui.live.LiveController by lazy {
         com.arkiv.player.ui.live.LiveController(
             resolver = { code -> magisLive.resolveOrThrow(code) },
-            urlFor = { sesion -> liveHlsProxy.urlFor(sesion) },
+            urlFor = { session -> liveHlsProxy.urlFor(session) },
         )
     }
 
@@ -259,19 +259,19 @@ class AppGraph(context: Context) {
 
     /**
      * On-disk folder for the frame JPEGs, a single point so that whoever writes
-     * ([frameCapturer]) and whoever reads ([almacenDeFrames], from the repository) ALWAYS use the
+     * ([frameCapturer]) and whoever reads ([frameStore], from the repository) ALWAYS use the
      * same path.
      */
     private val framesDir: java.io.File by lazy { java.io.File(appContext.filesDir, "frames") }
 
-    val almacenDeFrames: com.arkiv.player.thumbnails.FrameStore by lazy {
+    val frameStore: com.arkiv.player.thumbnails.FrameStore by lazy {
         com.arkiv.player.thumbnails.FrameStore(framesDir)
     }
 
     /** Best-effort capture of the frame currently playing, for each episode's thumbnail. */
     val frameCapturer: com.arkiv.player.thumbnails.FrameCapturer by lazy {
         com.arkiv.player.thumbnails.FrameCapturer(
-            store = almacenDeFrames,
+            store = frameStore,
             dao = database.episodeFrameDao(),
             playbackDao = database.playbackDao(),
         )
@@ -281,11 +281,11 @@ class AppGraph(context: Context) {
      * The only point that knows how to delete a frame (file + row), and a single instance for
      * everyone: it's passed by constructor to [repository] (manual toggle, progress at 60%, and
      * removing an item from the library) -it used to also go to `LibraryWiper` (logout), deleted in
-     * Task 9 along with the rest of accounts- — same [almacenDeFrames], same `episodeFrameDao` as
+     * Task 9 along with the rest of accounts- — same [frameStore], same `episodeFrameDao` as
      * [frameCapturer].
      */
-    val destructorDeFrames: com.arkiv.player.thumbnails.FrameDestroyer by lazy {
-        com.arkiv.player.thumbnails.FrameDestroyer(almacenDeFrames, database.episodeFrameDao())
+    val frameDestroyer: com.arkiv.player.thumbnails.FrameDestroyer by lazy {
+        com.arkiv.player.thumbnails.FrameDestroyer(frameStore, database.episodeFrameDao())
     }
 
     /** Serves the local file over HTTP so it can be cast (a file:// doesn't reach the Chromecast). */
@@ -345,13 +345,13 @@ class AppGraph(context: Context) {
     val downloadStrategies: Map<String, com.arkiv.player.data.local.DownloadStrategy> by lazy {
         mapOf(
             "magis" to com.arkiv.player.data.local.MagisDownloadStrategy(
-                repository, fuenteDeContenido, httpRangeDownloader,
+                repository, contentSource, httpRangeDownloader,
             ),
             // Caracol. With this key present, `DownloadSource.canDownload` starts saying yes for
             // its episodes and the UI shows the button on its own -- that's exactly the contract
             // this documents: a source with no strategy stays hidden, one with a strategy shows up.
             "ditu" to com.arkiv.player.data.local.DituDownloadStrategy(
-                repository, fuenteDeContenido, almacenDeCaracol,
+                repository, contentSource, caracolStore,
             ),
         )
     }
@@ -363,7 +363,7 @@ class AppGraph(context: Context) {
      * Hangs off the same directory as regular downloads so the free space `LocalDownloadManager`
      * measures is the same disk that actually fills up.
      */
-    val almacenDeCaracol: com.arkiv.player.data.caracol.CaracolStore by lazy {
+    val caracolStore: com.arkiv.player.data.caracol.CaracolStore by lazy {
         com.arkiv.player.data.caracol.CaracolStore(
             appContext,
             java.io.File(localDownloads.targetDir(), "caracol"),
@@ -375,13 +375,13 @@ class AppGraph(context: Context) {
     val repository: ArkivRepository by lazy {
         ArkivRepository(
             database, tmdbApi,
-            frameStore = almacenDeFrames,
-            frameDestroyer = destructorDeFrames,
+            frameStore = frameStore,
+            frameDestroyer = frameDestroyer,
         ).also { repo ->
             // "For you" only exists on the TV home: on the phone there's no row to fill, and every
             // generation pass asks Kilo several times.
             if (DeviceType.isTelevision(appContext)) {
-                repo.onEpisodeFinished = { applicationScope.launch { generadorParaTi.generateIfDue() } }
+                repo.onEpisodeFinished = { applicationScope.launch { forYouGenerator.generateIfDue() } }
             }
         }
     }
@@ -392,7 +392,7 @@ class AppGraph(context: Context) {
     /**
      * Task 9 (sub-project 2B): it used to take `httpGatewayCorto`, a client derived from
      * `httpGateway.newBuilder()` only to share its connection pool -and which for that reason
-     * inherited its `callTimeout(45s)`-. Without that shared client (see [httpDelPortal], which is
+     * inherited its `callTimeout(45s)`-. Without that shared client (see [portalHttp], which is
      * now only for the Magis portal), `TmdbApi` goes back to its own default `OkHttpClient`, which
      * now also carries that same `callTimeout(45s)` -see its constructor's default- so as not to
      * lose it: TMDB is a DIFFERENT host, so sharing a pool with the portal never brought any real
@@ -410,20 +410,20 @@ class AppGraph(context: Context) {
      * as long as the process, same as the proxy, and keeping it on hand leaves the option to stop
      * it someday if needed. See [com.arkiv.player.playback.NetworkChange].
      */
-    private var vigilanteDeRed: com.arkiv.player.playback.NetworkWatchdog? = null
+    private var networkWatchdog: com.arkiv.player.playback.NetworkWatchdog? = null
 
     val archiveCacheProxy: com.arkiv.player.playback.ArchiveCacheProxy by lazy {
         com.arkiv.player.playback.ArchiveCacheProxy(java.io.File(appContext.cacheDir, "archive-cache"))
             .also { proxy ->
-                vigilanteDeRed = com.arkiv.player.playback.NetworkWatchdog(appContext) { motivo ->
-                    proxy.abandonConnections(motivo)
+                networkWatchdog = com.arkiv.player.playback.NetworkWatchdog(appContext) { reason ->
+                    proxy.abandonConnections(reason)
                 }.apply { start() }
             }
     }
     val applicationScope: CoroutineScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
 
     /** The client for Kilo's free models (sub-project 4). No key: see its KDoc. */
-    internal val clienteDeIa: com.arkiv.player.data.ia.AiClient by lazy {
+    internal val aiClient: com.arkiv.player.data.ia.AiClient by lazy {
         com.arkiv.player.data.ia.AiClient(
             memory = com.arkiv.player.data.ia.ModelMemory(
                 com.arkiv.player.data.ia.PreferencesStore(appContext),
@@ -432,11 +432,11 @@ class AppGraph(context: Context) {
     }
 
     /** The player's fun fact (sub-project 4): Kilo, from the device, a month of caching. */
-    internal val datosCuriosos: com.arkiv.player.data.trivia.TriviaFacts by lazy {
+    internal val triviaFacts: com.arkiv.player.data.trivia.TriviaFacts by lazy {
         com.arkiv.player.data.trivia.TriviaFacts(
-            ia = { clienteDeIa.ask(it) },
+            ia = { aiClient.ask(it) },
             cache = com.arkiv.player.data.trivia.DiskTriviaCache(
-                java.io.File(appContext.filesDir, "datos-curiosos"),
+                java.io.File(appContext.filesDir, "trivia-facts"),
             ) { System.currentTimeMillis() },
         )
     }
@@ -446,21 +446,21 @@ class AppGraph(context: Context) {
      * against the composite source (Magis and Caracol). Every network step catches its own
      * failures so a broken candidate doesn't take down the others; cancellation is always rethrown.
      */
-    internal val generadorParaTi: ForYouGenerator by lazy {
-        val verificacion = ForYouVerification(
-            tmdb = TmdbSearcher { tipo, titulo ->
+    internal val forYouGenerator: ForYouGenerator by lazy {
+        val verification = ForYouVerification(
+            tmdb = TmdbSearcher { type, title ->
                 try {
-                    tmdbApi.search(tipo, titulo).firstOrNull()
+                    tmdbApi.search(type, title).firstOrNull()
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     null
                 }
             },
-            sources = SourceSearcher { titulo, tipo, _, tmdbId ->
+            sources = SourceSearcher { title, type, _, tmdbId ->
                 try {
-                    fuenteDeContenido
-                        .search(com.arkiv.player.data.gateway.GatewaySearchQuery(q = titulo, type = tipo, tmdbId = tmdbId))
+                    contentSource
+                        .search(com.arkiv.player.data.gateway.GatewaySearchQuery(q = title, type = type, tmdbId = tmdbId))
                         .filterIsInstance<com.arkiv.player.data.gateway.SearchEvent.ResultEvent>()
                         // The `kind` the source builds is the type that was SEARCHED FOR, not the
                         // item's own (see the KDoc on `withRealKind`): fixed here, before the
@@ -474,10 +474,10 @@ class AppGraph(context: Context) {
                     emptyList()
                 }
             },
-            referee = AiReferee { clienteDeIa.ask(it) },
+            referee = AiReferee { aiClient.ask(it) },
         )
         ForYouGenerator(
-            ia = { clienteDeIa.ask(it) },
+            ia = { aiClient.ask(it) },
             history = { HistorySignals.of(database.playbackDao().recentHistory(100)) },
             alreadySeen = {
                 database.itemDao().getAllItems().filter { !it.deleted }.flatMap { item ->
@@ -488,7 +488,7 @@ class AppGraph(context: Context) {
                     )
                 }.toSet()
             },
-            verify = { candidatos, vistos -> verificacion.verify(candidatos, vistos) },
+            verify = { candidates, seen -> verification.verify(candidates, seen) },
             save = { database.recomendacionDao().replace(it, System.currentTimeMillis()) },
             readMarks = { settings.paraTiUltimoIntentoMs to settings.paraTiUltimoFueFalloDelModelo },
             writeMarks = { t, f -> settings.marcarIntentoDeParaTi(t, f) },
@@ -497,21 +497,21 @@ class AppGraph(context: Context) {
 
     /**
      * Adds to the library whatever is picked from the home's "For you" row. Needs
-     * `fuenteDeContenido` in addition to the repository: a series recommendation carries the
+     * `contentSource` in addition to the repository: a series recommendation carries the
      * season's ref, and the episodes have to be requested from the portal (`MagisCatalog.detail`).
      */
-    val agregadorDeRecomendaciones by lazy {
+    val recommendationAggregator by lazy {
         com.arkiv.player.data.recomendaciones.RecommendationAggregator(
             repo = repository,
-            gateway = fuenteDeContenido,
+            gateway = contentSource,
         )
     }
 
-    private val buscadorDeCapitulos by lazy {
+    private val newChapterFinder by lazy {
         com.arkiv.player.data.nuevos.NewChapterFinder(
             repo = repository,
             itemDao = database.itemDao(),
-            gateway = fuenteDeContenido,
+            gateway = contentSource,
         )
     }
 
@@ -520,18 +520,18 @@ class AppGraph(context: Context) {
      *
      * The throttle is needed because `Application.onCreate` runs many times a day —just leaving
      * the app and coming back does it— and every pass costs network (for web, one search per
-     * candidate episode). Once every [HORAS_ENTRE_BUSQUEDAS] hours is more than enough: episodes
+     * candidate episode). Once every [HOURS_BETWEEN_SEARCHES] hours is more than enough: episodes
      * don't come out more often than that.
      */
-    suspend fun buscarCapitulosNuevos() {
+    suspend fun lookForNewChapters() {
         val prefs = appContext.getSharedPreferences("arkiv_nuevos", android.content.Context.MODE_PRIVATE)
-        val ultima = prefs.getLong(KEY_ULTIMA_BUSQUEDA, 0L)
-        val ahora = System.currentTimeMillis()
-        if (ahora - ultima < HORAS_ENTRE_BUSQUEDAS * 60 * 60 * 1000L) return
+        val last = prefs.getLong(KEY_LAST_SEARCH, 0L)
+        val now = System.currentTimeMillis()
+        if (now - last < HOURS_BETWEEN_SEARCHES * 60 * 60 * 1000L) return
         // Sealed BEFORE searching: if the search takes a while and the user closes and reopens the
         // app in the middle, two passes don't start stepping on each other against the same sources.
-        prefs.edit().putLong(KEY_ULTIMA_BUSQUEDA, ahora).apply()
-        buscadorDeCapitulos.findNewChapters()
+        prefs.edit().putLong(KEY_LAST_SEARCH, now).apply()
+        newChapterFinder.findNewChapters()
     }
 
     /**
@@ -569,9 +569,9 @@ class AppGraph(context: Context) {
         @Volatile
         private var instance: AppGraph? = null
 
-        /** At most how often new episodes are looked for. See [buscarCapitulosNuevos]. */
-        private const val HORAS_ENTRE_BUSQUEDAS = 6L
-        private const val KEY_ULTIMA_BUSQUEDA = "ultima_busqueda_ms"
+        /** At most how often new episodes are looked for. See [lookForNewChapters]. */
+        private const val HOURS_BETWEEN_SEARCHES = 6L
+        private const val KEY_LAST_SEARCH = "ultima_busqueda_ms"
 
         fun from(context: Context): AppGraph =
             instance ?: synchronized(this) {

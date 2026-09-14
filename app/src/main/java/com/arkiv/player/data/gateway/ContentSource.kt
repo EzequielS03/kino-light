@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.Flow
  * interface and not on a concrete gateway client, so moving from the gateway to the portal's
  * direct client doesn't touch them. Today two sources implement it, `MagisSource` and
  * `DituSource`, and a third implementation, `CompositeSource`, joins them behind the single
- * object the screens see (`AppGraph.fuenteDeContenido`). The models are still called `Gateway*`
+ * object the screens see (`AppGraph.contentSource`). The models are still called `Gateway*`
  * because renaming them would be churn with no gain (they're the contract, not the transport).
  *
  * Errors travel as [GatewayException]: whoever calls already catches them that way.

@@ -78,7 +78,7 @@ class CaracolDownloadProbe : BroadcastReceiver() {
                 "  row      : state=${row?.state} source=${row?.source} bytes=${row?.bytesDone}/${row?.bytes}\n" +
                 "  record   : ${download?.let { "${it.height}p, ${it.keys.size} tracks, mpd=${it.mpd.take(60)}" } ?: "none"}\n" +
                 "  asFile   : ${asFile ?: "null (correct: Caracol must NOT go to the local-file player)"}\n" +
-                "  onDisk   : ${graph.almacenDeCaracol.bytesOnDisk() / 1_000_000}MB of Caracol",
+                "  onDisk   : ${graph.caracolStore.bytesOnDisk() / 1_000_000}MB of Caracol",
         )
     }
 
@@ -93,9 +93,9 @@ class CaracolDownloadProbe : BroadcastReceiver() {
         val chosen = chapters.getOrNull(chapterNumber - 1) ?: return
         val epId = SearchPlayback(graph).dituEpisodeIdFor(season, chapters, chosen, series) ?: return
 
-        val before = graph.almacenDeCaracol.bytesOnDisk()
+        val before = graph.caracolStore.bytesOnDisk()
         graph.localDownloads.remove(epId)
-        val after = graph.almacenDeCaracol.bytesOnDisk()
+        val after = graph.caracolStore.bytesOnDisk()
         val row = graph.database.downloadDao().get(epId)
         val record = java.io.File(
             graph.localDownloads.targetDir(),
@@ -115,7 +115,7 @@ class CaracolDownloadProbe : BroadcastReceiver() {
         seriesId: String,
     ): Triple<GatewayResult, List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewaySerie?>? {
         val ref = "ditu1:BUNDLE:$seriesId"
-        val (chapters, series) = runCatching { graph.fuenteDeContenido.episodesWithSeries(ref) }
+        val (chapters, series) = runCatching { graph.contentSource.episodesWithSeries(ref) }
             .getOrElse { Log.e(TAG, "couldn't list the season", it); return null }
         if (chapters.isEmpty()) { Log.e(TAG, "that season has no chapters"); return null }
         val season = GatewayResult(

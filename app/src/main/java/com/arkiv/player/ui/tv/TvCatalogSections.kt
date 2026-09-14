@@ -120,7 +120,7 @@ fun TvCatalogSections(
     LaunchedEffect(root, includeAdults) {
         sections = emptyList()
         loading = true
-        runCatching { graph.catalogoDeVivo.tree(root, includeAdults) }
+        runCatching { graph.liveCatalog.tree(root, includeAdults) }
             .onSuccess { sections = it; error = null }
             .onFailure { error = it.message ?: "No se pudo cargar" }
         loading = false

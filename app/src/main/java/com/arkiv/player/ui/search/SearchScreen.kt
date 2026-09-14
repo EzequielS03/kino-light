@@ -117,7 +117,7 @@ fun SearchScreen(
             initializer {
                 SearchViewModel(
                     graph.tmdbApi, graph.aniListApi,
-                    graph.settings, graph.fuenteDeContenido,
+                    graph.settings, graph.contentSource,
                     graph.searchHistory,
                 )
             }
@@ -342,7 +342,7 @@ fun SearchScreen(
     magisSeason?.let { season ->
         com.arkiv.player.ui.catalog.MagisSeasonDialog(
             season = season,
-            client = graph.fuenteDeContenido,
+            client = graph.contentSource,
             onDismiss = { magisSeason = null },
             onPlay = { chapters, chapter, series ->
                 magisSeason = null
@@ -375,7 +375,7 @@ fun SearchScreen(
         com.arkiv.player.ui.catalog.MagisSeasonDialog(
             season = caracolSeries,
             // The composite source: with a Caracol ref, `episodesWithSeries` reaches `DituSource`.
-            client = graph.fuenteDeContenido,
+            client = graph.contentSource,
             onDismiss = { dituSeason = null },
             // Saves to the library every chapter the window already loaded, and plays the tapped one.
             onPlay = { chapters, chapter, series ->

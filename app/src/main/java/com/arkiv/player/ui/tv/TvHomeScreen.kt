@@ -258,7 +258,7 @@ fun TvHomeScreen(
     val vm: HomeViewModel = viewModel(
         factory = viewModelFactory { initializer { HomeViewModel(graph.repository, graph.tmdbApi, graph.aniListApi, graph.settings) } },
     )
-    val hasInternet by graph.hayInternet.collectAsStateWithLifecycle()
+    val hasInternet by graph.hasInternet.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
     val continueWatching by vm.continueWatching.collectAsStateWithLifecycle()
     val artwork by vm.artwork.collectAsStateWithLifecycle()
@@ -274,10 +274,10 @@ fun TvHomeScreen(
     // which left the `recomendaciones` table empty in practice for a while. Since sub-project 4 it
     // gets repopulated again by a completely different, on-device path: `ForYouGenerator`
     // (`data/recomendaciones`) asks Kilo directly and writes here through
-    // `AppGraph.generadorParaTi`, triggered from `repo.alTerminarAlgo` whenever something finishes
-    // playing -- no server of its own involved.
+    // `AppGraph.forYouGenerator`, triggered from `repo.onEpisodeFinished` whenever something
+    // finishes playing -- no server of its own involved.
     val recommendationDao = remember { graph.database.recomendacionDao() }
-    val aggregator = remember { graph.agregadorDeRecomendaciones }
+    val aggregator = remember { graph.recommendationAggregator }
     val recommendations by recommendationDao.observeActive().collectAsStateWithLifecycle(initialValue = emptyList())
 
     // Recent live channels -- same criterion as the phone's home (see its KDoc in HomeScreen.kt):
@@ -304,7 +304,7 @@ fun TvHomeScreen(
     LaunchedEffect(Unit) {
         countryChannels = countryChannelsForHome(
             context = context,
-            api = graph.catalogoDeVivo,
+            api = graph.liveCatalog,
             cacheDao = liveCacheDao,
             prefs = context.getSharedPreferences(SettingsStore.PREFS_NAME, android.content.Context.MODE_PRIVATE),
         )

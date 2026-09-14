@@ -130,7 +130,7 @@ fun TvLiveGuideScreen(onWatchChannel: (LiveChannel) -> Unit, onBack: () -> Unit)
         factory = viewModelFactory {
             initializer {
                 LiveViewModel(
-                    graph.catalogoDeVivo, graph.database.liveFavoriteDao(),
+                    graph.liveCatalog, graph.database.liveFavoriteDao(),
                     graph.database.liveChannelCacheDao(),
                     // Read on EVERY load, not once: unlocking 18+ from Settings has to show up
                     // on returning to the screen, without restarting the app.
