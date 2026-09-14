@@ -56,8 +56,8 @@ import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
-private const val HERO_ESCALA = 1.12f
-private const val HERO_DERIVA_MS = 14_000
+private const val HERO_SCALE = 1.12f
+private const val HERO_DRIFT_MS = 14_000
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -79,7 +79,7 @@ fun TvCategoriasScreen(
     var featured by remember { mutableStateOf<Featured?>(null) }
     val navSound = rememberNavSound()
 
-    // Restaurar scroll guardado en el VM (sobrevive navigate → back).
+    // Restore the scroll saved in the VM (survives navigate → back).
     val rowsListState = rememberLazyListState(
         initialFirstVisibleItemIndex = vm.tvScrollIndex,
         initialFirstVisibleItemScrollOffset = vm.tvScrollOffset,
@@ -96,18 +96,18 @@ fun TvCategoriasScreen(
     val labelHeight = 26.dp
     val rowGap = 14.dp
     val rowsTopPad = 6.dp
-    // Un grupo = label + fila + spacer. Alto fijo para que encajen exactamente 2 grupos visibles.
+    // A group = label + row + spacer. Fixed height so exactly 2 groups fit visibly.
     val rowUnit = labelHeight + cardHeight + rowGap
     val rowsRegionHeight = rowUnit * 2 + rowsTopPad
 
-    val heroDeriva by rememberInfiniteTransition(label = "heroDeriva").animateFloat(
+    val heroDrift by rememberInfiniteTransition(label = "heroDrift").animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = HERO_DERIVA_MS, easing = LinearEasing),
+            animation = tween(durationMillis = HERO_DRIFT_MS, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse,
         ),
-        label = "heroDerivaX",
+        label = "heroDriftX",
     )
 
     if (loading && rows.isEmpty()) {
@@ -117,13 +117,13 @@ fun TvCategoriasScreen(
         return
     }
 
-    // Agrupar secciones de una vez para pasarlas como items atómicos al LazyColumn.
+    // Group sections once to pass them as atomic items to the LazyColumn.
     data class Section(val key: String, val label: String, val suffix: String, val specs: List<HomeRowSpec>)
     val sections = buildList {
-        val fijas = rows.filter { it.id in setOf("cartelera", "peliculas_populares", "tendencias", "series_populares", "series_top", "anime", "anime_populares", "anime_top") }
-        if (fijas.isNotEmpty()) add(Section("destacadas", "Destacadas", "", fijas))
-        val pelis = rows.filter { it.id.startsWith("g_movie_") }
-        if (pelis.isNotEmpty()) add(Section("pelis", "Géneros · Películas", " · Películas", pelis))
+        val fixed = rows.filter { it.id in setOf("cartelera", "peliculas_populares", "tendencias", "series_populares", "series_top", "anime", "anime_populares", "anime_top") }
+        if (fixed.isNotEmpty()) add(Section("destacadas", "Destacadas", "", fixed))
+        val movies = rows.filter { it.id.startsWith("g_movie_") }
+        if (movies.isNotEmpty()) add(Section("pelis", "Géneros · Películas", " · Películas", movies))
         val series = rows.filter { it.id.startsWith("g_tv_") }
         if (series.isNotEmpty()) add(Section("series", "Géneros · Series", " · Series", series))
         val anime = rows.filter { it.id.startsWith("g_anime_") }
@@ -132,7 +132,7 @@ fun TvCategoriasScreen(
 
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {
 
-        // Fondo inmersivo: preview de la categoría enfocada + degradados.
+        // Immersive background: the focused category's preview + gradients.
         Crossfade(targetState = featured?.imageUrl, animationSpec = tween(450), label = "bg") { url ->
             Box(Modifier.fillMaxSize()) {
                 AsyncImage(
@@ -144,10 +144,10 @@ fun TvCategoriasScreen(
                         .fillMaxHeight()
                         .align(Alignment.TopEnd)
                         .graphicsLayer {
-                            val margen = size.width * (HERO_ESCALA - 1f) / 2f
-                            scaleX = HERO_ESCALA
-                            scaleY = HERO_ESCALA
-                            translationX = (heroDeriva * 2f - 1f) * margen
+                            val margin = size.width * (HERO_SCALE - 1f) / 2f
+                            scaleX = HERO_SCALE
+                            scaleY = HERO_SCALE
+                            translationX = (heroDrift * 2f - 1f) * margin
                         },
                 )
                 Box(
@@ -165,7 +165,7 @@ fun TvCategoriasScreen(
 
         Column(Modifier.fillMaxSize()) {
 
-            // ── Hero fijo ──────────────────────────────────────────────────────────────────────
+            // ── Fixed hero ──────────────────────────────────────────────────────────────────────
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -192,9 +192,9 @@ fun TvCategoriasScreen(
                 }
             }
 
-            // ── Filas de categorías (exactamente 2 secciones visibles) ─────────────────────────
-            // Cada sección es UN item del LazyColumn (label + fila horizontal + spacer en Column)
-            // para que la altura sea atómica y encaje sin cortar la segunda fila.
+            // ── Category rows (exactly 2 sections visible) ─────────────────────────
+            // Each section is ONE LazyColumn item (label + horizontal row + spacer in a Column)
+            // so the height is atomic and fits without clipping the second row.
             CompositionLocalProvider(LocalBringIntoViewSpec provides TraerConScrollMinimo) {
                 LazyColumn(
                     state = rowsListState,
