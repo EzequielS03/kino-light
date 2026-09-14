@@ -9,15 +9,18 @@ English" line in `.claude/reglas.md`.
 Order chosen by the user: **módulo por módulo, de menor a mayor riesgo** (module by module,
 lowest to highest risk).
 
-## Overall completion: roughly **78-82%** of the whole sweep
+## Overall completion: roughly **82-85%** of the whole sweep
 
 - `playback/`, `security/`, `dlna/`, `cast/`, `thumbnails/`: **100% done.**
-- `data/`: **~98% done** — two files left, `MagisEntities.kt` and `DituEntities.kt` (see below).
+- `data/`: **~98% done** — three files left now: `MagisEntities.kt`, `DituEntities.kt`, and
+  `LibraryGrouping.kt` (found this session — `LibraryGroup.nuevos` and other content still
+  Spanish; see below).
 - `ui/` (159 main files across 14 subpackages, plus 6 top-level files, plus tests): roughly
-  **68-70% done**. Fully finished packages: `detail/`, `downloads/`, `components/`, `offline/`,
+  **77-80% done**. Fully finished packages: `detail/`, `downloads/`, `components/`, `offline/`,
   `library/`, `theme/`, `update/`, `settings/`, `home/`, `search/`, `catalog/`, `live/`, plus all 6
-  top-level `ui/*.kt` files. `tv/` is IN PROGRESS this session (about 15 of ~26 main files done,
-  see below). Not touched at all: `player/` (23 files, the single largest untouched package).
+  top-level `ui/*.kt` files. `tv/` is IN PROGRESS this session — 21 of 26 main files done, only
+  `TvHomeScreen.kt` (58K) and `TvSearchScreen.kt` (72K) remain, the two largest files in all of
+  `ui/`. Not touched at all: `player/` (23 files, the single largest untouched package).
 
 `ui/` is far bigger than `data/` was (159 main files vs. roughly 90 in `data/`), so raw file count
 means the overall codebase is still under most-of-the-way-done even though `data/` is essentially
@@ -191,14 +194,48 @@ Fully translated so far (main + matching tests where they exist):
   `ArkivTvRoot.kt`, `TvSettingsScreen.kt`, `SettingsStore.kt`, `MagisAccount.kt`,
   `TvHomeScreenParaTiTest.kt`'s comment references (those files are not yet fully processed).
 
-**NOT yet touched** (still fully Spanish, ripple-only at most so far): `ArkivTvRoot.kt`,
-`TvCajonDeCanales.kt`, `TvCaracolScreen.kt`, `TvCategoriasScreen.kt`, `TvDetailScreen.kt` (got a
-bit more: its `episodeMeta` function was fully translated earlier, from the `ChapterLabel`
-ripple), `TvHomeScreen.kt` (58K, the largest file in the package), `TvKeyboard.kt` + test,
-`TvLiveGuideScreen.kt`, `TvRowBrowseScreen.kt`, `TvSearchScreen.kt` (72K, the largest file in
-`ui/`), `TvSeccionesDeCatalogo.kt`, `library/TvDownloadsSection.kt`, `library/TvLibraryScreen.kt`.
-This is the **second-largest** `ui/` package and likely high-risk (TV-specific focus/navigation
-logic) — remaining work is substantial, several files are 15-72K.
+Also fully translated (added later in the session):
+
+- `library/TvLibraryScreen.kt` (`TvMenuItem`/`seriesSubtitle`/`TvPosterGrid`/`TvLibraryItemDialog`
+  with English params; `LibraryGroup.nuevos` left as-is — belongs to `data/LibraryGrouping.kt`,
+  not yet processed, a third `data/` gap alongside `MagisEntities.kt`/`DituEntities.kt`).
+- `library/TvDownloadsSection.kt` (`DownloadConfirmation` enum with `STOP`/`REMOVE`,
+  `TvDownloadActionsDialog` with English params) — **this completes `ui/tv/library/` fully.**
+- `TvKeyboard.kt` + test (`TvKeyboardMode.UPPER`/`LOWER`/`SYMBOLS`, was `MAYUS`/`MINUS`/`SIMBOLOS`;
+  `TvKey.Mode`, was `TvKey.Modo`; `onMode` param, was `onModo`) — rippled into
+  `TvKeyboardAndFields.kt`/`TvMagisLinkOffer.kt`.
+- `TvRowBrowseScreen.kt` (`BROWSE_HERO_SCALE`/`BROWSE_HERO_DRIFT_MS`, comments) —
+  `TraerConScrollMinimo`/`Featured` (from `TvHomeScreen.kt`) left as-is.
+- `TvCategoriasScreen.kt` (`HERO_SCALE`/`HERO_DRIFT_MS`, locals, comments) — same not-yet-processed
+  externals left as-is.
+- `TvCaracolScreen.kt` (`TvCaracolContent`/`TitleRow`/`HeroText`/`Message`/`Focused`/`CaracolRow`,
+  was `TvCaracolContenido`/`FilaDeTitulos`/`TextoDelHero`/`Mensaje`/`Enfocado`/`FilaDeCaracol`, plus
+  all locals) — `TvCapitulosDeCaracol`/`PivotoDeTv`/`TraerConScrollMinimo` left as-is (belong to
+  `TvSearchScreen.kt`/`TvHomeScreen.kt`).
+- `ArkivTvRoot.kt` (`magisConfirmed`/`showOffer`/`magisState`/`unlocked`/`scope` locals, full
+  comment translation) — named args for not-yet-processed screens kept matching their real
+  Spanish param names.
+- `TvCajonDeCanales.kt`→`TvChannelDrawer.kt` (`TvChannelDrawer` with `focus`/`onFocus`/
+  `onChooseChannel`/`currentChannel` params, `DrawerItem`/`DrawerChannelRow`/`DrawerMessage`) —
+  rippled into `PlayerVivo.kt`'s import and call site.
+- `TvLiveGuideScreen.kt` (`onWatchChannel`/`onBack` params, `TvLocalView`/`TvCategoryChip`/
+  `TvGuideMessage`/`TvChannelRow`) — rippled into `ArkivTvRoot.kt`'s call site.
+- `TvDetailScreen.kt`'s remaining dense comment blocks (identifiers were already English from the
+  earlier `ChapterLabel` ripple).
+- `TvSeccionesDeCatalogo.kt`→`TvCatalogSections.kt` (`TvCatalogSections` with `includeAdults`/
+  `onPlay`/`onBack` params, `HeroBackground`/`HeroText`/`rowsOf`/`metadataFor`/`ItemsRow`/
+  `Message`/`CatalogRow`) — `ItemDeCatalogo`/`SeccionDeCatalogo` (from `data/gateway/`, not yet
+  processed) and their fields left as-is. Rippled into `ArkivTvRoot.kt`'s call site and stale
+  comment references in `TvTab.kt`/`TvHomeScreen.kt`/`TvSettingsScreen.kt`/`TvCaracolScreen.kt`.
+
+**NOT yet touched**: only `TvHomeScreen.kt` (58K, the largest file in the package) and
+`TvSearchScreen.kt` (72K, the single largest file in all of `ui/`) remain. Both still fully
+Spanish; both are heavily cross-referenced by already-translated files (`PivotoDeTv`,
+`TraerConScrollMinimo`, `Featured`, `TvRowLabel` all live in `TvHomeScreen.kt`; `TvCapitulosDeCaracol`,
+`TvSeasonChip`, `TvRefineRow` in `TvSearchScreen.kt`) — expect heavy ripple both ways once these
+two are tackled. This is the **second-largest** `ui/` package and likely high-risk (TV-specific
+focus/navigation logic) — these two files alone are roughly as much code as everything already
+done in this package combined.
 
 ### `ui/` — NOT touched at all
 
@@ -271,12 +308,12 @@ f. Two `ContentSource` implementations — **`MagisFuente`** and **`DituFuente`*
 
 1. Continue `ui/` lowest-to-highest risk. `detail/`, `downloads/`, `components/`, `offline/`,
    `library/`, `theme/`, `update/`, `settings/`, `home/`, `search/`, `catalog/`, `live/` are done.
-   Remaining: `tv/` (26 files, second-largest, ~9 ripple touches so far), then `player/` last
-   (23 files, likely highest-risk — actual playback logic, completely untouched).
-2. After `ui/` is fully done, circle back to close the two remaining `data/` gaps
-   (`MagisEntities.kt`, `DituEntities.kt`) with the same careful treatment as the original
-   `data/magis/`/`data/ditu/` sweeps — these are self-contained enough that they don't block `ui/`
-   progress, but the sweep isn't truly 100% without them.
+   `tv/` is 21/26 files done — only `TvHomeScreen.kt` (58K) and `TvSearchScreen.kt` (72K) remain,
+   then `player/` last (23 files, likely highest-risk — actual playback logic, completely untouched).
+2. After `ui/` is fully done, circle back to close the three remaining `data/` gaps
+   (`MagisEntities.kt`, `DituEntities.kt`, `LibraryGrouping.kt`) with the same careful treatment as
+   the original `data/magis/`/`data/ditu/` sweeps — these are self-contained enough that they
+   don't block `ui/` progress, but the sweep isn't truly 100% without them.
 3. Once both `data/` and `ui/` are 100%, revisit whether `MagisFuente`/`DituFuente` class names are
    now cheap enough to rename too (exception f above).
 4. **Whenever a bare top-level `fun`/`val` gets renamed** (not a class/object member), grep
