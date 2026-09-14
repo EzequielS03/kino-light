@@ -10,7 +10,7 @@ import org.junit.Test
  * Las reglas puras del dato curioso: cuál sigue al que se está viendo, si hay algo que mostrar y
  * si el episodio lleva dato curioso. Viven en funciones puras porque este proyecto no
  * tiene tests de interfaz: escritas adentro del Composable no se podrían probar de ninguna forma
- * (mismo criterio que `DpadDelDrawer`).
+ * (mismo criterio que `DrawerDpad`).
  */
 class TriviaDelPlayerTest {
 

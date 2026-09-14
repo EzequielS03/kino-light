@@ -45,7 +45,7 @@ import kotlinx.coroutines.delay
  *
  * Vive aparte del Composable a propósito: este proyecto no tiene tests de interfaz, así que una
  * regla escrita adentro del `PlayerScreen` no se podría probar de ninguna forma (mismo criterio
- * que `DpadDelDrawer`).
+ * que `DrawerDpad`).
  */
 object TriviaDelPlayer {
 

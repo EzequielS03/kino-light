@@ -93,8 +93,8 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
-import com.arkiv.player.ui.live.AccionDelDrawer
-import com.arkiv.player.ui.live.DpadDelDrawer
+import com.arkiv.player.ui.live.DrawerAction
+import com.arkiv.player.ui.live.DrawerDpad
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
@@ -2571,8 +2571,8 @@ private fun PlayerContent(
                                 // pasar el caso "cerrado + izquierda".
                                 if (vivoDeMagis) {
                                     val accionDelCajon =
-                                        DpadDelDrawer.accion(keyCode, estadoVivo.cajonAbierto, estadoVivo.focoCajon)
-                                    if (accionDelCajon == AccionDelDrawer.ABRIR) {
+                                        DrawerDpad.action(keyCode, estadoVivo.cajonAbierto, estadoVivo.focoCajon)
+                                    if (accionDelCajon == DrawerAction.OPEN) {
                                         estadoVivo.abrirCajon()
                                         return@setOnKeyListener true
                                     }

@@ -42,7 +42,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.ui.live.CATEGORIA_FAVORITOS
-import com.arkiv.player.ui.live.FocoDelDrawer
+import com.arkiv.player.ui.live.DrawerFocus
 import com.arkiv.player.ui.live.DrawerIndex
 import com.arkiv.player.ui.live.LiveViewModel
 import com.arkiv.player.ui.live.filtrar
@@ -65,7 +65,7 @@ private val ALTO_ITEM = 52.dp
  * a la que se va, y el punto de esto es cambiar de canal SIN dejar de ver lo que estás viendo.
  * Por eso ocupa una franja y el video sigue corriendo al lado.
  *
- * Las flechas las decide [com.arkiv.player.ui.live.DpadDelDrawer], que es puro y está cubierto
+ * Las flechas las decide [com.arkiv.player.ui.live.DrawerDpad], que es puro y está cubierto
  * por tests: acá solo se pinta y se mueve el foco. Esa separación no es ceremonia — el proyecto
  * no tiene tests de interfaz, así que una regla de navegación escrita adentro de un composable
  * no se puede probar de ninguna forma.
@@ -76,8 +76,8 @@ private val ALTO_ITEM = 52.dp
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvCajonDeCanales(
-    foco: FocoDelDrawer,
-    onFoco: (FocoDelDrawer) -> Unit,
+    foco: DrawerFocus,
+    onFoco: (DrawerFocus) -> Unit,
     onElegirCanal: (List<LiveChannel>, LiveChannel) -> Unit,
     canalActual: String?,
 ) {
@@ -116,9 +116,9 @@ fun TvCajonDeCanales(
     // mismo patrón que ya usa TvLiveGuideScreen para su chip inicial.
     LaunchedEffect(foco, indiceActual, canales.isEmpty()) {
         val destino = when (foco) {
-            FocoDelDrawer.CATEGORIAS -> focoCategorias
-            FocoDelDrawer.CANALES -> if (canales.isEmpty()) focoCategorias else focoCanales
-            FocoDelDrawer.TECLADO -> focoTeclado
+            DrawerFocus.CATEGORIES -> focoCategorias
+            DrawerFocus.CHANNELS -> if (canales.isEmpty()) focoCategorias else focoCanales
+            DrawerFocus.KEYBOARD -> focoTeclado
         }
         // Posicionar ANTES de pedir el foco, y sin animar: una fila que no está compuesta no
         // puede recibirlo, y el intento hace saltar la lista a la que sí lo está.
@@ -139,7 +139,7 @@ fun TvCajonDeCanales(
             .padding(start = 32.dp, end = 16.dp, top = 24.dp, bottom = 16.dp),
     ) {
         Column(Modifier.width(ANCHO_CATEGORIAS).fillMaxHeight().padding(end = 12.dp)) {
-            if (foco == FocoDelDrawer.TECLADO) {
+            if (foco == DrawerFocus.KEYBOARD) {
                 Text(
                     busqueda.ifBlank { "Escribí para buscar…" },
                     style = MaterialTheme.typography.bodySmall,
@@ -157,7 +157,7 @@ fun TvCajonDeCanales(
                 CajonItem(
                     etiqueta = if (busqueda.isBlank()) "Buscar…" else "“$busqueda”",
                     seleccionado = busqueda.isNotBlank(),
-                    onClick = { onFoco(FocoDelDrawer.TECLADO) },
+                    onClick = { onFoco(DrawerFocus.KEYBOARD) },
                     modifier = Modifier.focusRequester(focoCategorias),
                 )
                 Spacer(Modifier.height(10.dp))

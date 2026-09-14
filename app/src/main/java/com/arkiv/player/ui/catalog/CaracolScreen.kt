@@ -306,7 +306,7 @@ private fun CaracolChannels(
     }
 }
 
-/** A channel row: logo + name, same visual treatment as `GuiaCanalRow` (ui/live). */
+/** A channel row: logo + name, same visual treatment as `GuideChannelRow` (ui/live). */
 @Composable
 private fun CaracolChannelRow(channel: DituChannel, onClick: () -> Unit) {
     Row(

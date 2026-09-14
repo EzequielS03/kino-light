@@ -474,7 +474,7 @@ class PlayerViewModel internal constructor(
             _playlist.value = null
             _magisItem.value = null
             ditu.limpiar()
-            val url = runCatching { liveController.abrir(canal.code) }.getOrElse {
+            val url = runCatching { liveController.open(canal.code) }.getOrElse {
                 Log.w(PLAY, "abrirCanalActual() failed for ${canal.code}: ${it.message}")
                 if (zapping?.current?.code == canal.code) {
                     _error.value = mensajeErrorVivo(hayCuentaDeMagis(), canal.nombre)
@@ -650,7 +650,7 @@ class PlayerViewModel internal constructor(
         val vecinos = zapping?.neighbors() ?: return
         precalentarJob = viewModelScope.launch {
             delay(1000)
-            vecinos.forEach { vecino -> launch { runCatching { liveController.precalentar(vecino.code) } } }
+            vecinos.forEach { vecino -> launch { runCatching { liveController.preheat(vecino.code) } } }
         }
     }
 

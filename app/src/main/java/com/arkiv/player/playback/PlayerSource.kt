@@ -45,7 +45,7 @@ data class PlayerSourceTag(
 object PlayerSource {
     /**
      * Prefix of a live channel (Task 14): `episodeId = "live:<code>"`, the same `code` that
-     * [com.arkiv.player.ui.live.LiveController.abrir] receives. Lives here (instead of repeated as
+     * [com.arkiv.player.ui.live.LiveController.open] receives. Lives here (instead of repeated as
      * a string literal at each call site) because both whoever builds the navigation route
      * (ArkivRoot/ArkivTvRoot) and whoever reads it (PlayerViewModel) have to agree.
      */

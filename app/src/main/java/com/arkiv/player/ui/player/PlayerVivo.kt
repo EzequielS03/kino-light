@@ -47,10 +47,10 @@ import coil.compose.AsyncImage
 import com.arkiv.player.data.gateway.LiveCatalogGateway
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.data.gateway.LiveProgram
-import com.arkiv.player.ui.live.AccionDelDrawer
-import com.arkiv.player.ui.live.DpadDelDrawer
-import com.arkiv.player.ui.live.FocoDelDrawer
-import com.arkiv.player.ui.live.enCurso
+import com.arkiv.player.ui.live.DrawerAction
+import com.arkiv.player.ui.live.DrawerDpad
+import com.arkiv.player.ui.live.DrawerFocus
+import com.arkiv.player.ui.live.currentProgram
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurface
 import com.arkiv.player.ui.theme.ArkivTextSecondary
@@ -96,8 +96,8 @@ internal class EstadoDeVivo {
     var cajonAbierto by mutableStateOf(false)
         private set
 
-    /** Qué columna del cajón tiene el foco. Las reglas de las flechas viven en [DpadDelDrawer]. */
-    var focoCajon by mutableStateOf(FocoDelDrawer.CANALES)
+    /** Qué columna del cajón tiene el foco. Las reglas de las flechas viven en [DrawerDpad]. */
+    var focoCajon by mutableStateOf(DrawerFocus.CHANNELS)
         private set
 
     /** Equivalente de `bump()` de VOD: anuncia el canal y reinicia la cuenta de los 3 s. */
@@ -116,7 +116,7 @@ internal class EstadoDeVivo {
     }
 
     fun abrirCajon() {
-        focoCajon = FocoDelDrawer.CANALES
+        focoCajon = DrawerFocus.CHANNELS
         cajonAbierto = true
         // La ficha taparía el pie del cajón, y además el cajón ya dice en qué canal estás.
         infoVisible = false
@@ -126,7 +126,7 @@ internal class EstadoDeVivo {
         cajonAbierto = false
     }
 
-    fun moverFocoDelCajon(foco: FocoDelDrawer) {
+    fun moverFocoDelCajon(foco: DrawerFocus) {
         focoCajon = foco
     }
 
@@ -142,7 +142,7 @@ internal class EstadoDeVivo {
         val epg = runCatching { liveApi.epg(listOf(canal.code)) }.getOrNull() ?: return
         val progs = epg.first[canal.code] ?: return
         val instante = System.currentTimeMillis() / 1000
-        val actual = enCurso(progs, instante)
+        val actual = currentProgram(progs, instante)
         ahora = actual
         despues = progs.firstOrNull { it.inicio >= (actual?.fin ?: instante) }
     }
@@ -296,10 +296,10 @@ internal fun BoxScope.CajonDeCanalesDelVivo(
             // vez de que la lista se la coma.
             .onPreviewKeyEvent { e ->
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when (DpadDelDrawer.accion(e.key.nativeKeyCode, abierto = true, foco = estado.focoCajon)) {
-                    AccionDelDrawer.CERRAR -> { estado.cerrarCajon(); true }
-                    AccionDelDrawer.A_CANALES -> { estado.moverFocoDelCajon(FocoDelDrawer.CANALES); true }
-                    AccionDelDrawer.A_CATEGORIAS -> { estado.moverFocoDelCajon(FocoDelDrawer.CATEGORIAS); true }
+                when (DrawerDpad.action(e.key.nativeKeyCode, open = true, focus = estado.focoCajon)) {
+                    DrawerAction.CLOSE -> { estado.cerrarCajon(); true }
+                    DrawerAction.TO_CHANNELS -> { estado.moverFocoDelCajon(DrawerFocus.CHANNELS); true }
+                    DrawerAction.TO_CATEGORIES -> { estado.moverFocoDelCajon(DrawerFocus.CATEGORIES); true }
                     // De la lista: que la resuelva el foco de Compose. `false` la deja seguir;
                     // consumirla acá dejaría la lista inmóvil.
                     else -> false

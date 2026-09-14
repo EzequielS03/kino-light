@@ -13,24 +13,24 @@ class LiveGuideListTest {
     )
 
     @Test
-    fun `el programa en curso es el que contiene el instante`() {
-        assertEquals("Ahora", enCurso(progs, 250)?.titulo)
+    fun `the current program is the one containing the instant`() {
+        assertEquals("Ahora", currentProgram(progs, 250)?.titulo)
     }
 
     @Test
-    fun `el borde de fin ya pertenece al siguiente`() {
-        assertEquals("Después", enCurso(progs, 300)?.titulo)
+    fun `the end boundary already belongs to the next one`() {
+        assertEquals("Después", currentProgram(progs, 300)?.titulo)
     }
 
     @Test
-    fun `fuera de la grilla no hay programa`() {
-        assertNull(enCurso(progs, 50))
-        assertNull(enCurso(progs, 999))
+    fun `outside the grid there's no program`() {
+        assertNull(currentProgram(progs, 50))
+        assertNull(currentProgram(progs, 999))
     }
 
     @Test
-    fun `el avance va de cero a uno`() {
-        assertEquals(0.5f, avance(progs[1], 250), 0.001f)
-        assertEquals(0f, avance(progs[1], 200), 0.001f)
+    fun `progress goes from zero to one`() {
+        assertEquals(0.5f, progressOf(progs[1], 250), 0.001f)
+        assertEquals(0f, progressOf(progs[1], 200), 0.001f)
     }
 }

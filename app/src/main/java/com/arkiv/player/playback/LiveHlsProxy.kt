@@ -34,7 +34,7 @@ import java.net.URLEncoder
  * means the channel's session (token/license) expired, not the signature -- see the KDoc of
  * [requestFromOrigin] -- so whoever resolved it (`LiveController`) must ask the gateway for it again
  * next time, instead of serving the cached copy that's already known to be dead until it expires
- * on its own (up to 300s; see `LiveController.vigente`). Without this notice the channel stays
+ * on its own (up to 300s; see `LiveController.valid`). Without this notice the channel stays
  * broken that whole time even if the user zaps away and back (a finding from "the same wave" of
  * the final review).
  */

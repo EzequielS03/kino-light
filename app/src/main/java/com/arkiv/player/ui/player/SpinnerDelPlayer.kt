@@ -3,7 +3,7 @@ package com.arkiv.player.ui.player
 /**
  * When to cover the screen with the loading spinner.
  *
- * Lives outside the Composable on purpose -- same criterion as `DpadDelDrawer` -- because the
+ * Lives outside the Composable on purpose -- same criterion as `DrawerDpad` -- because the
  * condition is evaluated in TWO places: the overlay that draws it and the log that diagnoses it.
  * Written twice it goes out of sync on the first change, and then the log stops describing what's
  * actually on screen, which is exactly what it exists for.

@@ -189,7 +189,7 @@ class PlaybackService : MediaSessionService() {
             // close() only invalidates the cache of resolved sessions (there's no socket to release
             // here, stop() above already did that) so the next channel opened doesn't reuse a stale
             // gateway session after a long network cut or the process being paused.
-            runCatching { graph.liveController.cerrar() }
+            runCatching { graph.liveController.close() }
         }
     }
 

@@ -94,7 +94,7 @@ private enum class TvVistaLocal { NINGUNA, RECIENTES }
  * (nunca tenía datos que mostrar). El celular NO se toca: su guía (`LiveGuideList.kt`) ya maneja
  * "sin programación" con un texto y sigue andando por su propio botón "Ver ahora", así que no
  * comparte el problema de foco/click de esta pantalla y no había nada que arreglarle ahí.
- * `enCurso`/`avance` (`LiveGuideList.kt`) siguen usándose ahí sin cambios; `anchoDp`/`ventanaDe`
+ * `currentProgram`/`progressOf` (`LiveGuideList.kt`) siguen usándose ahí sin cambios; `anchoDp`/`ventanaDe`
  * (los helpers del timeline, solo usados por ESTA pantalla) se borraron junto con sus tests.
  *
  * Foco con el mando -- las CUATRO direcciones quedan cubiertas por la navegación estándar de
@@ -317,7 +317,7 @@ private fun TvCanalRow(canal: LiveChannel, onClick: () -> Unit, modifier: Modifi
         ) {
             // Logo -- ya funciona (posterList[].fileUrl): es la forma más rápida de reconocer un
             // canal de un vistazo. Si no hay logo, el número hace de reemplazo (mismo criterio que
-            // ChannelCard/GuiaCanalRow, que ya resuelven este fallback).
+            // ChannelCard/GuideChannelRow, que ya resuelven este fallback).
             Box(
                 modifier = Modifier.size(52.dp).clip(RoundedCornerShape(8.dp)).background(ArkivSurfaceHigh),
                 contentAlignment = Alignment.Center,

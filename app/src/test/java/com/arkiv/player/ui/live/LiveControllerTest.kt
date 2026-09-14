@@ -13,144 +13,142 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class LiveControllerTest {
     @Test
-    fun `abrir un canal devuelve una url local para VLC`() = runBlocking {
+    fun `opening a channel returns a local url for VLC`() = runBlocking {
         val ctrl = LiveController(
             resolver = { code -> LiveSession("h", "http://x/?token=${"A".repeat(32)}", "L", code, 0) },
-            urlPara = { s -> "http://127.0.0.1:9999/live.m3u8?c=${s.channel}" },
+            urlFor = { s -> "http://127.0.0.1:9999/live.m3u8?c=${s.channel}" },
         )
-        assertTrue(ctrl.abrir("c1").startsWith("http://127.0.0.1:"))
+        assertTrue(ctrl.open("c1").startsWith("http://127.0.0.1:"))
     }
 
     @Test
-    fun `precalentar el vecino no vuelve a resolver cuando se abre`() = runBlocking {
-        var resoluciones = 0
+    fun `preheating the neighbor doesn't resolve again on opening`() = runBlocking {
+        var resolutions = 0
         val ctrl = LiveController(
-            resolver = { code -> resoluciones++; LiveSession("h", "http://x/?token=${"A".repeat(32)}", "L", code, 0) },
-            urlPara = { "http://127.0.0.1:9999/live.m3u8" },
+            resolver = { code -> resolutions++; LiveSession("h", "http://x/?token=${"A".repeat(32)}", "L", code, 0) },
+            urlFor = { "http://127.0.0.1:9999/live.m3u8" },
         )
-        ctrl.precalentar("c2")
-        ctrl.abrir("c2")
-        assertEquals("el canal precalentado ya estaba resuelto", 1, resoluciones)
+        ctrl.preheat("c2")
+        ctrl.open("c2")
+        assertEquals("the preheated channel was already resolved", 1, resolutions)
     }
 
     @Test
-    fun `una sesion vencida se vuelve a resolver`() = runBlocking {
-        var resoluciones = 0
+    fun `an expired session resolves again`() = runBlocking {
+        var resolutions = 0
         val ctrl = LiveController(
             resolver = { code ->
-                resoluciones++
+                resolutions++
                 LiveSession("h", "http://x/?token=${"A".repeat(32)}", "L", code, expiresAt = 1)
             },
-            urlPara = { "http://127.0.0.1:9999/live.m3u8" },
-            ahora = { 999_999 },
+            urlFor = { "http://127.0.0.1:9999/live.m3u8" },
+            now = { 999_999 },
         )
-        ctrl.precalentar("c3")
-        ctrl.abrir("c3")
-        assertEquals(2, resoluciones)
+        ctrl.preheat("c3")
+        ctrl.open("c3")
+        assertEquals(2, resolutions)
     }
 
     @Test
-    fun `precalentar que falla no propaga la excepcion ni deja nada cacheado`() = runBlocking {
-        // Riesgo del brief: "precalentar es best-effort y cancelable: no debe propagar
-        // excepciones ni dejar el estado inconsistente si falla". Si la resolución que dispara
-        // el precalentado revienta, abrir() debe re-resolver desde cero, sin heredar ningún
-        // estado parcial ni ver la excepción original.
-        var intentos = 0
+    fun `a failing preheat doesn't propagate the exception or leave anything cached`() = runBlocking {
+        // Risk from the brief: "preheat is best-effort and cancelable: it must not propagate
+        // exceptions or leave inconsistent state if it fails". If the resolution triggered by
+        // preheating blows up, open() must re-resolve from scratch, inheriting no partial state
+        // and never seeing the original exception.
+        var attempts = 0
         val ctrl = LiveController(
             resolver = { code ->
-                intentos++
-                if (intentos == 1) throw RuntimeException("el portal esta caido")
+                attempts++
+                if (attempts == 1) throw RuntimeException("the portal is down")
                 LiveSession("h", "http://x/?token=${"A".repeat(32)}", "L", code, 0)
             },
-            urlPara = { "http://127.0.0.1:9999/live.m3u8" },
+            urlFor = { "http://127.0.0.1:9999/live.m3u8" },
         )
-        ctrl.precalentar("c4") // no debe lanzar
-        val url = ctrl.abrir("c4")
-        assertEquals(2, intentos)
+        ctrl.preheat("c4") // must not throw
+        val url = ctrl.open("c4")
+        assertEquals(2, attempts)
         assertTrue(url.startsWith("http://127.0.0.1:"))
     }
 
     @Test
-    fun `precalentar canales distintos no se serializa entre si`() = runBlocking {
-        // Riesgo del brief: "varias corrutinas pueden pedir el mismo canal a la vez". Un
-        // candado GLOBAL envolviendo resolver() (como sugiere ingenuamente un primer borrador)
-        // serializaría el precalentado del vecino anterior y el siguiente entre sí -y
-        // bloquearía un abrir() de un tercer canal detrás de un precalentado ajeno-, justo lo
-        // que el precalentado existe para evitar (ver la intro del brief: "mientras el overlay
-        // está quieto, se resuelve por lo bajo el canal siguiente y el anterior"). Con delay()
-        // dentro de resolver(), dos canales DISTINTOS deben resolver en paralelo: si un candado
-        // global los serializara, esto tardaría ~2x demora en vez de ~1x.
-        val demora = 200L
+    fun `preheating different channels doesn't serialize between them`() = runBlocking {
+        // Risk from the brief: "several coroutines can request the same channel at once". A
+        // GLOBAL lock wrapping resolver() (as a naive first draft would suggest) would serialize
+        // preheating the previous and next neighbor against each other -and would block an
+        // open() for a third channel behind someone else's preheat-, exactly what preheating
+        // exists to avoid (see the brief's intro: "while the overlay sits still, the next and
+        // the previous channel get resolved quietly underneath"). With delay() inside
+        // resolver(), two DIFFERENT channels must resolve in parallel: if a global lock
+        // serialized them, this would take ~2x the delay instead of ~1x.
+        val delayMs = 200L
         val ctrl = LiveController(
-            resolver = { code -> delay(demora); LiveSession("h", "http://x/?token=${"A".repeat(32)}", "L", code, 0) },
-            urlPara = { "http://127.0.0.1:9999/live.m3u8" },
+            resolver = { code -> delay(delayMs); LiveSession("h", "http://x/?token=${"A".repeat(32)}", "L", code, 0) },
+            urlFor = { "http://127.0.0.1:9999/live.m3u8" },
         )
-        val inicio = System.currentTimeMillis()
+        val start = System.currentTimeMillis()
         coroutineScope {
-            launch { ctrl.precalentar("prev") }
-            launch { ctrl.precalentar("next") }
+            launch { ctrl.preheat("prev") }
+            launch { ctrl.preheat("next") }
         }
-        val transcurrido = System.currentTimeMillis() - inicio
+        val elapsed = System.currentTimeMillis() - start
         assertTrue(
-            "precalentar de dos canales distintos tardo ${transcurrido}ms; " +
-                "si esto anda cerca de ${demora * 2}ms es que un candado global los serializo",
-            transcurrido < demora * 3 / 2,
+            "preheating two different channels took ${elapsed}ms; " +
+                "if this is close to ${delayMs * 2}ms a global lock serialized them",
+            elapsed < delayMs * 3 / 2,
         )
     }
 
     @Test(timeout = 10_000)
-    fun `abrir el mismo canal desde varios hilos a la vez resuelve una sola vez`() {
-        // Complementa el test anterior desde el otro lado: canales DISTINTOS no deben
-        // compartir candado, pero el MISMO canal pedido a la vez por varias corrutinas -en
-        // hilos reales, no solo interleaving cooperativo- sí debe resolverse una sola vez.
-        // CyclicBarrier alinea a los hilos para maximizar la superposición real (igual patrón
-        // que SegmentSignatureTest).
-        val resoluciones = AtomicInteger(0)
+    fun `opening the same channel from several threads at once resolves only once`() {
+        // Complements the previous test from the other side: DIFFERENT channels must not share
+        // a lock, but the SAME channel requested at once by several coroutines -on real
+        // threads, not just cooperative interleaving- must resolve only once. CyclicBarrier
+        // lines up the threads to maximize real overlap (same pattern as SegmentSignatureTest).
+        val resolutions = AtomicInteger(0)
         val ctrl = LiveController(
             resolver = { code ->
                 delay(80)
-                resoluciones.incrementAndGet()
+                resolutions.incrementAndGet()
                 LiveSession("h", "http://x/?token=${"A".repeat(32)}", "L", code, 0)
             },
-            urlPara = { "http://127.0.0.1:9999/live.m3u8" },
+            urlFor = { "http://127.0.0.1:9999/live.m3u8" },
         )
-        val hilos = 16
-        val barrera = CyclicBarrier(hilos)
-        val threads = (1..hilos).map {
+        val threadCount = 16
+        val barrier = CyclicBarrier(threadCount)
+        val threads = (1..threadCount).map {
             Thread {
-                barrera.await()
-                runBlocking { ctrl.abrir("mismo-canal") }
+                barrier.await()
+                runBlocking { ctrl.open("same-channel") }
             }
         }
         threads.forEach { it.start() }
         threads.forEach { it.join() }
-        assertEquals(1, resoluciones.get())
+        assertEquals(1, resolutions.get())
     }
 
     @Test
-    fun `cerrar invalida la cache y el proximo abrir vuelve a resolver`() = runBlocking {
-        // Reemplaza a un test anterior ("cerrar concurrente con abrir no corrompe el mapa de
-        // sesiones") que la revisión de esta tarea encontró que NO discriminaba: corrido contra
-        // la versión ingenua (mutableMapOf + clear() sin sincronizar), 4 veces -incluida una
-        // variante amplificada de 16 hilos / 200 canales / 2000 iteraciones-, nunca lanzó una
-        // excepción; pasaba igual con la implementación correcta y con la rota. Tiene sentido:
-        // el único fallo de HashMap con garantía documentada (ConcurrentModificationException)
-        // sale de sus ITERADORES, y ni abrir()/precalentar() ni cerrar() iteran el mapa -solo
-        // get/put/clear-. El otro modo real (escritura perdida en un resize a medias) no es algo
-        // que un test de JUnit pueda forzar de forma confiable en una JVM moderna sin
-        // herramientas fuera de alcance (jcstress). La elección de ConcurrentHashMap se apoya en
-        // su contrato documentado, no en un test rojo→verde -ver el comentario sobre `sesiones`
-        // en LiveController.kt-. Este test, en cambio, verifica el contrato REAL y comprobable
-        // de cerrar(): invalida lo cacheado.
-        var resoluciones = 0
+    fun `close invalidates the cache and the next open resolves again`() = runBlocking {
+        // Replaces an earlier test ("concurrent close with open doesn't corrupt the session
+        // map") that this task's review found didn't discriminate: run against the naive version
+        // (mutableMapOf + unsynchronized clear()), 4 times -including an amplified variant of 16
+        // threads / 200 channels / 2000 iterations-, it never threw an exception; it passed just
+        // the same with the correct implementation and with the broken one. Makes sense:
+        // HashMap's only documented-guarantee failure (ConcurrentModificationException) comes
+        // from its ITERATORS, and neither open()/preheat() nor close() ever iterate the map
+        // -only get/put/clear-. The other real mode (a lost write mid resize) isn't something a
+        // JUnit test can reliably force on a modern JVM without tooling out of scope (jcstress).
+        // The choice of ConcurrentHashMap rests on its documented contract, not on a red→green
+        // test -see the comment on `sessions` in LiveController.kt-. This test instead verifies
+        // close()'s REAL, testable contract: it invalidates the cache.
+        var resolutions = 0
         val ctrl = LiveController(
-            resolver = { code -> resoluciones++; LiveSession("h", "http://x/?token=${"A".repeat(32)}", "L", code, 0) },
-            urlPara = { "http://127.0.0.1:9999/live.m3u8" },
+            resolver = { code -> resolutions++; LiveSession("h", "http://x/?token=${"A".repeat(32)}", "L", code, 0) },
+            urlFor = { "http://127.0.0.1:9999/live.m3u8" },
         )
-        ctrl.abrir("c5")
-        assertEquals(1, resoluciones)
-        ctrl.cerrar()
-        ctrl.abrir("c5")
-        assertEquals(2, resoluciones)
+        ctrl.open("c5")
+        assertEquals(1, resolutions)
+        ctrl.close()
+        ctrl.open("c5")
+        assertEquals(2, resolutions)
     }
 }

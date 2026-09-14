@@ -138,9 +138,9 @@ fun LiveScreen(
 
     // Precalentar los favoritos (acotado): son los canales con más chance de abrirse a continuación,
     // y resolver cuesta ~3s (ver LiveController) -- que ya estén resueltos para cuando exista el
-    // reproductor en vivo (Tarea 14) es gratis y best-effort (precalentar() nunca lanza).
+    // reproductor en vivo (Tarea 14) es gratis y best-effort (preheat() nunca lanza).
     LaunchedEffect(estado.favoritos) {
-        estado.favoritos.take(5).forEach { code -> launch { graph.liveController.precalentar(code) } }
+        estado.favoritos.take(5).forEach { code -> launch { graph.liveController.preheat(code) } }
     }
 
     // La lista "con la que se entró" (categoría/favoritos, o recientes) -- Tarea 14: es la que el

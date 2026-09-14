@@ -57,95 +57,96 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
- * El programa que contiene [instante] (epoch segundos), o null si no hay. La usa también la
- * Tarea 13 (timeline del TV) para resaltar la celda en curso.
+ * The program containing [now] (epoch seconds), or null if there isn't one. Also used by Task 13
+ * (TV timeline) to highlight the current cell.
  */
-fun enCurso(progs: List<LiveProgram>, instante: Long): LiveProgram? =
-    progs.firstOrNull { instante >= it.inicio && instante < it.fin }
+fun currentProgram(progs: List<LiveProgram>, now: Long): LiveProgram? =
+    progs.firstOrNull { now >= it.inicio && now < it.fin }
 
-/** Cuánto lleva corrido un programa, de 0 a 1. La usa también la Tarea 13. */
-fun avance(p: LiveProgram, instante: Long): Float {
+/** How far along a program is, from 0 to 1. Also used by Task 13. */
+fun progressOf(p: LiveProgram, now: Long): Float {
     val total = (p.fin - p.inicio).toFloat()
     if (total <= 0f) return 0f
-    return ((instante - p.inicio).toFloat() / total).coerceIn(0f, 1f)
+    return ((now - p.inicio).toFloat() / total).coerceIn(0f, 1f)
 }
 
-private val horaFormatter = DateTimeFormatter.ofPattern("HH:mm")
+private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
-private fun horaDe(epochSegundos: Long): String =
-    Instant.ofEpochSecond(epochSegundos).atZone(ZoneId.systemDefault()).format(horaFormatter)
+private fun timeOf(epochSeconds: Long): String =
+    Instant.ofEpochSecond(epochSeconds).atZone(ZoneId.systemDefault()).format(timeFormatter)
 
 /**
- * Guía vertical de programación para el celular: un canal por fila, plegada. Al tocarla se
- * despliega mostrando el día completo -- alternativa a la Tarea 13 (timeline canal×hora), que
- * ahí sí tiene sentido porque el TV no pelea con el gesto de scroll vertical natural del teléfono
- * como lo haría un scroll 2D acá.
+ * Vertical programming guide for the phone: one channel per row, collapsed. Tapping it expands
+ * to show the whole day -- an alternative to Task 13 (channel x hour timeline), which makes
+ * sense there because the TV doesn't fight the phone's natural vertical scroll gesture the way a
+ * 2D scroll would here.
  *
- * [programacion] es el mismo mapa de [LiveUiState] (Tarea 11): el día completo por canal, ya
- * cacheado ahí para no perderlo al colapsar/expandir filas. El programa en curso de cada fila se
- * DERIVA con [enCurso] en vez de recibir un mapa `ahora` aparte -- son la misma fuente de verdad
- * (el primer programa de la lista del día que contiene el instante actual), y pasar los dos
- * mapas solo abriría la puerta a que se desincronicen.
+ * [programming] is the same map from [LiveUiState] (Task 11): the whole day per channel, already
+ * cached there so it isn't lost on collapsing/expanding rows. Each row's current program is
+ * DERIVED with [currentProgram] instead of receiving a separate `now` map -- they're the same
+ * source of truth (the day's list's first program containing the current instant), and passing
+ * both maps would only open the door to them drifting out of sync.
  *
- * [onPedirEpg] se dispara con los códigos que entran a la ventana visible del `LazyColumn`
- * -detectado por el índice de [rememberLazyListState], no por recomposición- y filtrados contra
- * [programacion]: los que ya tienen día cargado no se vuelven a pedir. [LiveViewModel.pedirEpgDe]
- * ya se blinda solo contra duplicados (ver su KDoc), pero filtrar acá también evita mandarle la
- * lista completa de canales visibles en cada scroll -- solo la diferencia.
+ * [onRequestEpg] fires with the codes that enter the `LazyColumn`'s visible window -detected by
+ * [rememberLazyListState]'s index, not by recomposition- and filtered against [programming]:
+ * the ones that already have their day loaded aren't requested again. [LiveViewModel.pedirEpgDe]
+ * already guards itself against duplicates (see its KDoc), but filtering here also avoids
+ * sending the full list of visible channels on every scroll -- only the difference.
  */
 @Composable
 fun LiveGuideList(
-    canales: List<LiveChannel>,
-    programacion: Map<String, List<LiveProgram>>,
-    onVer: (LiveChannel) -> Unit,
-    onPedirEpg: (List<String>) -> Unit,
+    channels: List<LiveChannel>,
+    programming: Map<String, List<LiveProgram>>,
+    onWatch: (LiveChannel) -> Unit,
+    onRequestEpg: (List<String>) -> Unit,
     contentPadding: PaddingValues = PaddingValues(),
 ) {
     val listState = rememberLazyListState()
 
-    // rememberUpdatedState para programacion/onPedirEpg (no como key del LaunchedEffect): el
-    // efecto se lanza UNA vez por identidad de `canales` y vive escuchando el scroll todo ese
-    // tiempo. Si `programacion` fuera key, cada tanda de EPG que llega (ver pedirEpgDe) reiniciaría
-    // la colecta -- acá solo necesita ver el mapa más fresco en el momento en que el índice visible
-    // cambia, no relanzarse cada vez que ese mapa crece.
-    val programacionActual by rememberUpdatedState(programacion)
-    val onPedirEpgActual by rememberUpdatedState(onPedirEpg)
+    // rememberUpdatedState for programming/onRequestEpg (not as the LaunchedEffect's key): the
+    // effect launches ONCE per `channels` identity and lives listening to scroll that whole
+    // time. If `programming` were the key, every EPG batch that arrives (see pedirEpgDe) would
+    // restart the collection -- here it only needs to see the freshest map at the moment the
+    // visible index changes, not relaunch every time that map grows.
+    val latestProgramming by rememberUpdatedState(programming)
+    val latestOnRequestEpg by rememberUpdatedState(onRequestEpg)
 
-    LaunchedEffect(listState, canales) {
+    LaunchedEffect(listState, channels) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.map { it.index } }
             .distinctUntilChanged()
             .collect { indices ->
-                val faltantes = indices.mapNotNull { canales.getOrNull(it)?.code }
-                    .filter { it !in programacionActual }
-                if (faltantes.isNotEmpty()) onPedirEpgActual(faltantes)
+                val missing = indices.mapNotNull { channels.getOrNull(it)?.code }
+                    .filter { it !in latestProgramming }
+                if (missing.isNotEmpty()) latestOnRequestEpg(missing)
             }
     }
 
     LazyColumn(state = listState, contentPadding = contentPadding, modifier = Modifier.fillMaxSize()) {
-        items(canales, key = { it.code }) { canal ->
-            GuiaCanalRow(canal = canal, programas = programacion[canal.code], onVer = onVer)
+        items(channels, key = { it.code }) { channel ->
+            GuideChannelRow(channel = channel, programs = programming[channel.code], onWatch = onWatch)
         }
     }
 }
 
 @Composable
-private fun GuiaCanalRow(
-    canal: LiveChannel,
-    programas: List<LiveProgram>?,
-    onVer: (LiveChannel) -> Unit,
+private fun GuideChannelRow(
+    channel: LiveChannel,
+    programs: List<LiveProgram>?,
+    onWatch: (LiveChannel) -> Unit,
 ) {
-    // rememberSaveable (no remember): el LazyColumn con key = canal.code desarma la composición
-    // de las filas que salen de la ventana visible -- sin esto, una fila desplegada se replegaba
-    // sola al hacer scroll lejos y volver (mismo motivo que DownloadGroupHeader en DownloadsScreen).
-    var expandido by rememberSaveable { mutableStateOf(false) }
-    val instante = System.currentTimeMillis() / 1000
-    val actual = programas?.let { enCurso(it, instante) }
+    // rememberSaveable (not remember): the LazyColumn with key = channel.code tears down the
+    // composition of rows that leave the visible window -- without this, an expanded row would
+    // collapse on its own when scrolled far away and back (same reason as DownloadGroupHeader in
+    // DownloadsScreen).
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val now = System.currentTimeMillis() / 1000
+    val current = programs?.let { currentProgram(it, now) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { expandido = !expandido }
+                .clickable { expanded = !expanded }
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -157,15 +158,15 @@ private fun GuiaCanalRow(
                     .background(ArkivSurfaceHigh),
                 contentAlignment = Alignment.Center,
             ) {
-                if (canal.logo != null) {
+                if (channel.logo != null) {
                     AsyncImage(
-                        model = canal.logo,
-                        contentDescription = canal.nombre,
+                        model = channel.logo,
+                        contentDescription = channel.nombre,
                         modifier = Modifier.fillMaxSize().padding(6.dp),
                     )
                 } else {
                     Text(
-                        text = canal.numero.toString(),
+                        text = channel.numero.toString(),
                         style = MaterialTheme.typography.titleMedium,
                         color = Color.White.copy(alpha = 0.6f),
                     )
@@ -173,17 +174,17 @@ private fun GuiaCanalRow(
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = canal.nombre,
+                    text = channel.nombre,
                     style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                // Igual que la grilla (ChannelCard): sin EPG todavía se ve como "llegando", nunca
-                // como un hueco vacío ni un error -- ver brief.
+                // Same as the grid (ChannelCard): with no EPG yet it still looks like "arriving",
+                // never like an empty hole or an error -- see the brief.
                 Text(
                     text = when {
-                        actual != null -> actual.titulo
-                        programas != null -> "Sin programación por ahora"
+                        current != null -> current.titulo
+                        programs != null -> "Sin programación por ahora"
                         else -> "Cargando programación…"
                     },
                     style = MaterialTheme.typography.bodySmall,
@@ -193,20 +194,20 @@ private fun GuiaCanalRow(
                 )
             }
             Icon(
-                imageVector = if (expandido) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                contentDescription = if (expandido) "Contraer" else "Expandir",
+                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = if (expanded) "Contraer" else "Expandir",
                 tint = ArkivTextSecondary,
             )
         }
 
         AnimatedVisibility(
-            visible = expandido,
+            visible = expanded,
             enter = expandVertically() + fadeIn(),
             exit = shrinkVertically() + fadeOut(),
         ) {
             Column(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) {
                 Button(
-                    onClick = { onVer(canal) },
+                    onClick = { onWatch(channel) },
                     colors = ButtonDefaults.buttonColors(containerColor = ArkivRed, contentColor = Color.White),
                     modifier = Modifier.padding(bottom = 8.dp),
                 ) {
@@ -215,41 +216,41 @@ private fun GuiaCanalRow(
                 }
 
                 when {
-                    programas == null -> Text(
+                    programs == null -> Text(
                         "Cargando programación…",
                         style = MaterialTheme.typography.bodySmall,
                         color = ArkivTextSecondary,
                     )
-                    programas.isEmpty() -> Text(
+                    programs.isEmpty() -> Text(
                         "Sin programación disponible",
                         style = MaterialTheme.typography.bodySmall,
                         color = ArkivTextSecondary,
                     )
-                    else -> programas.forEach { p -> GuiaProgramaRow(p, esActual = p == actual) }
+                    else -> programs.forEach { p -> GuideProgramRow(p, isCurrent = p == current) }
                 }
             }
         }
     }
 }
 
-/** Una fila `hora — título` de la programación expandida; la del programa en curso, en [ArkivRed]. */
+/** A `time — title` row of the expanded programming; the current program's, in [ArkivRed]. */
 @Composable
-private fun GuiaProgramaRow(p: LiveProgram, esActual: Boolean) {
+private fun GuideProgramRow(p: LiveProgram, isCurrent: Boolean) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            text = horaDe(p.inicio),
+            text = timeOf(p.inicio),
             style = MaterialTheme.typography.bodySmall,
-            color = if (esActual) ArkivRed else ArkivTextSecondary,
+            color = if (isCurrent) ArkivRed else ArkivTextSecondary,
             modifier = Modifier.width(44.dp),
         )
         Text(
             text = p.titulo,
             style = MaterialTheme.typography.bodyMedium,
-            color = if (esActual) ArkivRed else MaterialTheme.colorScheme.onSurface,
-            fontWeight = if (esActual) FontWeight.Bold else FontWeight.Normal,
+            color = if (isCurrent) ArkivRed else MaterialTheme.colorScheme.onSurface,
+            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
