@@ -12,8 +12,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** Géneros de AniList (en inglés) → español. */
-val ANIME_GENRE_ES = mapOf(
+/** AniList genres (in English) → Spanish. */
+val ANIME_GENRE_LABELS = mapOf(
     "Action" to "Acción",
     "Adventure" to "Aventura",
     "Comedy" to "Comedia",
@@ -41,7 +41,7 @@ val ANIME_GENRE_ES = mapOf(
     "Isekai" to "Isekai",
 )
 
-class CategoriasViewModel(
+class CategoriesViewModel(
     private val tmdbApi: TmdbApi,
     private val aniListApi: AniListApi,
 ) : ViewModel() {
@@ -52,30 +52,30 @@ class CategoriasViewModel(
     private val _loading = MutableStateFlow(true)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
-    // ── Previews (una imagen por categoría para el grid del móvil) ────────────────────────────────
+    // ── Previews (one image per category for the phone's grid) ────────────────────────────────
 
-    /** rowId → URL del primer póster de esa categoría (null = aún no cargado). */
+    /** rowId → URL of that category's first poster (null = not loaded yet). */
     private val _previews = MutableStateFlow<Map<String, String?>>(emptyMap())
     val previews: StateFlow<Map<String, String?>> = _previews.asStateFlow()
 
     private val fetchedPreviews = mutableSetOf<String>()
-    // Contador global: cada categoría elige un ítem distinto de la página (evita repetir la misma portada).
+    // Global counter: each category picks a different item from the page (avoids repeating the same cover).
     private var previewSlot = 0
 
-    // ── Filas completas (para el layout de TV con héroe + filas de tarjetas) ──────────────────────
+    // ── Full rows (for the TV layout with hero + card rows) ──────────────────────
 
-    /** rowId → lista de tarjetas ya cargadas. */
+    /** rowId → list of already-loaded cards. */
     private val _rowItems = MutableStateFlow<Map<String, List<TitleCard>>>(emptyMap())
     val rowItems: StateFlow<Map<String, List<TitleCard>>> = _rowItems.asStateFlow()
 
-    /** rowIds de las filas que ya terminaron de cargar (con o sin resultados). */
+    /** rowIds of the rows that already finished loading (with or without results). */
     private val _rowsLoaded = MutableStateFlow<Set<String>>(emptySet())
     val rowsLoaded: StateFlow<Set<String>> = _rowsLoaded.asStateFlow()
 
     private val rowLoadGuard = LoadGuard()
     private val seenCards = mutableSetOf<String>()
 
-    // Posición del scroll de la pantalla TV — sobrevive la navegación a una sub-pantalla y vuelta.
+    // TV screen's scroll position — survives navigating to a sub-screen and back.
     var tvScrollIndex: Int = 0
     var tvScrollOffset: Int = 0
 
@@ -85,11 +85,11 @@ class CategoriasViewModel(
             val tv = runCatching { tmdbApi.genres("tv") }.getOrDefault(emptyList())
             val anime = runCatching { aniListApi.genres() }.getOrDefault(emptyList())
             _rows.value = buildRowSpecs(movie, tv, anime).map { spec ->
-                // Traducir géneros de anime que vienen en inglés de AniList.
+                // Translate anime genres that come in English from AniList.
                 if (spec.id.startsWith("g_anime_")) {
-                    val partes = spec.title.split(" · ")
-                    val generoEs = ANIME_GENRE_ES[partes.first()] ?: partes.first()
-                    spec.copy(title = if (partes.size > 1) "$generoEs · ${partes.last()}" else generoEs)
+                    val parts = spec.title.split(" · ")
+                    val genreEs = ANIME_GENRE_LABELS[parts.first()] ?: parts.first()
+                    spec.copy(title = if (parts.size > 1) "$genreEs · ${parts.last()}" else genreEs)
                 } else {
                     spec
                 }
@@ -98,7 +98,7 @@ class CategoriasViewModel(
         }
     }
 
-    /** Carga una imagen representativa de la categoría (para el grid del móvil). Idempotente. */
+    /** Loads a representative image for the category (for the phone's grid). Idempotent. */
     fun fetchPreview(rowId: String) {
         if (!fetchedPreviews.add(rowId)) return
         val source = RowBrowseViewModel.sourceFor(rowId) ?: return
@@ -131,7 +131,7 @@ class CategoriasViewModel(
         }
     }
 
-    /** Carga las tarjetas de una fila (para el layout de TV). Idempotente (LoadGuard). */
+    /** Loads a row's cards (for the TV layout). Idempotent (LoadGuard). */
     fun loadRow(id: String) {
         val spec = _rows.value.firstOrNull { it.id == id } ?: return
         if (!rowLoadGuard.shouldLoad(id)) return

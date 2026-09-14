@@ -50,7 +50,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
-import com.arkiv.player.ui.home.CategoriasViewModel
+import com.arkiv.player.ui.home.CategoriesViewModel
 import com.arkiv.player.ui.home.HomeRowSpec
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
@@ -69,8 +69,8 @@ fun TvCategoriasScreen(
     BackHandler(onBack = onBack)
 
     val graph = rememberGraph()
-    val vm: CategoriasViewModel = viewModel(
-        factory = viewModelFactory { initializer { CategoriasViewModel(graph.tmdbApi, graph.aniListApi) } },
+    val vm: CategoriesViewModel = viewModel(
+        factory = viewModelFactory { initializer { CategoriesViewModel(graph.tmdbApi, graph.aniListApi) } },
     )
     val rows by vm.rows.collectAsStateWithLifecycle()
     val loading by vm.loading.collectAsStateWithLifecycle()

@@ -82,18 +82,18 @@ class HomeScrollTest {
 
     @Test
     fun `two signatures with the same shape are equal`() {
-        val a = TopSectionsSignature(heroVisible = true, continuarCount = 2, canalesCount = 3, bibliotecaCount = 5)
-        val b = TopSectionsSignature(heroVisible = true, continuarCount = 2, canalesCount = 3, bibliotecaCount = 5)
+        val a = TopSectionsSignature(heroVisible = true, continueWatchingCount = 2, channelsCount = 3, libraryCount = 5)
+        val b = TopSectionsSignature(heroVisible = true, continueWatchingCount = 2, channelsCount = 3, libraryCount = 5)
         assertTrue(a == b)
     }
 
     @Test
     fun `a change in a single section changes the signature`() {
-        val before = TopSectionsSignature(heroVisible = false, continuarCount = 0, canalesCount = 0, bibliotecaCount = 0)
+        val before = TopSectionsSignature(heroVisible = false, continueWatchingCount = 0, channelsCount = 0, libraryCount = 0)
         val heroAppears = before.copy(heroVisible = true)
-        val canalesGrow = before.copy(canalesCount = 4)
+        val channelsGrow = before.copy(channelsCount = 4)
         assertFalse(before == heroAppears)
-        assertFalse(before == canalesGrow)
-        assertFalse(heroAppears == canalesGrow)
+        assertFalse(before == channelsGrow)
+        assertFalse(heroAppears == channelsGrow)
     }
 }

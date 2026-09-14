@@ -57,13 +57,13 @@ private val CARD_HEIGHT = 110.dp
 private val CARD_RADIUS = RoundedCornerShape(10.dp)
 
 @Composable
-fun CategoriasScreen(
+fun CategoriesScreen(
     contentPadding: PaddingValues,
     onBrowseRow: (rowId: String, title: String) -> Unit,
 ) {
     val graph = rememberGraph()
-    val vm: CategoriasViewModel = viewModel(
-        factory = viewModelFactory { initializer { CategoriasViewModel(graph.tmdbApi, graph.aniListApi) } },
+    val vm: CategoriesViewModel = viewModel(
+        factory = viewModelFactory { initializer { CategoriesViewModel(graph.tmdbApi, graph.aniListApi) } },
     )
     val rows by vm.rows.collectAsStateWithLifecycle()
     val loading by vm.loading.collectAsStateWithLifecycle()
@@ -77,10 +77,10 @@ fun CategoriasScreen(
         else rows.filter { it.title.contains(query.trim(), ignoreCase = true) }
     }
 
-    val fijas = displayRows.filter { it.id in setOf("cartelera", "peliculas_populares", "tendencias", "series_populares", "series_top", "anime", "anime_populares", "anime_top") }
-    val generosPelis = displayRows.filter { it.id.startsWith("g_movie_") }
-    val generosSeries = displayRows.filter { it.id.startsWith("g_tv_") }
-    val generosAnime = displayRows.filter { it.id.startsWith("g_anime_") }
+    val fixed = displayRows.filter { it.id in setOf("cartelera", "peliculas_populares", "tendencias", "series_populares", "series_top", "anime", "anime_populares", "anime_top") }
+    val movieGenres = displayRows.filter { it.id.startsWith("g_movie_") }
+    val seriesGenres = displayRows.filter { it.id.startsWith("g_tv_") }
+    val animeGenres = displayRows.filter { it.id.startsWith("g_anime_") }
 
     if (loading && rows.size <= 8) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -101,7 +101,7 @@ fun CategoriasScreen(
         verticalArrangement = Arrangement.spacedBy(10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // Título + buscador — span completo
+        // Title + search — full span
         item(span = { GridItemSpan(maxLineSpan) }) {
             Column(modifier = Modifier.padding(bottom = 8.dp)) {
                 Text(
@@ -130,9 +130,9 @@ fun CategoriasScreen(
             }
         }
 
-        if (fijas.isNotEmpty()) {
+        if (fixed.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Destacadas") }
-            items(fijas, key = { it.id }) { spec ->
+            items(fixed, key = { it.id }) { spec ->
                 LaunchedEffect(spec.id) { vm.fetchPreview(spec.id) }
                 CategoryCard(
                     title = spec.title,
@@ -142,9 +142,9 @@ fun CategoriasScreen(
             }
         }
 
-        if (generosPelis.isNotEmpty()) {
+        if (movieGenres.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Géneros · Películas") }
-            items(generosPelis, key = { it.id }) { spec ->
+            items(movieGenres, key = { it.id }) { spec ->
                 LaunchedEffect(spec.id) { vm.fetchPreview(spec.id) }
                 CategoryCard(
                     title = spec.title.removeSuffix(" · Películas"),
@@ -154,9 +154,9 @@ fun CategoriasScreen(
             }
         }
 
-        if (generosSeries.isNotEmpty()) {
+        if (seriesGenres.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Géneros · Series") }
-            items(generosSeries, key = { it.id }) { spec ->
+            items(seriesGenres, key = { it.id }) { spec ->
                 LaunchedEffect(spec.id) { vm.fetchPreview(spec.id) }
                 CategoryCard(
                     title = spec.title.removeSuffix(" · Series"),
@@ -166,9 +166,9 @@ fun CategoriasScreen(
             }
         }
 
-        if (generosAnime.isNotEmpty()) {
+        if (animeGenres.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Géneros · Anime") }
-            items(generosAnime, key = { it.id }) { spec ->
+            items(animeGenres, key = { it.id }) { spec ->
                 LaunchedEffect(spec.id) { vm.fetchPreview(spec.id) }
                 CategoryCard(
                     title = spec.title.removeSuffix(" · Anime"),
@@ -216,7 +216,7 @@ private fun CategoryCard(title: String, imageUrl: String?, onClick: () -> Unit) 
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        // Degradado oscuro para que el texto sea siempre legible.
+        // Dark gradient so the text is always legible.
         Box(
             modifier = Modifier
                 .fillMaxSize()

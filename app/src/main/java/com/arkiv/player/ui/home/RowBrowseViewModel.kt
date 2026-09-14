@@ -33,7 +33,7 @@ class RowBrowseViewModel(
     private var page = 1
     private var loading = false
 
-    /** Carga la siguiente página. Idempotente mientras la anterior no termina. */
+    /** Loads the next page. Idempotent while the previous one hasn't finished. */
     fun loadMore() {
         if (loading || !_canLoadMore.value) return
         loading = true
@@ -59,8 +59,8 @@ class RowBrowseViewModel(
                         .getOrDefault(emptyList()).map { it.toTitleCard() }
             }
             _items.value = _items.value + result
-            // Si llegaron menos de 2 ítems, la fuente se agotó (heurística: TMDB da 20/página,
-            // AniList da ~50; cualquier resultado vacío o casi vacío indica fin de páginas).
+            // If fewer than 2 items arrived, the source ran out (heuristic: TMDB gives 20/page,
+            // AniList gives ~50; any empty or near-empty result signals the end of pages).
             _canLoadMore.value = result.size >= 2
             if (result.isNotEmpty()) page++
             _isLoading.value = false
@@ -68,7 +68,7 @@ class RowBrowseViewModel(
         }
     }
 
-    /** Limpia el estado y relanza la primera carga. Útil para el botón "Reintentar". */
+    /** Clears the state and relaunches the first load. Useful for the "Reintentar" button. */
     fun resetAndLoad() {
         _hasError.value = false
         _canLoadMore.value = true
@@ -79,7 +79,7 @@ class RowBrowseViewModel(
     }
 
     companion object {
-        /** Decodifica el rowId al origen de datos, sin hacer ninguna llamada de red. */
+        /** Decodes the rowId into the data source, without making any network call. */
         fun sourceFor(rowId: String): RowSource? = when (rowId) {
             "cartelera"          -> RowSource.Curated("movie", TmdbCategory.NOW_PLAYING)
             "peliculas_populares" -> RowSource.Curated("movie", TmdbCategory.POPULAR)
@@ -97,8 +97,8 @@ class RowBrowseViewModel(
                     rowId.removePrefix("g_tv_").toIntOrNull()
                         ?.let { RowSource.Discover("tv", it) }
                 rowId.startsWith("g_anime_") -> {
-                    // El slug se creó con g.lowercase().replace(" ", "_").
-                    // Reconstruimos el nombre con title-case para que AniList lo reconozca.
+                    // The slug was created with g.lowercase().replace(" ", "_").
+                    // The name is rebuilt in title-case so AniList recognizes it.
                     val genre = rowId.removePrefix("g_anime_")
                         .replace("_", " ")
                         .split(" ")

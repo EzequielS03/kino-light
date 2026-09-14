@@ -4,19 +4,19 @@ import com.arkiv.player.data.catalog.TmdbCategory
 import com.arkiv.player.data.catalog.TmdbGenre
 import com.arkiv.player.ui.search.TitleCard
 
-/** De dónde saca sus títulos una fila del home. */
+/** Where a home row pulls its titles from. */
 sealed interface RowSource {
     data class Curated(val type: String, val category: TmdbCategory) : RowSource
     data class Discover(val type: String, val genreId: Int) : RowSource
     data class Anime(val sort: String, val genre: String? = null) : RowSource
 }
 
-/** Una fila horizontal del home. El `id` es la clave de caché y de carga perezosa. */
+/** A horizontal home row. The `id` is the cache and lazy-load key. */
 data class HomeRowSpec(val id: String, val title: String, val source: RowSource)
 
 /**
- * Filas fijas primero (las más útiles) y luego una por género — películas y después series.
- * Las de género son muchas a propósito: se cargan solo cuando entran en pantalla.
+ * Fixed rows first (the most useful ones) and then one per genre -- movies, then series. There
+ * are many genre ones on purpose: they only load when they enter the screen.
  */
 fun buildRowSpecs(
     movieGenres: List<TmdbGenre>,
@@ -43,10 +43,10 @@ fun buildRowSpecs(
 }
 
 /**
- * Normaliza un texto para comparación tolerante a tildes y mayúsculas.
- * "Acción" y "accion" resultan iguales; "Sci-Fi" y "sci-fi" también.
+ * Normalizes text for comparison tolerant of accents and case.
+ * "Acción" and "accion" come out equal; "Sci-Fi" and "sci-fi" too.
  */
-private fun String.normalizarBusqueda(): String =
+private fun String.normalizeSearch(): String =
     this.lowercase().map { c ->
         when (c) {
             'á', 'à', 'â', 'ä' -> 'a'; 'é', 'è', 'ê', 'ë' -> 'e'
@@ -56,24 +56,24 @@ private fun String.normalizarBusqueda(): String =
     }.joinToString("").trim()
 
 /**
- * Devuelve la primera [HomeRowSpec] cuya fila coincide con [q].
- * Estrategias (en orden):
- *  1. El genre-name antes del " · " es idéntico: "Acción · Películas" ← "accion" ✓
- *  2. Alguna palabra suelta del título coincide: "Anime del momento" ← "anime" ✓
- *                                                 "En cartelera"     ← "cartelera" ✓
- * Tolerante a tildes y mayúsculas. Devuelve null si [q] está en blanco.
+ * Returns the first [HomeRowSpec] whose row matches [q].
+ * Strategies (in order):
+ *  1. The genre name before the " · " is identical: "Acción · Películas" ← "accion" ✓
+ *  2. Some loose word in the title matches: "Anime del momento" ← "anime" ✓
+ *                                            "En cartelera"     ← "cartelera" ✓
+ * Tolerant of accents and case. Returns null if [q] is blank.
  */
 fun matchCategoryRow(q: String, rows: List<HomeRowSpec>): HomeRowSpec? {
-    val normalized = q.normalizarBusqueda()
+    val normalized = q.normalizeSearch()
     if (normalized.isBlank()) return null
     return rows.firstOrNull { spec ->
-        val titleNorm = spec.title.normalizarBusqueda()
-        val base = spec.title.split(" · ").first().normalizarBusqueda()
+        val titleNorm = spec.title.normalizeSearch()
+        val base = spec.title.split(" · ").first().normalizeSearch()
         base == normalized || titleNorm.split(" ").contains(normalized)
     }
 }
 
-/** Ruta del buscador que salta la fase de escribir y arranca ya en ese título. */
+/** Search route that skips the typing phase and starts already on that title. */
 fun searchShortcutRoute(card: TitleCard): String = when (card.kind) {
     "anime" -> "search?kind=anime&anilistId=${card.anilistId}"
     "movie" -> "search?kind=movie&tmdbId=${card.tmdbId}"
@@ -81,8 +81,8 @@ fun searchShortcutRoute(card: TitleCard): String = when (card.kind) {
 }
 
 /**
- * Identidad de un título para deduplicar entre filas. El id de TMDB se repite entre películas y
- * series (son espacios distintos), así que va con el tipo; el de AniList es propio.
+ * A title's identity for deduplicating across rows. TMDB's id repeats between movies and series
+ * (they're different spaces), so it goes with the type; AniList's is its own.
  */
 fun cardKey(card: TitleCard): String = when {
     card.anilistId != null -> "anilist:${card.anilistId}"
@@ -91,16 +91,16 @@ fun cardKey(card: TitleCard): String = when {
 }
 
 /**
- * Quita de [cards] los títulos que ya aparecieron en otra fila, y de paso los repetidos dentro de la
- * propia lista. Sin esto, "En cartelera", "Populares", "Tendencias" y los géneros muestran casi las
- * mismas películas: cada título se queda en la primera fila donde aparece.
+ * Removes from [cards] the titles that already showed up in another row, and along the way the
+ * ones repeated within the list itself. Without this, "En cartelera", "Populares", "Tendencias"
+ * and the genres show almost the same movies: each title stays in the first row it appears in.
  */
 fun dedupAgainst(seen: Set<String>, cards: List<TitleCard>): List<TitleCard> {
     val used = seen.toMutableSet()
     return cards.filter { used.add(cardKey(it)) }
 }
 
-/** Evita que una fila vuelva a pedir red al recomponerse o al volver a entrar en pantalla. */
+/** Keeps a row from requesting the network again on recomposition or on re-entering the screen. */
 class LoadGuard {
     private val started = mutableSetOf<String>()
     fun shouldLoad(id: String): Boolean = started.add(id)

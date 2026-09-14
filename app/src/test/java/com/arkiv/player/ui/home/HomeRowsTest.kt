@@ -12,7 +12,7 @@ class HomeRowsTest {
     private val tvGenres = listOf(TmdbGenre(16, "Animación"))
     private val animeGenres = listOf("Action")
 
-    @Test fun `las filas fijas van en orden y antes de los generos`() {
+    @Test fun `the fixed rows go in order and before the genres`() {
         val ids = buildRowSpecs(movieGenres, tvGenres, emptyList()).map { it.id }
         assertEquals(
             listOf(
@@ -23,7 +23,7 @@ class HomeRowsTest {
         )
     }
 
-    @Test fun `agrega una fila por genero de pelicula y de serie`() {
+    @Test fun `adds a row per movie genre and per series genre`() {
         val specs = buildRowSpecs(movieGenres, tvGenres, animeGenres)
         assertTrue(specs.any { it.id == "g_movie_28" && it.source == RowSource.Discover("movie", 28) })
         assertTrue(specs.any { it.id == "g_movie_35" })
@@ -31,16 +31,16 @@ class HomeRowsTest {
         assertEquals(8 + 3 + animeGenres.size, specs.size)
     }
 
-    @Test fun `sin generos quedan solo las fijas`() {
+    @Test fun `with no genres only the fixed ones are left`() {
         assertEquals(8, buildRowSpecs(emptyList(), emptyList(), emptyList()).size)
     }
 
-    @Test fun `los ids son unicos`() {
+    @Test fun `the ids are unique`() {
         val specs = buildRowSpecs(movieGenres, tvGenres, animeGenres)
         assertEquals(specs.size, specs.map { it.id }.toSet().size)
     }
 
-    @Test fun `un mismo id de genero en peliculas y series no colisiona`() {
+    @Test fun `the same genre id on movies and series doesn't collide`() {
         val shared = listOf(TmdbGenre(16, "Animación"))
         val specs = buildRowSpecs(shared, shared, emptyList())
         assertTrue(specs.any { it.id == "g_movie_16" })
@@ -48,23 +48,23 @@ class HomeRowsTest {
         assertEquals(specs.size, specs.map { it.id }.toSet().size)
     }
 
-    @Test fun `populares apunta a POPULAR de peliculas`() {
+    @Test fun `populares points to movies' POPULAR`() {
         val spec = buildRowSpecs(emptyList(), emptyList(), emptyList()).first { it.id == "peliculas_populares" }
         assertEquals(RowSource.Curated("movie", TmdbCategory.POPULAR), spec.source)
     }
 
-    @Test fun `no hay fila de proximamente (estrenos sin fuentes)`() {
+    @Test fun `there's no upcoming row (releases with no sources)`() {
         val sources = buildRowSpecs(emptyList(), emptyList(), emptyList()).map { it.source }
         assertTrue(sources.none { it == RowSource.Curated("movie", TmdbCategory.UPCOMING) })
     }
 
-    @Test fun `los generos de anime generan su propia fila sin colisionar`() {
+    @Test fun `anime genres generate their own row without colliding`() {
         val specs = buildRowSpecs(listOf(TmdbGenre(16, "Animación")), listOf(TmdbGenre(16, "Animación")), listOf("Action"))
         assertTrue(specs.any { it.id == "g_anime_action" && it.source == RowSource.Anime("POPULARITY_DESC", "Action") })
         assertEquals(specs.size, specs.map { it.id }.toSet().size)
     }
 
-    @Test fun `ruta de atajo por tipo de card`() {
+    @Test fun `shortcut route by card type`() {
         val movie = TitleCard("movie", 42, null, "X", "", "2025", null)
         val series = TitleCard("series", 1399, null, "Y", "", "2011", null)
         val anime = TitleCard("anime", null, 20L, "Z", "", "1999", null)

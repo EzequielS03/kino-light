@@ -77,43 +77,43 @@ import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.launch
 
-/** Medidas del home según la forma de la pantalla. Ver [isLandscapeTablet]. */
-private data class MedidasDelHome(
-    val altoDelHero: Dp,
-    val anchoDePoster: Dp,
-    val anchoDeContinuar: Dp,
-    val anchoDeCanal: Dp,
+/** Home sizes based on the screen's shape. See [isLandscapeTablet]. */
+private data class HomeSizes(
+    val heroHeight: Dp,
+    val posterWidth: Dp,
+    val continueWidth: Dp,
+    val channelWidth: Dp,
 )
 
 @Composable
-private fun medidasDelHome(): MedidasDelHome =
+private fun homeSizes(): HomeSizes =
     if (isLandscapeTablet()) {
-        MedidasDelHome(
-            altoDelHero = 420.dp,
-            anchoDePoster = 180.dp,
-            anchoDeContinuar = 320.dp,
-            anchoDeCanal = 200.dp,
+        HomeSizes(
+            heroHeight = 420.dp,
+            posterWidth = 180.dp,
+            continueWidth = 320.dp,
+            channelWidth = 200.dp,
         )
     } else {
-        MedidasDelHome(
-            altoDelHero = 220.dp,
-            anchoDePoster = 120.dp,
-            anchoDeContinuar = 220.dp,
-            anchoDeCanal = 140.dp,
+        HomeSizes(
+            heroHeight = 220.dp,
+            posterWidth = 120.dp,
+            continueWidth = 220.dp,
+            channelWidth = 140.dp,
         )
     }
 
 /**
- * Home de descubrimiento (estilo Amazon/Netflix): hero de lo último visto, biblioteca y
- * muchas filas horizontales que se cargan perezosamente al entrar en pantalla.
+ * Discovery home (Amazon/Netflix style): hero of what was last watched, library and many
+ * horizontal rows that load lazily on entering the screen.
  */
 @Composable
 fun HomeScreen(
     onOpenItem: (String) -> Unit,
     onPlayEpisode: (String) -> Unit,
-    /** Reproduce un canal en vivo directo (código de canal), sin pasar por la pestaña "En vivo". */
+    /** Plays a live channel directly (channel code), without going through the "En vivo" tab. */
     onPlayLive: (String) -> Unit,
-    /** Abre la pestaña "En vivo" con la parrilla completa (última tarjeta de la fila de canales). */
+    /** Opens the "En vivo" tab with the full grid (channel row's last card). */
     onOpenLive: () -> Unit,
     onOpenSearchRoute: (String) -> Unit,
     onOpenLibrary: () -> Unit,
@@ -121,15 +121,14 @@ fun HomeScreen(
     contentPadding: PaddingValues,
 ) {
     val graph = rememberGraph()
-    val medidas = medidasDelHome()
+    val sizes = homeSizes()
     val vm: HomeViewModel = viewModel(
         factory = viewModelFactory { initializer { HomeViewModel(graph.repository, graph.tmdbApi, graph.aniListApi, graph.settings) } },
     )
-    // Esta pantalla no colecciona `vm.library` (orden por addedAt): esa suscripción vive solo en
-    // el `init` del VM, para el `ensureArtwork`/hero del TV. La fila "Mi biblioteca" usa
-    // `bibliotecaOrdenada` para coincidir con el orden de la grilla (misma regla, ver
-    // LibraryOrder).
-    val bibliotecaOrdenada by vm.bibliotecaOrdenada.collectAsStateWithLifecycle()
+    // This screen doesn't collect `vm.library` (ordered by addedAt): that subscription only lives
+    // in the VM's `init`, for `ensureArtwork`/the TV home's hero. The "Mi biblioteca" row uses
+    // `orderedLibrary` to match the grid's order (same rule, see LibraryOrder).
+    val orderedLibrary by vm.orderedLibrary.collectAsStateWithLifecycle()
     val continueWatching by vm.continueWatching.collectAsStateWithLifecycle()
     val artwork by vm.artwork.collectAsStateWithLifecycle()
     val rows by vm.rows.collectAsStateWithLifecycle()
@@ -137,12 +136,13 @@ fun HomeScreen(
     val rowsLoaded by vm.rowsLoaded.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
-    // Sin nada en curso, adelantamos "tendencias" para tener un destacado apenas esté lista.
+    // With nothing in progress, "tendencias" is loaded ahead of time to have a featured title as
+    // soon as it's ready.
     LaunchedEffect(continueWatching.isEmpty()) {
         if (continueWatching.isEmpty()) vm.loadRow("tendencias")
     }
 
-    // Al tocar un ítem de la biblioteca: si es película, reproduce directo; si es serie, abre el detalle.
+    // On tapping a library item: if it's a movie, play it directly; if it's a series, open the detail screen.
     fun open(row: LibraryRow) {
         if (row.isMovie) {
             scope.launch {
@@ -154,51 +154,52 @@ fun HomeScreen(
         }
     }
 
-    // Canales en vivo recientes, para la fila que evita entrar a "En vivo" (ver
-    // canalesRecientesParaHome). Se lee directo de Room, igual que hace LiveScreen con su propia
-    // pestaña "Recientes" -- no hace falta levantar LiveViewModel (que habla con el gateway) solo
-    // para esto. Tope de 10: es una fila de acceso rápido a mano, no el historial completo (para
-    // eso está la pestaña "Recientes" de "En vivo", sin tope).
+    // Recent live channels, for the row that avoids entering "En vivo" (see
+    // canalesRecientesParaHome). Read straight from Room, same as LiveScreen does with its own
+    // "Recientes" tab -- no need to spin up LiveViewModel (which talks to the gateway) just for
+    // this. Capped at 10: it's a quick-access row within reach, not the full history (that's what
+    // "En vivo"'s "Recientes" tab is for, with no cap).
     val liveRecentDao = remember { graph.database.liveRecentDao() }
     val liveCacheDao = remember { graph.database.liveChannelCacheDao() }
-    val recientesCrudo by liveRecentDao.flowRecent(10).collectAsStateWithLifecycle(initialValue = emptyList())
-    var cachePorCodigo by remember { mutableStateOf<Map<String, LiveChannelCacheEntity>>(emptyMap()) }
-    LaunchedEffect(recientesCrudo) {
-        if (recientesCrudo.isNotEmpty()) {
-            cachePorCodigo = liveCacheDao.byCodes(recientesCrudo.map { it.code }).associateBy { it.code }
+    val rawRecent by liveRecentDao.flowRecent(10).collectAsStateWithLifecycle(initialValue = emptyList())
+    var cacheByCode by remember { mutableStateOf<Map<String, LiveChannelCacheEntity>>(emptyMap()) }
+    LaunchedEffect(rawRecent) {
+        if (rawRecent.isNotEmpty()) {
+            cacheByCode = liveCacheDao.byCodes(rawRecent.map { it.code }).associateBy { it.code }
         }
     }
-    val canalesRecientes = remember(recientesCrudo, cachePorCodigo) {
-        canalesRecientesParaHome(recientesCrudo, cachePorCodigo)
+    val recentChannels = remember(rawRecent, cacheByCode) {
+        canalesRecientesParaHome(rawRecent, cacheByCode)
     }
 
-    // Canales del país del aparato, para que la fila sirva desde la primera apertura (sin nada
-    // visto todavía) -- ver canalesDelPaisParaHome: detecta el país, sale de la caché de Room si
-    // está fresca y no rompe nada si no hay red ni país detectable.
+    // Channels from the device's country, so the row is useful from the very first opening (with
+    // nothing watched yet) -- see canalesDelPaisParaHome: it detects the country, comes from the
+    // Room cache if it's fresh, and doesn't break anything if there's no network or no detectable
+    // country.
     val context = LocalContext.current
-    var canalesDelPais by remember { mutableStateOf<List<LiveChannel>>(emptyList()) }
+    var countryChannels by remember { mutableStateOf<List<LiveChannel>>(emptyList()) }
     LaunchedEffect(Unit) {
-        canalesDelPais = canalesDelPaisParaHome(
+        countryChannels = canalesDelPaisParaHome(
             context = context,
             api = graph.catalogoDeVivo,
             cacheDao = liveCacheDao,
             prefs = context.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE),
         )
     }
-    val canalesFila = remember(canalesRecientes, canalesDelPais) {
-        filaDeCanalesDelHome(canalesRecientes, canalesDelPais)
+    val channelsRow = remember(recentChannels, countryChannels) {
+        filaDeCanalesDelHome(recentChannels, countryChannels)
     }
 
-    fun reproducirCanal(canal: LiveChannel) {
-        // Deja fijada la lista con la que se "entró", mismo mecanismo que LiveScreen.abrirAca --
-        // así arriba/abajo en el reproductor recorre los mismos canales que muestra la fila.
-        LiveZappingSource.lista = canalesFila
-        onPlayLive(canal.code)
+    fun playChannel(channel: LiveChannel) {
+        // Pins the list it was "entered" with, same mechanism as LiveScreen.abrirAca -- so
+        // up/down in the player goes through the same channels the row shows.
+        LiveZappingSource.lista = channelsRow
+        onPlayLive(channel.code)
     }
 
-    val hayInternet by graph.hayInternet.collectAsStateWithLifecycle()
+    val hasInternet by graph.hayInternet.collectAsStateWithLifecycle()
 
-    if (!hayInternet) {
+    if (!hasInternet) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -244,9 +245,9 @@ fun HomeScreen(
     // the top whenever that shape changes -- the safety net for staying at the top of the list.
     val topSectionsSignature = TopSectionsSignature(
         heroVisible = continueWatching.firstOrNull() != null || rowItems["tendencias"]?.firstOrNull() != null,
-        continuarCount = (continueWatching.size - 1).coerceAtLeast(0),
-        canalesCount = canalesFila.size,
-        bibliotecaCount = bibliotecaOrdenada.size,
+        continueWatchingCount = (continueWatching.size - 1).coerceAtLeast(0),
+        channelsCount = channelsRow.size,
+        libraryCount = orderedLibrary.size,
     )
     var lastTopSectionsSignature by remember { mutableStateOf<TopSectionsSignature?>(null) }
     LaunchedEffect(topSectionsSignature, userScrolled) {
@@ -272,7 +273,7 @@ fun HomeScreen(
         ),
         modifier = Modifier.fillMaxSize(),
     ) {
-        // 1. Hero: lo último visto, o si no hay nada en curso, la tendencia #1 (si ya cargó).
+        // 1. Hero: the last thing watched, or if nothing's in progress, trending #1 (once loaded).
         // Always-present, keyed item (renders nothing until it has data) -- see TopSectionsSignature:
         // an unkeyed, conditionally-emitted item here is what let this section get inserted ABOVE the
         // already-visible, keyed remote rows and land the person mid-list.
@@ -285,7 +286,7 @@ fun HomeScreen(
                     heroContinue.itemThumbnailUrl,
                 )
                 Hero(
-                    medidas = medidas,
+                    sizes = sizes,
                     backdropUrl = backdrop,
                     title = heroContinue.itemTitle,
                     // The chapter data, the SAME line the TV hero builds: number, name and how much
@@ -310,16 +311,16 @@ fun HomeScreen(
             } else {
                 val trending = rowItems["tendencias"]?.firstOrNull()
                 if (trending != null) {
-                    // En ancho preferimos el backdrop apaisado (16:9) del TitleCard: un póster 2:3
-                    // estirado a 1280dp se ve mal. Si la fuente no trajo backdrop, seguimos con el
-                    // póster -- el hero nunca puede quedar vacío.
+                    // In wide mode the TitleCard's landscape (16:9) backdrop is preferred: a 2:3
+                    // poster stretched to 1280dp looks bad. If the source brought no backdrop, the
+                    // poster is used -- the hero can never end up empty.
                     val heroImage = if (isLandscapeTablet() && trending.backdropUrl.isNotBlank()) {
                         trending.backdropUrl
                     } else {
                         trending.posterUrl
                     }
                     Hero(
-                        medidas = medidas,
+                        sizes = sizes,
                         backdropUrl = heroImage,
                         title = trending.title,
                         subtitle = "Tendencia de la semana",
@@ -331,8 +332,8 @@ fun HomeScreen(
             }
         }
 
-        // 2. Continuar viendo (el resto, sin repetir el hero). Always-present, keyed item -- see
-        // the hero comment above.
+        // 2. Continue watching (the rest, without repeating the hero). Always-present, keyed item
+        // -- see the hero comment above.
         item(key = "continuar") {
             if (continueWatching.size > 1) {
                 Column(Modifier.padding(top = 16.dp)) {
@@ -343,9 +344,9 @@ fun HomeScreen(
                     ) {
                         items(continueWatching.drop(1), key = { it.episodeId }) { row ->
                             val progress = if (row.durationMs > 0) row.positionMs.toFloat() / row.durationMs else 0f
-                            // El frame capturado manda si existe; si no, el still de TMDB y por
-                            // último la carátula del ítem. El thumb de archive.org que iba en medio
-                            // se borró en la poda de esta rama junto con esa fuente.
+                            // The captured frame wins if it exists; if not, TMDB's still and last
+                            // the item's cover. The archive.org thumb that used to go in the middle
+                            // was deleted in this branch's pruning along with that source.
                             val thumb = ThumbnailChoice.choose(
                                 row.framePath,
                                 row.stillUrl,
@@ -357,7 +358,7 @@ fun HomeScreen(
                                 subtitle = row.episodeTitle ?: row.displayName,
                                 imageUrl = thumb,
                                 progress = progress,
-                                modifier = Modifier.width(medidas.anchoDeContinuar),
+                                modifier = Modifier.width(sizes.continueWidth),
                                 onClick = { onPlayEpisode(row.episodeId) },
                             )
                         }
@@ -366,36 +367,36 @@ fun HomeScreen(
             }
         }
 
-        // 3. Canales en vivo -- acceso directo sin pasar por "En vivo": lo último visto a la
-        // izquierda, después los canales del país sin repetir los ya vistos, y al final la salida
-        // a la parrilla completa (ver `filaDeCanalesDelHome`). Sin nada que mostrar, la fila no se
-        // dibuja: nada de un hueco vacío. Always-present, keyed item -- see the hero comment
-        // above.
+        // 3. Live channels -- direct access without going through "En vivo": what was last watched
+        // on the left, then the country's channels without repeating the ones already seen, and
+        // at the end the way out to the full grid (see `filaDeCanalesDelHome`). With nothing to
+        // show, the row isn't drawn: no empty gap. Always-present, keyed item -- see the hero
+        // comment above.
         item(key = "canales") {
-            if (canalesFila.isNotEmpty()) {
+            if (channelsRow.isNotEmpty()) {
                 Column(Modifier.padding(top = 16.dp)) {
                     SectionHeader("Canales en vivo", modifier = Modifier.padding(start = 16.dp))
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        items(canalesFila, key = { it.code }) { canal ->
-                            LiveChannelCard(canal = canal, ancho = medidas.anchoDeCanal, onClick = { reproducirCanal(canal) })
+                        items(channelsRow, key = { it.code }) { channel ->
+                            LiveChannelCard(channel = channel, width = sizes.channelWidth, onClick = { playChannel(channel) })
                         }
-                        // Al final de la fila, la salida hacia la parrilla completa: los recientes
-                        // son un atajo, no el catálogo.
+                        // At the end of the row, the way out to the full grid: recents are a
+                        // shortcut, not the catalog.
                         item(key = "live_ver_mas") {
-                            VerMasCanalesCard(ancho = medidas.anchoDeCanal, onClick = onOpenLive)
+                            SeeMoreChannelsCard(width = sizes.channelWidth, onClick = onOpenLive)
                         }
                     }
                 }
             }
         }
 
-        // 4. Mi biblioteca (con "Ver todo" hacia la grilla completa). Always-present, keyed item --
+        // 4. Mi biblioteca (with "Ver todo" toward the full grid). Always-present, keyed item --
         // see the hero comment above.
         item(key = "biblioteca") {
-            if (bibliotecaOrdenada.isNotEmpty()) {
+            if (orderedLibrary.isNotEmpty()) {
                 Column(Modifier.padding(top = 16.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -408,11 +409,11 @@ fun HomeScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        items(bibliotecaOrdenada, key = { it.identifier }) { row ->
+                        items(orderedLibrary, key = { it.identifier }) { row ->
                             com.arkiv.player.ui.components.PosterCard(
                                 title = row.title,
                                 imageUrl = row.thumbnailUrl,
-                                modifier = Modifier.width(medidas.anchoDePoster),
+                                modifier = Modifier.width(sizes.posterWidth),
                                 onClick = { open(row) },
                             )
                         }
@@ -421,27 +422,27 @@ fun HomeScreen(
             }
         }
 
-        // 5. Filas remotas: cada una carga sola al entrar en pantalla (ver RemoteRow).
+        // 5. Remote rows: each one loads on its own on entering the screen (see RemoteRow).
         rows.forEach { spec ->
             item(key = spec.id) {
                 RemoteRow(
                     spec = spec,
                     items = rowItems[spec.id].orEmpty(),
                     loaded = spec.id in rowsLoaded,
-                    medidas = medidas,
+                    sizes = sizes,
                     onLoad = { vm.loadRow(spec.id) },
                     onOpenCard = { card -> onOpenSearchRoute(searchShortcutRoute(card)) },
-                    onVerMas = { onBrowseRow(spec.id, spec.title) },
+                    onSeeMore = { onBrowseRow(spec.id, spec.title) },
                 )
             }
         }
     }
 }
 
-/** Destacado a ancho completo: backdrop, degradado inferior, título/subtítulo y acción opcional. */
+/** Full-width feature: backdrop, bottom gradient, title/subtitle and optional action. */
 @Composable
 private fun Hero(
-    medidas: MedidasDelHome,
+    sizes: HomeSizes,
     backdropUrl: String?,
     title: String,
     subtitle: String,
@@ -452,7 +453,7 @@ private fun Hero(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(medidas.altoDelHero)
+            .height(sizes.heroHeight)
             .clickable(onClick = onClick),
     ) {
         AsyncImage(
@@ -478,8 +479,8 @@ private fun Hero(
                 text = subtitle,
                 style = MaterialTheme.typography.bodyMedium,
                 color = ArkivTextSecondary,
-                // 2 líneas: con 1 sola, la línea de datos del capítulo (~48 caracteres) se elipsaba
-                // justo donde importa — "te faltan N min" es lo primero que se pierde.
+                // 2 lines: with just 1, the chapter's data line (~48 characters) got ellipsized
+                // right where it matters -- "te faltan N min" is the first thing lost.
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -499,13 +500,12 @@ private fun Hero(
 }
 
 /**
- * Última tarjeta de la fila "Canales en vivo": abre la pestaña "En vivo" con la parrilla completa.
- * Mismo molde que [LiveChannelCard] (140.dp, 16:9 y texto debajo) para que la fila no cambie de
- * altura al llegar al final.
+ * "Canales en vivo" row's last card: opens the "En vivo" tab with the full grid. Same shape as
+ * [LiveChannelCard] (140.dp, 16:9 and text below) so the row doesn't change height at the end.
  */
 @Composable
-private fun VerMasCanalesCard(ancho: Dp = 140.dp, onClick: () -> Unit) {
-    Column(modifier = Modifier.width(ancho).clickable(onClick = onClick)) {
+private fun SeeMoreChannelsCard(width: Dp = 140.dp, onClick: () -> Unit) {
+    Column(modifier = Modifier.width(width).clickable(onClick = onClick)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -532,15 +532,15 @@ private fun VerMasCanalesCard(ancho: Dp = 140.dp, onClick: () -> Unit) {
 }
 
 /**
- * Tarjeta de un canal reciente para la fila "Canales en vivo" del home: logo si la caché lo tiene
- * (ver [canalesRecientesParaHome]); si no, el mismo tratamiento que `ChannelCard` en
- * `LiveScreen.kt` -- degradado + el número del canal, para que se vea deliberada y no como un logo
- * roto. Si ni siquiera el número se conoce (canal recién visto, caché sin ese `code`), cae más
- * abajo todavía: las iniciales del nombre, para no mostrar un "0" que no significa nada.
+ * Card for a recent channel in the home's "Canales en vivo" row: logo if the cache has it (see
+ * [canalesRecientesParaHome]); if not, the same treatment as `ChannelCard` in `LiveScreen.kt` --
+ * gradient + the channel number, so it looks deliberate and not like a broken logo. If not even
+ * the number is known (a just-watched channel, cache with no such `code`), it falls back further
+ * still: the name's initials, to not show a "0" that means nothing.
  */
 @Composable
-private fun LiveChannelCard(canal: LiveChannel, ancho: Dp = 140.dp, onClick: () -> Unit) {
-    Column(modifier = Modifier.width(ancho).clickable(onClick = onClick)) {
+private fun LiveChannelCard(channel: LiveChannel, width: Dp = 140.dp, onClick: () -> Unit) {
+    Column(modifier = Modifier.width(width).clickable(onClick = onClick)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -548,10 +548,10 @@ private fun LiveChannelCard(canal: LiveChannel, ancho: Dp = 140.dp, onClick: () 
                 .clip(RoundedCornerShape(8.dp))
                 .background(ArkivSurfaceHigh),
         ) {
-            if (canal.logo != null) {
+            if (channel.logo != null) {
                 AsyncImage(
-                    model = canal.logo,
-                    contentDescription = canal.nombre,
+                    model = channel.logo,
+                    contentDescription = channel.nombre,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize().padding(10.dp),
                 )
@@ -563,7 +563,7 @@ private fun LiveChannelCard(canal: LiveChannel, ancho: Dp = 140.dp, onClick: () 
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = if (canal.numero > 0) canal.numero.toString() else canal.nombre.take(2).uppercase(),
+                        text = if (channel.numero > 0) channel.numero.toString() else channel.nombre.take(2).uppercase(),
                         style = MaterialTheme.typography.headlineMedium,
                         color = Color.White.copy(alpha = 0.6f),
                     )
@@ -571,7 +571,7 @@ private fun LiveChannelCard(canal: LiveChannel, ancho: Dp = 140.dp, onClick: () 
             }
         }
         Text(
-            text = canal.nombre,
+            text = channel.nombre,
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -580,16 +580,16 @@ private fun LiveChannelCard(canal: LiveChannel, ancho: Dp = 140.dp, onClick: () 
     }
 }
 
-/** Fila remota: se carga sola al entrar en pantalla; se oculta sin dejar hueco si vino vacía. */
+/** Remote row: loads on its own on entering the screen; hides without leaving a gap if it came back empty. */
 @Composable
 private fun RemoteRow(
     spec: HomeRowSpec,
     items: List<TitleCard>,
     loaded: Boolean,
-    medidas: MedidasDelHome,
+    sizes: HomeSizes,
     onLoad: () -> Unit,
     onOpenCard: (TitleCard) -> Unit,
-    onVerMas: () -> Unit,
+    onSeeMore: () -> Unit,
 ) {
     LaunchedEffect(spec.id) { onLoad() }
     if (loaded && items.isEmpty()) return
@@ -610,31 +610,31 @@ private fun RemoteRow(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(items, key = { "${spec.id}-${it.kind}-${it.tmdbId}-${it.anilistId}" }) { card ->
-                    PosterCard(card, ancho = medidas.anchoDePoster) { onOpenCard(card) }
+                    PosterCard(card, width = sizes.posterWidth) { onOpenCard(card) }
                 }
                 item(key = "${spec.id}-ver-mas") {
-                    VerMasPosterCard(ancho = medidas.anchoDePoster, onClick = onVerMas)
+                    SeeMorePosterCard(width = sizes.posterWidth, onClick = onSeeMore)
                 }
             }
         }
     }
 }
 
-/** Carátula 2:3 de una fila remota (título del buscador/catálogo). */
+/** 2:3 cover for a remote row (search/catalog title). */
 @Composable
-private fun PosterCard(card: TitleCard, ancho: Dp = 120.dp, onClick: () -> Unit) {
+private fun PosterCard(card: TitleCard, width: Dp = 120.dp, onClick: () -> Unit) {
     com.arkiv.player.ui.components.PosterCard(
         title = card.title,
         imageUrl = card.posterUrl,
-        modifier = Modifier.width(ancho),
+        modifier = Modifier.width(width),
         onClick = onClick,
     )
 }
 
 @Composable
-private fun VerMasPosterCard(ancho: Dp = 120.dp, onClick: () -> Unit) {
+private fun SeeMorePosterCard(width: Dp = 120.dp, onClick: () -> Unit) {
     Column(
-        modifier = Modifier.width(ancho).clickable(onClick = onClick),
+        modifier = Modifier.width(width).clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(

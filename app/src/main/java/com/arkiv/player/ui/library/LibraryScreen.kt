@@ -70,7 +70,7 @@ fun LibraryScreen(
     )
     // Ordered by what you last watched: what you're currently watching comes first, no need to
     // scroll down for it.
-    val library by vm.bibliotecaOrdenada.collectAsStateWithLifecycle()
+    val library by vm.orderedLibrary.collectAsStateWithLifecycle()
     val continueWatching by vm.continueWatching.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     // Shows "you already have that downloaded" when the queue skips a duplicate download (see

@@ -11,9 +11,9 @@ package com.arkiv.player.ui.home
  */
 internal data class TopSectionsSignature(
     val heroVisible: Boolean,
-    val continuarCount: Int,
-    val canalesCount: Int,
-    val bibliotecaCount: Int,
+    val continueWatchingCount: Int,
+    val channelsCount: Int,
+    val libraryCount: Int,
 )
 
 /**

@@ -290,7 +290,7 @@ fun ArkivRoot(
     )
 }
             composable("categorias_home") {
-                com.arkiv.player.ui.home.CategoriasScreen(
+                com.arkiv.player.ui.home.CategoriesScreen(
                     contentPadding = padding,
                     onBrowseRow = { rowId, title ->
                         navController.navigate("row_browse/$rowId?title=${android.net.Uri.encode(title)}")

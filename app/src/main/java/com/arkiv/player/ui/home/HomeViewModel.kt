@@ -32,49 +32,49 @@ class HomeViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
-     * La biblioteca ordenada por lo último que viste, para la grilla de "Mi biblioteca".
+     * The library ordered by what you last watched, for the "Mi biblioteca" grid.
      *
-     * Es una suscripción aparte de [library] a propósito: [library] cruda alimenta el
-     * `onEach { ensureArtwork(rows) }` del `init` (una consulta por fila en cada emisión) y el
-     * héroe del home del TV, y no debe re-emitirse cada vez que se guarda progreso.
+     * A separate subscription from [library] on purpose: raw [library] feeds the `init`'s
+     * `onEach { ensureArtwork(rows) }` (one query per row on every emission) and the TV home's
+     * hero, and shouldn't re-emit every time progress is saved.
      */
-    val bibliotecaOrdenada: StateFlow<List<LibraryRow>> = repo.observeLibraryOrdered()
+    val orderedLibrary: StateFlow<List<LibraryRow>> = repo.observeLibraryOrdered()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val continueWatching: StateFlow<List<ContinueRow>> = repo.observeContinueWatching()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** itemId -> arte de TMDB (backdrops) para pintar en el home. */
+    /** itemId -> TMDB art (backdrops) to paint on the home. */
     val artwork: StateFlow<Map<String, ArtworkEntity>> = repo.observeArtwork()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     private val _rows = MutableStateFlow(buildRowSpecs(emptyList(), emptyList(), emptyList()))
     val rows: StateFlow<List<HomeRowSpec>> = _rows.asStateFlow()
 
-    /** rowId -> títulos ya cargados (caché en memoria; sobrevive mientras viva el ViewModel). */
+    /** rowId -> titles already loaded (in-memory cache; survives as long as the ViewModel lives). */
     private val _rowItems = MutableStateFlow<Map<String, List<TitleCard>>>(emptyMap())
     val rowItems: StateFlow<Map<String, List<TitleCard>>> = _rowItems.asStateFlow()
 
-    /** rowId de las filas que ya terminaron de cargar (con o sin resultados; para poder ocultar las vacías). */
+    /** rowId of the rows that already finished loading (with or without results; to be able to hide the empty ones). */
     private val _rowsLoaded = MutableStateFlow<Set<String>>(emptySet())
     val rowsLoaded: StateFlow<Set<String>> = _rowsLoaded.asStateFlow()
 
     private val guard = LoadGuard()
 
-    /** Títulos ya mostrados en alguna fila, para no repetirlos en las siguientes. */
+    /** Titles already shown in some row, to not repeat them in the next ones. */
     private val seenCards = mutableSetOf<String>()
 
     init {
-        // Cada vez que cambia la biblioteca, resuelve el arte de los ítems que aún no lo tengan.
-        // ensureArtwork ignora los ya resueltos, así que las re-emisiones son baratas.
+        // Every time the library changes, resolves the art of the items that don't have it yet.
+        // ensureArtwork ignores the ones already resolved, so re-emissions are cheap.
         library
             .onEach { rows -> repo.ensureArtwork(rows) }
             .launchIn(viewModelScope)
 
-        // Pasada única para reparar el arte que quedó apuntando al título equivocado antes de que
-        // existiera pickTmdbMatch (los Dragon Ball con el tmdbId de Dragon Ball Z). ensureArtwork
-        // no puede hacerlo: salta todo lo que ya tenga tmdbId. Se marca hecha solo si terminó
-        // entera, así un arranque sin red la reintenta en el siguiente.
+        // One-time pass to repair art that ended up pointing at the wrong title before
+        // pickTmdbMatch existed (the Dragon Balls with Dragon Ball Z's tmdbId). ensureArtwork
+        // can't do it: it skips everything that already has a tmdbId. Only marked done if it
+        // finished completely, so a start with no network retries it on the next one.
         if (!settings.artworkRematchDone.value) {
             viewModelScope.launch {
                 val rows = library.first { it.isNotEmpty() }
@@ -82,7 +82,7 @@ class HomeViewModel(
             }
         }
 
-        // Los géneros se piden una sola vez para construir las filas; si falla, quedan las fijas.
+        // Genres are requested only once to build the rows; if it fails, the fixed ones are left.
         viewModelScope.launch {
             val movie = runCatching { tmdbApi.genres("movie") }.getOrDefault(emptyList())
             val tv = runCatching { tmdbApi.genres("tv") }.getOrDefault(emptyList())
@@ -92,13 +92,12 @@ class HomeViewModel(
     }
 
     /**
-     * Carga los títulos de una fila la primera vez que se pide (idempotente).
+     * Loads a row's titles the first time it's requested (idempotent).
      *
-     * Ojo con el orden: las filas de género solo existen en [_rows] después de que
-     * resuelve `genres()` en el init. Si el guard se consumiera antes de encontrar la
-     * spec, una fila de género pedida temprano (spec aún ausente) quedaría marcada como
-     * "ya iniciada" para siempre y jamás cargaría cuando la spec apareciera. Por eso
-     * primero se busca la spec y solo si existe se consume el guard.
+     * Mind the order: genre rows only exist in [_rows] after `genres()` resolves in the init. If
+     * the guard were consumed before the spec is found, a genre row requested early (spec still
+     * absent) would be marked "already started" forever and would never load once the spec
+     * showed up. That's why the spec is looked up first and the guard is only consumed if it exists.
      */
     fun loadRow(id: String) {
         val spec = _rows.value.firstOrNull { it.id == id } ?: return
@@ -112,9 +111,9 @@ class HomeViewModel(
                 is RowSource.Anime ->
                     runCatching { aniListApi.browse(1, s.sort, null, s.genre) }.getOrDefault(emptyList()).map { it.toTitleCard() }
             }
-            // Dedup entre filas: un título se queda en la primera fila donde aparece. Sin esto,
-            // cartelera/populares/tendencias y los géneros muestran casi las mismas películas.
-            // Se hace acá (no en la UI) para que el resultado sea estable y no cambie al recomponer.
+            // Dedup across rows: a title stays in the first row it appears in. Without this,
+            // cartelera/populares/tendencias and the genres show almost the same movies. Done here
+            // (not in the UI) so the result is stable and doesn't change on recomposition.
             val fresh = dedupAgainst(seenCards, cards)
             seenCards += fresh.map { cardKey(it) }
             _rowItems.value = _rowItems.value + (id to fresh)
