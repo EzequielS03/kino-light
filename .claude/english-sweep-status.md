@@ -9,18 +9,18 @@ English" line in `.claude/reglas.md`.
 Order chosen by the user: **módulo por módulo, de menor a mayor riesgo** (module by module,
 lowest to highest risk).
 
-## Overall completion: roughly **82-85%** of the whole sweep
+## Overall completion: roughly **88-90%** of the whole sweep
 
 - `playback/`, `security/`, `dlna/`, `cast/`, `thumbnails/`: **100% done.**
 - `data/`: **~98% done** — three files left now: `MagisEntities.kt`, `DituEntities.kt`, and
   `LibraryGrouping.kt` (found this session — `LibraryGroup.nuevos` and other content still
   Spanish; see below).
 - `ui/` (159 main files across 14 subpackages, plus 6 top-level files, plus tests): roughly
-  **77-80% done**. Fully finished packages: `detail/`, `downloads/`, `components/`, `offline/`,
-  `library/`, `theme/`, `update/`, `settings/`, `home/`, `search/`, `catalog/`, `live/`, plus all 6
-  top-level `ui/*.kt` files. `tv/` is IN PROGRESS this session — 21 of 26 main files done, only
-  `TvHomeScreen.kt` (58K) and `TvSearchScreen.kt` (72K) remain, the two largest files in all of
-  `ui/`. Not touched at all: `player/` (23 files, the single largest untouched package).
+  **88-90% done**. Fully finished packages: `detail/`, `downloads/`, `components/`, `offline/`,
+  `library/`, `theme/`, `update/`, `settings/`, `home/`, `search/`, `catalog/`, `live/`, **`tv/`
+  (finished this session — all 26 main files + tests)**, plus all 6 top-level `ui/*.kt` files. Only
+  `player/` (23 files, the single largest package in `ui/`) remains untouched — the last package in
+  the whole sweep.
 
 `ui/` is far bigger than `data/` was (159 main files vs. roughly 90 in `data/`), so raw file count
 means the overall codebase is still under most-of-the-way-done even though `data/` is essentially
@@ -157,9 +157,9 @@ closures at `cad8b4af` and `6eb17c8f`).
   `LiveCatalogGateway`'s own interface method names (`categorias`/`canales`/`epg`) also kept as-is:
   that interface lives in `data/gateway/LiveApi.kt`, not yet processed.
 
-### `ui/tv/` — IN PROGRESS (started this session, not yet complete)
+### `ui/tv/` — **100% DONE** (finished this session)
 
-Fully translated so far (main + matching tests where they exist):
+All 26 main files + tests translated (main + matching tests where they exist):
 
 - `NavSound.kt`, `TvButtonStyle.kt` (comments only).
 - `TvSettingsWidgets.kt` (`tvButtonColors`/`tvButtonBorder`, was `tvBotonColors`/`tvBotonBorder`).
@@ -228,22 +228,43 @@ Also fully translated (added later in the session):
   processed) and their fields left as-is. Rippled into `ArkivTvRoot.kt`'s call site and stale
   comment references in `TvTab.kt`/`TvHomeScreen.kt`/`TvSettingsScreen.kt`/`TvCaracolScreen.kt`.
 
-**NOT yet touched**: only `TvHomeScreen.kt` (58K, the largest file in the package) and
-`TvSearchScreen.kt` (72K, the single largest file in all of `ui/`) remain. Both still fully
-Spanish; both are heavily cross-referenced by already-translated files (`PivotoDeTv`,
-`TraerConScrollMinimo`, `Featured`, `TvRowLabel` all live in `TvHomeScreen.kt`; `TvCapitulosDeCaracol`,
-`TvSeasonChip`, `TvRefineRow` in `TvSearchScreen.kt`) — expect heavy ripple both ways once these
-two are tackled. This is the **second-largest** `ui/` package and likely high-risk (TV-specific
-focus/navigation logic) — these two files alone are roughly as much code as everything already
-done in this package combined.
+Also fully translated (finished the package):
+
+- `TvHomeScreen.kt` (58K, the largest file in the package until this): `TvPivot`/
+  `MinimalScrollBringIntoView` (was `PivotoDeTv`/`TraerConScrollMinimo`), `showForYouRow` (was
+  `mostrarFilaParaTi`), `TvSeeMoreChannelsCard`/`TvSeeMoreRowCard` (was `TvVerMasCanalesCard`/
+  `TvVerMasFilaCard`), `HERO_SCALE`/`HERO_DRIFT_MS`, and every local (`hasInternet`/
+  `recommendationDao`/`aggregator`/`recommendations`/`recentChannels`/`countryChannels`/
+  `channelsRow`/`playChannel`/`heroDrift`/`barFocus`/etc). `Featured`/`TvHomeScreen`/`TvRowLabel`/
+  `recommendationFeatured` were already English. Rippled `TvPivot`/`MinimalScrollBringIntoView`
+  into `TvRowBrowseScreen.kt`, `TvCatalogSections.kt`, `TvCategoriasScreen.kt`, `TvCaracolScreen.kt`
+  (KDoc + `CompositionLocalProvider` call sites), and `showForYouRow` into
+  `TvHomeScreenParaTiTest.kt` (fully translated too).
+- `TvSearchScreen.kt` (72K, **the single largest file in all of `ui/`**): `TvCaracolChapters`/
+  `TvWhatToDoWithCardDialog` (was `TvCapitulosDeCaracol`/`TvQueHacerConLaCardDialog`, with
+  `series`/`onChoose`/`title`/`isSeries`/`onUseName`/`onFullSeries`/`onBySeason` params),
+  `searchingSources`/`sourcesState` state (was `fuentesBuscando`/`estadoDeFuentes`), and every
+  local in `TvSearchScreen` itself (`newSearch`/`recordQuery`/`searchTitles`/`searchSources`/
+  `useName`/`askModeFor`/`searchNumber`/`titlesGrid`/`gridTouched`/etc, was `nuevaBusqueda`/
+  `recordarConsulta`/`buscarTitulos`/`buscarFuentes`/`usarNombre`/`preguntarModo`/`busquedaNro`/
+  `gridTitulos`/`grillaTocada`/etc), `TvMagisSeasonContent`'s `label` param (was `etiqueta`) plus
+  `chapters`/`series`/`expected`/`ordered`/`multipleSeasons` locals, `TvMagisEpisodeRow`'s
+  `chapter`/`label` params. `sourceKey`/`TvSearchScreen`/`TvRefineContent`/`TvResultsContent`/
+  `TvSourceTabRow`/`TvSeasonChip`/`TvRefineRow`/`TvMagisSeasonContent`/`TvMagisEpisodeRow` were
+  already English. Rippled `TvCaracolChapters`'s rename into `TvCaracolScreen.kt`'s call site and
+  KDoc reference.
+
+**`ui/tv/` is now 100% done — every one of its 26 main files (+ tests) is translated.**
 
 ### `ui/` — NOT touched at all
 
-- **`player/`** (23 main + 13 test files) — the **single largest `ui/` package**, zero files
-  opened yet except `PlayerPistas.kt` (one ripple fix: a broken import from the settings/ batch,
-  its own Spanish content is otherwise untouched). Likely the highest-risk piece of `ui/` given
-  it's the actual playback UI (ExoPlayer integration, skip markers, trivia overlay, etc.) —
-  probably belongs last per the lowest-to-highest-risk ordering.
+- **`player/`** (23 main + 13 test files) — **the single remaining `ui/` package, and the last
+  package in the entire sweep.** Zero files opened yet except `PlayerPistas.kt`/`PlayerVivo.kt`
+  (ripple fixes only: broken imports and call sites from the `settings/`/`live/`/`tv/` batches,
+  their own Spanish content is otherwise untouched). Likely the highest-risk piece of `ui/` given
+  it's the actual playback UI (ExoPlayer integration, skip markers, trivia overlay, live
+  zapping/drawer wiring, etc.) — belongs last per the lowest-to-highest-risk ordering, exactly as
+  planned.
 
 ## Workflow to follow (established over 45+ commits this session)
 
@@ -307,9 +328,11 @@ f. Two `ContentSource` implementations — **`MagisFuente`** and **`DituFuente`*
 ## Next steps
 
 1. Continue `ui/` lowest-to-highest risk. `detail/`, `downloads/`, `components/`, `offline/`,
-   `library/`, `theme/`, `update/`, `settings/`, `home/`, `search/`, `catalog/`, `live/` are done.
-   `tv/` is 21/26 files done — only `TvHomeScreen.kt` (58K) and `TvSearchScreen.kt` (72K) remain,
-   then `player/` last (23 files, likely highest-risk — actual playback logic, completely untouched).
+   `library/`, `theme/`, `update/`, `settings/`, `home/`, `search/`, `catalog/`, `live/`, `tv/` are
+   ALL done. Only `player/` remains (23 main + 13 test files, likely highest-risk — actual
+   playback logic: ExoPlayer, skip markers, trivia overlay, live zapping/drawer wiring — completely
+   untouched except two ripple-only fixes in `PlayerPistas.kt`/`PlayerVivo.kt`). This is the last
+   package in the ENTIRE sweep — finishing it completes `ui/` 100%.
 2. After `ui/` is fully done, circle back to close the three remaining `data/` gaps
    (`MagisEntities.kt`, `DituEntities.kt`, `LibraryGrouping.kt`) with the same careful treatment as
    the original `data/magis/`/`data/ditu/` sweeps — these are self-contained enough that they
