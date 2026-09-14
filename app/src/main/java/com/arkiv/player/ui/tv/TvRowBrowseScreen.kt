@@ -63,8 +63,8 @@ import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
-private const val BROWSE_HERO_ESCALA = 1.12f
-private const val BROWSE_HERO_DERIVA_MS = 14_000
+private const val BROWSE_HERO_SCALE = 1.12f
+private const val BROWSE_HERO_DRIFT_MS = 14_000
 
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -104,19 +104,19 @@ fun TvRowBrowseScreen(
     val navSound = rememberNavSound()
     var featured by remember { mutableStateOf<Featured?>(null) }
 
-    val heroDeriva by rememberInfiniteTransition(label = "heroDeriva").animateFloat(
+    val heroDrift by rememberInfiniteTransition(label = "heroDrift").animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = BROWSE_HERO_DERIVA_MS, easing = LinearEasing),
+            animation = tween(durationMillis = BROWSE_HERO_DRIFT_MS, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse,
         ),
-        label = "heroDerivaX",
+        label = "heroDriftX",
     )
 
     Box(Modifier.fillMaxSize().background(ArkivBlack)) {
 
-        // Fondo inmersivo: backdrop del ítem enfocado.
+        // Immersive background: the focused item's backdrop.
         Crossfade(targetState = featured?.imageUrl, animationSpec = tween(450), label = "bg") { url ->
             Box(Modifier.fillMaxSize()) {
                 AsyncImage(
@@ -128,10 +128,10 @@ fun TvRowBrowseScreen(
                         .fillMaxHeight()
                         .align(Alignment.TopEnd)
                         .graphicsLayer {
-                            val margen = size.width * (BROWSE_HERO_ESCALA - 1f) / 2f
-                            scaleX = BROWSE_HERO_ESCALA
-                            scaleY = BROWSE_HERO_ESCALA
-                            translationX = (heroDeriva * 2f - 1f) * margen
+                            val margin = size.width * (BROWSE_HERO_SCALE - 1f) / 2f
+                            scaleX = BROWSE_HERO_SCALE
+                            scaleY = BROWSE_HERO_SCALE
+                            translationX = (heroDrift * 2f - 1f) * margin
                         },
                 )
                 Box(
@@ -149,7 +149,7 @@ fun TvRowBrowseScreen(
 
         Column(Modifier.fillMaxSize()) {
 
-            // ── Hero fijo (1/3 de la pantalla) ────────────────────────────────────────────────
+            // ── Fixed hero (1/3 of the screen) ────────────────────────────────────────────────
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -176,7 +176,7 @@ fun TvRowBrowseScreen(
                 }
             }
 
-            // ── Grid de contenido (2/3 de la pantalla) ────────────────────────────────────────
+            // ── Content grid (2/3 of the screen) ────────────────────────────────────────
             CompositionLocalProvider(LocalBringIntoViewSpec provides TraerConScrollMinimo) {
                 Box(
                     modifier = Modifier
@@ -226,7 +226,7 @@ fun TvRowBrowseScreen(
                         }
                     }
 
-                    // Estado vacío
+                    // Empty state
                     if (items.isEmpty() && !isLoading && !canLoadMore) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
