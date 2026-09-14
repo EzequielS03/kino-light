@@ -10,7 +10,7 @@ import com.arkiv.player.ui.catalog.PlaySource
  * after.
  */
 enum class SourceTab(val label: String) {
-    TODO("Todo"),
+    ALL("Todo"),
     MAGIS("Magis"),
     CARACOL("Caracol"),
 }
@@ -21,17 +21,17 @@ fun tabOf(source: PlaySource): SourceTab = when (source) {
     is PlaySource.Ditu -> SourceTab.CARACOL
 }
 
-/** How many sources there are per tab (TODO included), to paint on the chip. Always returns a key
+/** How many sources there are per tab (ALL included), to paint on the chip. Always returns a key
  *  for every tab, even at zero, so the chips don't jump around as results arrive from each origin. */
 fun countsByTab(sources: List<PlaySource>): Map<SourceTab, Int> {
     val counts = sources.groupingBy { tabOf(it) }.eachCount()
     return SourceTab.entries.associateWith { tab ->
-        if (tab == SourceTab.TODO) sources.size else counts[tab] ?: 0
+        if (tab == SourceTab.ALL) sources.size else counts[tab] ?: 0
     }
 }
 
 fun filterByTab(sources: List<PlaySource>, tab: SourceTab): List<PlaySource> =
-    if (tab == SourceTab.TODO) sources else sources.filter { tabOf(it) == tab }
+    if (tab == SourceTab.ALL) sources else sources.filter { tabOf(it) == tab }
 
 /**
  * The sources to draw as rows in the TV results: in the enum's order, without the empty ones and
@@ -45,6 +45,6 @@ fun filterByTab(sources: List<PlaySource>, tab: SourceTab): List<PlaySource> =
 fun visibleRows(sources: List<PlaySource>, tab: SourceTab): List<Pair<SourceTab, List<PlaySource>>> {
     val bySource = sources.groupBy { tabOf(it) }
     return SourceTab.entries
-        .filter { it != SourceTab.TODO && (tab == SourceTab.TODO || it == tab) }
+        .filter { it != SourceTab.ALL && (tab == SourceTab.ALL || it == tab) }
         .mapNotNull { source -> bySource[source]?.takeIf { it.isNotEmpty() }?.let { source to it } }
 }

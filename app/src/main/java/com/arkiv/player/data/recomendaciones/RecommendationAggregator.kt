@@ -2,7 +2,7 @@ package com.arkiv.player.data.recomendaciones
 
 import android.util.Log
 import com.arkiv.player.data.ArkivRepository
-import com.arkiv.player.data.db.RecomendacionEntity
+import com.arkiv.player.data.db.RecommendationEntity
 import com.arkiv.player.data.gateway.ContentSource
 import kotlinx.coroutines.CancellationException
 
@@ -32,12 +32,12 @@ class RecommendationAggregator(
      * series may have still landed in the library (`addDituSeason` wrote it before failing on the
      * chosen one), just without that episode ready to play.
      */
-    suspend fun add(rec: RecomendacionEntity): String? = when (val target = RecommendationSaving.targetFor(rec)) {
+    suspend fun add(rec: RecommendationEntity): String? = when (val target = RecommendationSaving.targetFor(rec)) {
         is RecommendationTarget.Magis -> addFromMagis(rec, target)
         is RecommendationTarget.Caracol -> addFromCaracol(rec, target)
     }
 
-    private suspend fun addFromMagis(rec: RecomendacionEntity, target: RecommendationTarget.Magis): String? {
+    private suspend fun addFromMagis(rec: RecommendationEntity, target: RecommendationTarget.Magis): String? {
         val season = if (RecommendationSaving.needsChapters(rec)) seasonFromGateway(rec) else null
         val saved = if (season != null) {
             repo.addMagisSeason(
@@ -69,7 +69,7 @@ class RecommendationAggregator(
      * saved whole, like in search (`SearchPlayback.playDituSeason`); a `VOD` is saved alone.
      * The chosen one is the first episode: nobody picked one, and `addDituSeason` needs some.
      */
-    private suspend fun addFromCaracol(rec: RecomendacionEntity, target: RecommendationTarget.Caracol): String? {
+    private suspend fun addFromCaracol(rec: RecommendationEntity, target: RecommendationTarget.Caracol): String? {
         val tmdbId = rec.tmdbId.takeIf { it > 0 }
         val isSeries = com.arkiv.player.data.ditu.DituRef.decode(rec.ref)?.isSeries == true
         val episodeId = if (isSeries) {
@@ -118,7 +118,7 @@ class RecommendationAggregator(
     }
 
     /** A Caracol series' episodes, or null if they couldn't be listed. */
-    private suspend fun chaptersOf(rec: RecomendacionEntity) = try {
+    private suspend fun chaptersOf(rec: RecommendationEntity) = try {
         gateway.episodesWithSeries(rec.ref)
     } catch (e: CancellationException) {
         throw e
@@ -136,7 +136,7 @@ class RecommendationAggregator(
      * unsaved something that can still be played. [CancellationException] is rethrown: swallowing
      * it would keep running a coroutine its scope already considers dead.
      */
-    private suspend fun seasonFromGateway(rec: RecomendacionEntity): RecommendationSeason? = try {
+    private suspend fun seasonFromGateway(rec: RecommendationEntity): RecommendationSeason? = try {
         val (chapters, series) = gateway.episodesWithSeries(rec.ref)
         RecommendationSaving.seasonFor(chapters, series)
     } catch (e: CancellationException) {

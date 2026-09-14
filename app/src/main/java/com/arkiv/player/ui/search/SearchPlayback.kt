@@ -72,7 +72,7 @@ class SearchPlayback(private val graph: AppGraph) {
     suspend fun magisEpisodeIdFor(
         season: com.arkiv.player.data.gateway.GatewayResult,
         chapter: com.arkiv.player.data.gateway.GatewayEpisode,
-        series: com.arkiv.player.data.gateway.GatewaySerie?,
+        series: com.arkiv.player.data.gateway.GatewaySeries?,
     ): String? = graph.repository.addMagisSource(
         ref = chapter.ref,
         contentId = season.extra["content_id"].orEmpty(),
@@ -100,7 +100,7 @@ class SearchPlayback(private val graph: AppGraph) {
     suspend fun playMagisEpisode(
         season: com.arkiv.player.data.gateway.GatewayResult,
         chapter: com.arkiv.player.data.gateway.GatewayEpisode,
-        series: com.arkiv.player.data.gateway.GatewaySerie?,
+        series: com.arkiv.player.data.gateway.GatewaySeries?,
     ): PlaybackResult {
         val epId = magisEpisodeIdFor(season, chapter, series)
         return if (epId != null) PlaybackResult.Ready(epId)
@@ -128,7 +128,7 @@ class SearchPlayback(private val graph: AppGraph) {
         season: com.arkiv.player.data.gateway.GatewayResult,
         chapters: List<com.arkiv.player.data.gateway.GatewayEpisode>,
         chosen: com.arkiv.player.data.gateway.GatewayEpisode,
-        series: com.arkiv.player.data.gateway.GatewaySerie?,
+        series: com.arkiv.player.data.gateway.GatewaySeries?,
     ): PlaybackResult {
         val saved = graph.repository.addMagisSeason(
             contentId = season.extra["content_id"].orEmpty(),
@@ -142,7 +142,7 @@ class SearchPlayback(private val graph: AppGraph) {
             seriesRef = season.ref,
             posterUrl = season.extra["poster"].orEmpty(),
             backdropUrl = season.extra["backdrop"].orEmpty(),
-            // `GatewaySerie.tmdbId` comes from an `optInt` (GatewayModels.kt): if the field were
+            // `GatewaySeries.tmdbId` comes from an `optInt` (GatewayModels.kt): if the field were
             // missing it would give 0, not null, and that 0 would beat `buildSeason`'s `?:` and
             // erase a valid tmdbId already saved. Today the gateway only sends `series` when it DID
             // resolve, so this isn't reachable, but shielding it here costs nothing.
@@ -203,7 +203,7 @@ class SearchPlayback(private val graph: AppGraph) {
         season: com.arkiv.player.data.gateway.GatewayResult,
         chapters: List<com.arkiv.player.data.gateway.GatewayEpisode>,
         chosen: com.arkiv.player.data.gateway.GatewayEpisode,
-        series: com.arkiv.player.data.gateway.GatewaySerie?,
+        series: com.arkiv.player.data.gateway.GatewaySeries?,
     ): PlaybackResult {
         val epId = dituEpisodeIdFor(season, chapters, chosen, series)
         return if (epId != null) PlaybackResult.Ready(epId)
@@ -221,7 +221,7 @@ class SearchPlayback(private val graph: AppGraph) {
         season: com.arkiv.player.data.gateway.GatewayResult,
         chapters: List<com.arkiv.player.data.gateway.GatewayEpisode>,
         chosen: com.arkiv.player.data.gateway.GatewayEpisode,
-        series: com.arkiv.player.data.gateway.GatewaySerie?,
+        series: com.arkiv.player.data.gateway.GatewaySeries?,
     ): String? = graph.repository.addDituSeason(
         seriesRef = season.ref,
         // The item is the series; each chapter is named separately, inside.
@@ -232,7 +232,7 @@ class SearchPlayback(private val graph: AppGraph) {
         backdropUrl = series?.backdropUrl.orEmpty(),
         // Same shielding as in [playDituEpisode]: a tmdbId of 0 doesn't overwrite one already saved.
         tmdbId = series?.tmdbId?.takeIf { it > 0 },
-        // With no TMDB match, `GatewaySerie.title` is Caracol's name, not the canonical one.
+        // With no TMDB match, `GatewaySeries.title` is Caracol's name, not the canonical one.
         tituloCanonico = series?.takeIf { it.tmdbId > 0 }?.title,
     ) ?: standaloneDituEpisodeId(season, chosen, series)
 
@@ -251,7 +251,7 @@ class SearchPlayback(private val graph: AppGraph) {
         season: com.arkiv.player.data.gateway.GatewayResult,
         chapters: List<com.arkiv.player.data.gateway.GatewayEpisode>,
         chosen: List<com.arkiv.player.data.gateway.GatewayEpisode>,
-        series: com.arkiv.player.data.gateway.GatewaySerie?,
+        series: com.arkiv.player.data.gateway.GatewaySeries?,
     ): Int {
         var queued = 0
         for (chapter in chosen) {
@@ -278,7 +278,7 @@ class SearchPlayback(private val graph: AppGraph) {
     suspend fun playDituEpisode(
         season: com.arkiv.player.data.gateway.GatewayResult,
         chapter: com.arkiv.player.data.gateway.GatewayEpisode,
-        series: com.arkiv.player.data.gateway.GatewaySerie?,
+        series: com.arkiv.player.data.gateway.GatewaySeries?,
     ): PlaybackResult {
         val epId = standaloneDituEpisodeId(season, chapter, series)
         return if (epId != null) PlaybackResult.Ready(epId)
@@ -289,7 +289,7 @@ class SearchPlayback(private val graph: AppGraph) {
     private suspend fun standaloneDituEpisodeId(
         season: com.arkiv.player.data.gateway.GatewayResult,
         chapter: com.arkiv.player.data.gateway.GatewayEpisode,
-        series: com.arkiv.player.data.gateway.GatewaySerie?,
+        series: com.arkiv.player.data.gateway.GatewaySeries?,
     ): String? = graph.repository.addDituSource(
             ref = chapter.ref,
             seriesRef = season.ref,
@@ -303,7 +303,7 @@ class SearchPlayback(private val graph: AppGraph) {
             // `DituSource` leaves tmdbId at 0 when TMDB didn't find it: that 0 can't overwrite an
             // already-saved tmdbId.
             tmdbId = series?.tmdbId?.takeIf { it > 0 },
-            // With no TMDB match, `GatewaySerie.title` is Caracol's name, not the canonical one.
+            // With no TMDB match, `GatewaySeries.title` is Caracol's name, not the canonical one.
             tituloCanonico = series?.takeIf { it.tmdbId > 0 }?.title,
         )
 }

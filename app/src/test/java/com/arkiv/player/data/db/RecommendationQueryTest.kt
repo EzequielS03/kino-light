@@ -10,19 +10,19 @@ import org.junit.Test
 /**
  * The query that exposes the account's active recommendations (the home's "Para ti" row):
  * ordered by `orden` -- what `ForYouGenerator` decided, on the device -- and without what's
- * already marked as a tombstone (`deleted`). See [RecomendacionDao.observeActive].
+ * already marked as a tombstone (`deleted`). See [RecommendationDao.observeActive].
  *
  * Run against real SQLite -- same criterion as [SyncTriggersTest] -- because it's pure SQL and
  * this module has no Room infrastructure (nor Robolectric) in its JVM unit tests. The
  * `CREATE TABLE` here has to stay in sync with [ArkivDatabase]'s `MIGRATION_24_25` -- there's no
  * way to check that automatically -- but the SQL itself is NOT copied by hand: it uses
- * [QUERY_ACTIVE_RECOMENDACIONES], the same constant the real `@Query` in
- * [RecomendacionDao.observeActive] uses. This test used to have its own copy of the string, and
+ * [QUERY_ACTIVE_RECOMMENDATIONS], the same constant the real `@Query` in
+ * [RecommendationDao.observeActive] uses. This test used to have its own copy of the string, and
  * that was exactly the hole the review found: removing the `WHERE deleted = 0` from the real
  * query made nothing fail here, because two different SQL statements ran that just so happened to
  * say the same thing.
  */
-class RecomendacionQueryTest {
+class RecommendationQueryTest {
 
     private lateinit var db: Connection
 
@@ -51,10 +51,10 @@ class RecomendacionQueryTest {
         }
     }
 
-    /** THE query from [RecomendacionDao.observeActive] -- not a copy, the same constant. */
+    /** THE query from [RecommendationDao.observeActive] -- not a copy, the same constant. */
     private fun active(): List<String> =
         db.createStatement().use { st ->
-            st.executeQuery(QUERY_ACTIVE_RECOMENDACIONES).use { rs ->
+            st.executeQuery(QUERY_ACTIVE_RECOMMENDATIONS).use { rs ->
                 val out = mutableListOf<String>()
                 while (rs.next()) out.add(rs.getString("id"))
                 out
@@ -69,13 +69,13 @@ class RecomendacionQueryTest {
     }
 
     @Test fun `excludes deleted ones`() {
-        insert("viva", order = 0)
-        insert("tumba", order = 1, deleted = 1)
-        assertEquals("the tombstone can't reappear in the 'Para ti' row", listOf("viva"), active())
+        insert("alive", order = 0)
+        insert("buried", order = 1, deleted = 1)
+        assertEquals("the tombstone can't reappear in the 'Para ti' row", listOf("alive"), active())
     }
 
     @Test fun `a newer delete that won the LWW stops showing up`() {
-        // Simulates what RecomendacionDao.retireActive does on a fresh generation: the row was
+        // Simulates what RecommendationDao.retireActive does on a fresh generation: the row was
         // already live locally, and the update leaves it with deleted=1 and a newer updatedAt
         // because the new generation buried it.
         insert("rec1", order = 0)

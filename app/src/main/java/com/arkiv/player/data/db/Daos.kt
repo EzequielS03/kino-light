@@ -79,7 +79,7 @@ data class ContinueRow(
  * offer the chapter that follows the last one you finished, and pulling each series' whole
  * chapter list into memory to figure it out would mean fetching thousands of rows to use one.
  */
-data class ProgresoConSiguienteRow(
+data class ProgressWithNextRow(
     val episodeId: String,
     val itemId: String,
     val positionMs: Long,
@@ -90,7 +90,7 @@ data class ProgresoConSiguienteRow(
 )
 
 /** Raw row to decide which series to ask about new chapters. See `SeriesToCheck`. */
-data class SerieConProgresoRow(
+data class SeriesWithProgressRow(
     val itemId: String,
     val source: String,
     val episodios: Int,
@@ -98,14 +98,14 @@ data class SerieConProgresoRow(
 )
 
 /** What's been watched of an item, for the TV library's "Ya visto" section. */
-data class VistoRow(
+data class WatchedRow(
     val itemId: String,
     val episodios: Int,
     val ultimoVistoMs: Long,
 )
 
 /** When something from an item was last played, to order the library. */
-data class UltimaReproduccionRow(
+data class LastPlayedRow(
     val itemId: String,
     val ultimaMs: Long,
 )
@@ -153,7 +153,7 @@ data class LibraryRow(
 }
 
 /** A playback with its chapter and its item, for the "Para ti" history. Read-only. */
-data class FilaDeHistorial(
+data class HistoryRow(
     val episodeId: String,
     val positionMs: Long,
     val durationMs: Long,
@@ -244,7 +244,7 @@ interface ItemDao {
         WHERE i.deleted = 0
         """
     )
-    suspend fun seriesWithProgress(): List<SerieConProgresoRow>
+    suspend fun seriesWithProgress(): List<SeriesWithProgressRow>
 
     @Query("SELECT * FROM items WHERE identifier = :itemId")
     fun observeItem(itemId: String): Flow<ItemEntity?>
@@ -321,7 +321,7 @@ interface PlaybackDao {
         WHERE p.deleted = 0 AND e.deleted = 0 AND i.deleted = 0
         """
     )
-    fun observeProgressWithNext(): Flow<List<ProgresoConSiguienteRow>>
+    fun observeProgressWithNext(): Flow<List<ProgressWithNextRow>>
 
     /**
      * The screen data of the chapters [com.arkiv.player.data.ContinueWatchingRule] already chose.
@@ -373,7 +373,7 @@ interface PlaybackDao {
         GROUP BY e.itemId
         """
     )
-    fun observeWatched(): Flow<List<VistoRow>>
+    fun observeWatched(): Flow<List<WatchedRow>>
 
     /**
      * When ANY chapter of each item was last played, for the library's order (see
@@ -396,7 +396,7 @@ interface PlaybackDao {
         GROUP BY e.itemId
         """
     )
-    fun observeLastPlayed(): Flow<List<UltimaReproduccionRow>>
+    fun observeLastPlayed(): Flow<List<LastPlayedRow>>
 
     @Query("SELECT * FROM playback WHERE episodeId IN (SELECT id FROM episodes WHERE itemId = :itemId)")
     fun observePlaybackForItem(itemId: String): Flow<List<PlaybackEntity>>
@@ -416,7 +416,7 @@ interface PlaybackDao {
         LIMIT :limit
         """
     )
-    suspend fun recentHistory(limit: Int): List<FilaDeHistorial>
+    suspend fun recentHistory(limit: Int): List<HistoryRow>
 }
 
 /** A download combined with the episode's data, to show on screen. */
@@ -773,35 +773,35 @@ interface EpisodeFrameDao {
 }
 
 /**
- * Single source of truth of [RecomendacionDao.observeActive]'s "active" query: it's used by the
- * real `@Query` below AND by `RecomendacionQueryTest` (which runs it against real SQLite over
+ * Single source of truth of [RecommendationDao.observeActive]'s "active" query: it's used by the
+ * real `@Query` below AND by `RecommendationQueryTest` (which runs it against real SQLite over
  * JDBC, see its KDoc). A Room `@Query` only accepts compile-time constants, so a `const val` is
  * the minimum that lets both parts read the SAME string instead of keeping two hand-maintained
  * copies that can silently drift apart -- which is exactly what used to happen: the test had its
  * own copy of the SQL, and removing the `WHERE deleted = 0` here didn't make it fail.
  */
-internal const val QUERY_ACTIVE_RECOMENDACIONES =
+internal const val QUERY_ACTIVE_RECOMMENDATIONS =
     "SELECT * FROM recomendaciones WHERE deleted = 0 ORDER BY orden ASC"
 
 @Dao
-interface RecomendacionDao {
+interface RecommendationDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(r: RecomendacionEntity)
+    suspend fun upsert(r: RecommendationEntity)
 
     /**
-     * By `id` (the local key, see [RecomendacionEntity]). No `deleted` filter: the query also
+     * By `id` (the local key, see [RecommendationEntity]). No `deleted` filter: the query also
      * returns what [replace] already retired with a tombstone.
      */
     @Query("SELECT * FROM recomendaciones WHERE id = :id")
-    suspend fun get(id: String): RecomendacionEntity?
+    suspend fun get(id: String): RecommendationEntity?
 
     /**
      * The active recommendations, in the order
      * [com.arkiv.player.data.recomendaciones.ForYouGenerator] built, without what's already
      * marked as a tombstone. It's the source of the home's "Para ti" row.
      */
-    @Query(QUERY_ACTIVE_RECOMENDACIONES)
-    fun observeActive(): Flow<List<RecomendacionEntity>>
+    @Query(QUERY_ACTIVE_RECOMMENDATIONS)
+    fun observeActive(): Flow<List<RecommendationEntity>>
 
     @Query("UPDATE recomendaciones SET deleted = 1, updatedAt = :now WHERE deleted = 0")
     suspend fun retireActive(now: Long)
@@ -812,7 +812,7 @@ interface RecomendacionDao {
      * with `deleted`.
      */
     @Transaction
-    suspend fun replace(new: List<RecomendacionEntity>, now: Long) {
+    suspend fun replace(new: List<RecommendationEntity>, now: Long) {
         retireActive(now)
         new.forEach { upsert(it) }
     }

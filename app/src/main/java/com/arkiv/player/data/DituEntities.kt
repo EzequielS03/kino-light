@@ -5,7 +5,7 @@ import com.arkiv.player.data.db.ItemEntity
 import com.arkiv.player.data.ditu.DituSource
 import com.arkiv.player.data.ditu.DituRef
 import com.arkiv.player.data.gateway.GatewayEpisode
-import com.arkiv.player.data.gateway.GatewaySerie
+import com.arkiv.player.data.gateway.GatewaySeries
 
 /**
  * A Caracol series' chapter, exactly as [DituEntities] needs it.
@@ -95,7 +95,7 @@ object DituEntities {
      */
     fun seasonForChapter(
         chapter: GatewayEpisode,
-        series: GatewaySerie?,
+        series: GatewaySeries?,
     ): Int? = chapter.season ?: series?.seasonNumber
 
     /**
@@ -108,7 +108,7 @@ object DituEntities {
      */
     fun caracolChapter(
         chapter: GatewayEpisode,
-        series: GatewaySerie?,
+        series: GatewaySeries?,
     ): CaracolChapter = CaracolChapter(
         number = chapter.number,
         title = chapter.title,

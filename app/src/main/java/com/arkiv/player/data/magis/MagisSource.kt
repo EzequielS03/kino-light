@@ -7,7 +7,7 @@ import com.arkiv.player.data.gateway.GatewayException
 import com.arkiv.player.data.gateway.GatewayPlayable
 import com.arkiv.player.data.gateway.GatewayResult
 import com.arkiv.player.data.gateway.GatewaySearchQuery
-import com.arkiv.player.data.gateway.GatewaySerie
+import com.arkiv.player.data.gateway.GatewaySeries
 import com.arkiv.player.data.gateway.GatewaySubtitle
 import com.arkiv.player.data.gateway.SearchEvent
 import kotlinx.coroutines.Dispatchers
@@ -173,7 +173,7 @@ internal class MagisSource(
 
     // --- chapters ------------------------------------------------------------
 
-    override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> {
+    override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySeries?> {
         val magis = MagisRef.decode(ref)
             ?: throw GatewayException("ese ref no es de magis: no se pueden listar capítulos")
         val raw = portalChapters(magis.contentId)
@@ -197,7 +197,7 @@ internal class MagisSource(
         // The `series` block travels WHENEVER the portal gave an imdb, even if enrichment didn't
         // come out: with the imdb the app can resolve the series on its own.
         val series = if (IMDB.matches(raw.imdb)) {
-            GatewaySerie(
+            GatewaySeries(
                 imdbId = raw.imdb,
                 tmdbId = seriesFromTmdb?.tmdbId ?: 0,
                 seasonNumber = raw.season ?: 0,

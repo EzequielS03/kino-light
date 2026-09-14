@@ -489,7 +489,7 @@ class AppGraph(context: Context) {
                 }.toSet()
             },
             verify = { candidates, seen -> verification.verify(candidates, seen) },
-            save = { database.recomendacionDao().replace(it, System.currentTimeMillis()) },
+            save = { database.recommendationDao().replace(it, System.currentTimeMillis()) },
             readMarks = { settings.forYouLastAttemptMs to settings.forYouLastAttemptWasModelFailure },
             writeMarks = { t, f -> settings.markForYouAttempt(t, f) },
         )

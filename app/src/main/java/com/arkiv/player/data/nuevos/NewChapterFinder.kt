@@ -66,11 +66,11 @@ class NewChapterFinder(
      *
      * Asks for `episodesWithSeries` (not `episodes`) so a chapter added here comes out enriched
      * exactly as if it had been added by hand: still, real name, synopsis and the real season from
-     * `GatewaySerie`. That last one isn't cosmetic -- it's what avoids the bug that started this
+     * `GatewaySeries`. That last one isn't cosmetic -- it's what avoids the bug that started this
      * block of parameters: a chapter added with no `season` leaves the item with mixed episodes
      * (some with a season set, some without) and `ArkivRepository.ensureEpisodeStills` falls to
      * its flattening branch (see `MagisEntities.chapterEntity`'s KDoc), silently overwriting the
-     * whole season's correct stills. If the gateway couldn't resolve TMDB (`GatewaySerie` null),
+     * whole season's correct stills. If the gateway couldn't resolve TMDB (`GatewaySeries` null),
      * all of this comes out null and the chapter is saved exactly as before: with the portal's
      * data, no still row.
      */

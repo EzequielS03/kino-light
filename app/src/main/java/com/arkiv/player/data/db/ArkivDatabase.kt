@@ -22,7 +22,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LiveFavoriteEntity::class,
         LiveRecentEntity::class,
         LiveChannelCacheEntity::class,
-        RecomendacionEntity::class,
+        RecommendationEntity::class,
     ],
     version = 29,
     exportSchema = false,
@@ -40,7 +40,7 @@ abstract class ArkivDatabase : RoomDatabase() {
     abstract fun liveFavoriteDao(): LiveFavoriteDao
     abstract fun liveRecentDao(): LiveRecentDao
     abstract fun liveChannelCacheDao(): LiveChannelCacheDao
-    abstract fun recomendacionDao(): RecomendacionDao
+    abstract fun recommendationDao(): RecommendationDao
 
     companion object {
         @Volatile
@@ -435,7 +435,7 @@ abstract class ArkivDatabase : RoomDatabase() {
          *
          * At the time this table came from a gateway sync and the app never wrote to it directly;
          * since sub-project 4 the app generates these on-device and writes here itself (see
-         * [RecomendacionEntity]) -- the schema this migration adds hasn't changed either way.
+         * [RecommendationEntity]) -- the schema this migration adds hasn't changed either way.
          */
         private val MIGRATION_24_25 = object : Migration(24, 25) {
             override fun migrate(db: SupportSQLiteDatabase) {

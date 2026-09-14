@@ -1,6 +1,6 @@
 package com.arkiv.player.data.recomendaciones
 
-import com.arkiv.player.data.db.FilaDeHistorial
+import com.arkiv.player.data.db.HistoryRow
 import com.arkiv.player.data.model.WorkKind
 
 /** What the model needs to know about something watched. [kind] is `"tv"` or `"movie"`. */
@@ -24,7 +24,7 @@ internal object HistorySignals {
     const val ABANDON_THRESHOLD = 0.10
     const val CAP = 30
 
-    fun of(rows: List<FilaDeHistorial>): List<Watched> {
+    fun of(rows: List<HistoryRow>): List<Watched> {
         val decided = mutableSetOf<String>()
         val out = mutableListOf<Watched>()
         for (f in rows.sortedByDescending { it.lastPlayedAt }) {

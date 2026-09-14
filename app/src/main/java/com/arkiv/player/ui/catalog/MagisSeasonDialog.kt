@@ -48,7 +48,7 @@ import coil.compose.AsyncImage
 import com.arkiv.player.data.gateway.ContentSource
 import com.arkiv.player.data.gateway.GatewayEpisode
 import com.arkiv.player.data.gateway.GatewayResult
-import com.arkiv.player.data.gateway.GatewaySerie
+import com.arkiv.player.data.gateway.GatewaySeries
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
@@ -71,8 +71,8 @@ fun MagisSeasonDialog(
     season: GatewayResult,
     client: ContentSource,
     onDismiss: () -> Unit,
-    onPlay: (List<GatewayEpisode>, GatewayEpisode, GatewaySerie?) -> Unit,
-    // The [GatewaySerie] also travels in the save, not just in play: saving writes the episode's
+    onPlay: (List<GatewayEpisode>, GatewayEpisode, GatewaySeries?) -> Unit,
+    // The [GatewaySeries] also travels in the save, not just in play: saving writes the episode's
     // entire row (REPLACE), so without it the marked chapters would lose the season play had
     // already saved correctly. See `SearchPlayback.magisEpisodeIdFor`.
     // Null = download disabled.
@@ -81,7 +81,7 @@ fun MagisSeasonDialog(
     // only needs the chosen ones, but Caracol saves the complete series to be able to save one
     // (`ArkivRepository.addDituSeason`), and with no row in `episodes` the download afterward
     // can't find the `ref`.
-    onSave: ((all: List<GatewayEpisode>, chosen: List<GatewayEpisode>, GatewaySerie?) -> Unit)? = null,
+    onSave: ((all: List<GatewayEpisode>, chosen: List<GatewayEpisode>, GatewaySeries?) -> Unit)? = null,
     // The source's name and color. The window also opens Caracol series.
     sourceLabel: String = "Magis",
     accent: Color = ArkivMagisBlue,
@@ -90,7 +90,7 @@ fun MagisSeasonDialog(
     // The `series` block from the same response: that's where the `tmdbId`
     // `SearchPlayback.playMagisSeason` needs to save it on the item comes from, without asking
     // for it again on tapping a chapter (see its KDoc).
-    var series by remember(season.ref) { mutableStateOf<GatewaySerie?>(null) }
+    var series by remember(season.ref) { mutableStateOf<GatewaySeries?>(null) }
     var error by remember(season.ref) { mutableStateOf<String?>(null) }
     // Selection to save. Starts empty: this window's main gesture is playing, and checking all 16
     // chapters by default would invite downloading a whole season by accident.

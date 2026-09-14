@@ -341,20 +341,20 @@ data class EpisodeFrameEntity(
  * A recommendation generated ON THE DEVICE by
  * [com.arkiv.player.data.recomendaciones.ForYouGenerator], with Kilo's free models, from the
  * local history, for the home's "Para ti" row. The app DOES write here directly
- * (`RecomendacionDao.reemplazar`, called from `AppGraph.forYouGenerator`): there's no PocketBase
+ * (`RecommendationDao.replace`, called from `AppGraph.forYouGenerator`): there's no PocketBase
  * or sync behind it -- `CloudSyncManager` doesn't exist in this branch.
  *
  * The local key is [id] (the already-resolved source's id, see
  * `com.arkiv.player.data.recomendaciones.RecommendationSaving.itemIdFor`) and **NOT** [orden]:
  * each generation RECREATES the whole list instead of reusing identity across batches (a port of
- * `arkiv-api/src/arkiv_api/recomendaciones/almacen.py::guardar`) -- `RecomendacionDao.reemplazar`
+ * `arkiv-api/src/arkiv_api/recomendaciones/almacen.py::guardar`) -- `RecommendationDao.replace`
  * buries (`deleted=true`) the current ones with the SAME `updatedAt` and only then inserts the
  * new ones. Two different generations can share the same `orden` (0..9) with different `id`s; if
  * `orden` were the PK, the new row's `upsert` (`OnConflictStrategy.REPLACE`) would overwrite the
  * old row with that same `orden` even if they were completely different works.
  */
 @Entity(tableName = "recomendaciones")
-data class RecomendacionEntity(
+data class RecommendationEntity(
     @PrimaryKey val id: String,
     /** Can come in as 0 (a candidate with no confirmed `tmdbId`): a legitimate value, not an absence. */
     val tmdbId: Int,

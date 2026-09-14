@@ -134,7 +134,7 @@ class MagisEntitiesTest {
     }
 
     @Test fun `a standalone chapter with no resolved season doesn't invent one`() {
-        // The gateway couldn't always cross-reference against TMDB (`GatewaySerie` null): then
+        // The gateway couldn't always cross-reference against TMDB (`GatewaySeries` null): then
         // there's no season to save, and none is invented.
         val (_, ep) = chapter()
         assertNull(ep.season)
@@ -266,7 +266,7 @@ class MagisEntitiesTest {
     }
 
     @Test fun `with no resolved season, the chapter is left without a season`() {
-        // The gateway couldn't always cross-reference the series against TMDB (`GatewaySerie`
+        // The gateway couldn't always cross-reference the series against TMDB (`GatewaySeries`
         // null): then there's no season number to save, and none is invented.
         val (_, eps) = season(seasonNumber = null)
         assertEquals(listOf(null, null, null), eps.map { it.season })
@@ -375,7 +375,7 @@ class RefToRepairTest {
     }
 
     @Test fun `an invalid tmdbId counts as absent`() {
-        // `GatewaySerie.tmdbId` comes from an `optInt`: an absent field gives 0, not null.
+        // `GatewaySeries.tmdbId` comes from an `optInt`: an absent field gives 0, not null.
         assertEquals(ref, MagisEntities.refToRepair("magis:ABC", 0, ref))
     }
 

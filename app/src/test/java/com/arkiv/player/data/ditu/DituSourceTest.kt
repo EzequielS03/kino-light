@@ -152,7 +152,7 @@ class DituSourceTest {
 
     /**
      * In a GROUP_OF_BUNDLES each season can carry its own chapter 1. The season has to travel on
-     * each chapter: `GatewaySerie.seasonNumber` is a single value for the whole list, and without
+     * each chapter: `GatewaySeries.seasonNumber` is a single value for the whole list, and without
      * this whoever saves to the library can't tell season 1's chapter 1 apart from season 2's.
      */
     @Test fun `in a group each chapter carries its own season`() = runTest {

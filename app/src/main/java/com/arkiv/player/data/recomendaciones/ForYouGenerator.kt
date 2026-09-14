@@ -1,7 +1,7 @@
 package com.arkiv.player.data.recomendaciones
 
 import android.util.Log
-import com.arkiv.player.data.db.RecomendacionEntity
+import com.arkiv.player.data.db.RecommendationEntity
 import com.arkiv.player.data.ia.ModelJson
 import com.arkiv.player.data.ia.UnreadableJson
 import com.arkiv.player.data.ia.AiResponse
@@ -80,7 +80,7 @@ internal class ForYouGenerator(
     private val history: suspend () -> List<Watched>,
     private val alreadySeen: suspend () -> Set<String>,
     private val verify: suspend (List<Candidate>, Set<String>) -> List<Verified>,
-    private val save: suspend (List<RecomendacionEntity>) -> Unit,
+    private val save: suspend (List<RecommendationEntity>) -> Unit,
     private val readMarks: () -> Pair<Long, Boolean>,
     private val writeMarks: (Long, Boolean) -> Unit,
     private val nowMs: () -> Long = { System.currentTimeMillis() },
@@ -113,7 +113,7 @@ internal class ForYouGenerator(
                 val target = RecommendationSaving.targetForRef(v.ref) ?: return@mapNotNull null
                 v to RecommendationSaving.itemIdFor(target)
             }.distinctBy { it.second }.mapIndexed { i, (v, id) ->
-                RecomendacionEntity(
+                RecommendationEntity(
                     id = id, tmdbId = v.tmdbId, tipo = v.kind, titulo = v.title,
                     posterUrl = v.posterUrl, porque = v.candidate.why, ref = v.ref,
                     orden = i, generadoAt = now, updatedAt = now,

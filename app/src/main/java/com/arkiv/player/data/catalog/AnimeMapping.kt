@@ -4,9 +4,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Mapeo cruzado de un anime (dataset Fribb/anime-lists). Da los IDs en otras bases + la
- * temporada TVDB. El `episodeOffset` casi nunca viene para TV (solo OVAs/especiales); el offset
- * absoluto real lo calcula el traversal de AniList (ver [AniListApi.absoluteOffset]).
+ * Cross-mapping of an anime (Fribb/anime-lists dataset). Gives the IDs in other databases plus
+ * the TVDB season. `episodeOffset` almost never comes in for TV (only OVAs/specials); the real
+ * absolute offset is computed by AniList's traversal (see [AniListApi.absoluteOffset]).
  */
 data class AnimeMapping(
     val anilistId: Long,

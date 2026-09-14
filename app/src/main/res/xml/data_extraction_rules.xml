@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Respaldo en Android 12+ (API 31). Tiene que decir lo mismo que backup_rules.xml (ver el porque
-  alli). `device-transfer` tambien excluye: el traspaso directo entre telefonos (Smart Switch y
-  companía) tampoco puede mover llaves del Keystore.
+  Backup on Android 12+ (API 31). Has to say the same thing as backup_rules.xml (see the why
+  there). `device-transfer` also excludes: direct phone-to-phone transfer (Smart Switch and
+  friends) can't move Keystore keys either.
 -->
 <data-extraction-rules>
     <cloud-backup>

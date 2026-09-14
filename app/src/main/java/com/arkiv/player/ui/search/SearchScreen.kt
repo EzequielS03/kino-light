@@ -745,7 +745,7 @@ private fun ResultsContent(
     // `rememberSaveable` and not `remember`: this screen gets destroyed when the player opens, and
     // with `remember` the chosen origin was lost -- you'd come back from watching something via
     // Magis and the list was back on "Todo", with the item you'd just tapped buried among dozens of results.
-    var tab by rememberSaveable { mutableStateOf(SourceTab.TODO) }
+    var tab by rememberSaveable { mutableStateOf(SourceTab.ALL) }
 
     val magis = sources.filterIsInstance<PlaySource.Magis>()
     val caracol = sources.filterIsInstance<PlaySource.Ditu>()
@@ -788,7 +788,7 @@ private fun ResultsContent(
                     modifier = Modifier.padding(horizontal = HPAD, vertical = 12.dp),
                 )
             }
-        } else if (tab == SourceTab.TODO) {
+        } else if (tab == SourceTab.ALL) {
             // "Todo": a collapsible section per origin, in [SourceTab]'s order.
             sourceSection(this, "MAGIS", ArkivMagisBlue, magis, searchingSources.isSearching(SourceTab.MAGIS), "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, emptySectionText(SourceTab.MAGIS, sourcesState))
             sourceSection(this, "CARACOL", ArkivCaracolVerde, caracol, searchingSources.isSearching(SourceTab.CARACOL), "CARACOL" in expandedSections, { toggle("CARACOL") }, enabled, onPlay, emptySectionText(SourceTab.CARACOL, sourcesState))
@@ -1020,7 +1020,7 @@ private fun SourceTabRow(
     ) {
         SourceTab.entries.forEach { t ->
             val accent = when (t) {
-                SourceTab.TODO -> Color.White
+                SourceTab.ALL -> Color.White
                 SourceTab.MAGIS -> ArkivMagisBlue
                 SourceTab.CARACOL -> ArkivCaracolVerde
             }

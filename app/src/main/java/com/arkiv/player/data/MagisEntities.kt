@@ -85,7 +85,7 @@ object MagisEntities {
      * duplicate chapters that were already saved standalone.
      *
      * [season] is the real season number when it's known ([buildSeason], which pulls it from
-     * `GatewaySerie.seasonNumber`) or `null` when it isn't ([build], which saves a standalone
+     * `GatewaySeries.seasonNumber`) or `null` when it isn't ([build], which saves a standalone
      * chapter with no that context). It matters more than it looks:
      * `ArkivRepository.ensureEpisodeStills` cross-references by (season, chapter) ONLY if ALL of
      * an item's episodes have `season` set: a single `null` one makes it fall to its branch that
@@ -124,7 +124,7 @@ object MagisEntities {
      * because opening the screen doesn't ask again. `seriesRef` DID stay saved (the same field
      * where web saves its `pageUrl`), and that's enough to ask just once.
      *
-     * A `tmdbId` of 0 counts as absent: `GatewaySerie.tmdbId` comes from an `optInt`, and a field
+     * A `tmdbId` of 0 counts as absent: `GatewaySeries.tmdbId` comes from an `optInt`, and a field
      * that didn't arrive gives 0, not null.
      */
     fun refToRepair(identifier: String, tmdbId: Int?, torrentData: String?): String? {
@@ -173,12 +173,12 @@ object MagisEntities {
         // Can arrive null when TMDB didn't resolve this time (or the gateway is old), and that's
         // not a reason to discard what was already saved -- hence the `?:` below.
         tmdbId: Int? = null,
-        // `GatewaySerie`'s `season_number`: passed to [chapterEntity] so that
+        // `GatewaySeries`'s `season_number`: passed to [chapterEntity] so that
         // `ArkivRepository.ensureEpisodeStills` can cross-reference by exact (season, chapter)
         // instead of flattening from season 1 (see [chapterEntity]'s KDoc). Null when the gateway
         // didn't resolve the series: the episode is left with `season = null`, same as today.
         seasonNumber: Int? = null,
-        // The name TMDB knows the series by (`GatewaySerie.title`). Same `?:` as [tmdbId]: an
+        // The name TMDB knows the series by (`GatewaySeries.title`). Same `?:` as [tmdbId]: an
         // absent one doesn't erase what was already saved. See [canonicalTitle].
         tituloCanonico: String? = null,
     ): Pair<ItemEntity, List<EpisodeEntity>> {
@@ -254,7 +254,7 @@ object MagisEntities {
      * Who passes the season today, and where they get it from:
      *  - `SearchPlayback.magisEpisodeIdFor` (the season dialog's "Save" button, phone and TV) and
      *    `NewChapterFinder.checkMagis` (new chapters in the background): from the
-     *    `series` block's (`GatewaySerie`) `season_number`, returned by `MagisCatalog.detail`.
+     *    `series` block's (`GatewaySeries`) `season_number`, returned by `MagisCatalog.detail`.
      *  - `SearchPlayback.magisEpisodeId` and `CineDetailScreen.playMagis` (a lone search result,
      *    no chapter list): from the `GatewayResult`'s own `season`.
      *
@@ -328,7 +328,7 @@ object MagisEntities {
     /**
      * The canonical title left after saving: the one that arrived, or the one already there.
      *
-     * Blank counts as absent, not as a name: `GatewaySerie.title` comes in empty when the gateway
+     * Blank counts as absent, not as a name: `GatewaySeries.title` comes in empty when the gateway
      * is old or TMDB didn't resolve, and adopting that string would leave the card WITHOUT TEXT.
      * And absent doesn't erase: [build] and [buildSeason] run on every save, so without this `?:`
      * a single pass with the gateway down would revert the card to the portal's name.

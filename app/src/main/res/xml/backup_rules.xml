@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Respaldo en Android <= 11 (API 30). El par de este archivo para API 31+ es
-  data_extraction_rules.xml: los DOS tienen que decir lo mismo, si no el aparato viejo restaura lo
-  que el nuevo excluye.
+  Backup on Android <= 11 (API 30). This file's counterpart for API 31+ is
+  data_extraction_rules.xml: the TWO have to say the same thing, otherwise the old device restores
+  what the new one excludes.
 
-  Las prefs cifradas NO pueden viajar en un respaldo. Se cifran con una llave del Android Keystore
-  que nunca sale del aparato, asi que al restaurarlas en otro telefono llega el archivo pero no la
-  llave: indescifrable para siempre. Eso es exactamente lo que dejo un Galaxy A54 abriendo y
-  cerrandose sola la app en bucle el 2026-08-20. Ver EncryptedPrefs.
+  The encrypted prefs CANNOT travel in a backup. They're encrypted with an Android Keystore key
+  that never leaves the device, so restoring them on another phone brings the file but not the
+  key: undecipherable forever. That's exactly what left a Galaxy A54 opening and closing the app
+  in a loop on its own on 2026-08-20. See EncryptedPrefs.
 -->
 <full-backup-content>
     <exclude domain="sharedpref" path="arkiv_pb_secure.xml" />

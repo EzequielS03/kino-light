@@ -38,7 +38,7 @@ class CompositeSourceTest {
             return GatewayPlayable(kind = name, url = "http://$name")
         }
 
-        override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> {
+        override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySeries?> {
             resolved = ref
             return listOf(GatewayEpisode(1, "Cap", ref)) to null
         }
@@ -129,7 +129,7 @@ class CompositeSourceTest {
             return GatewayPlayable(kind = name, url = "http://$name")
         }
 
-        override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> {
+        override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySeries?> {
             return listOf(GatewayEpisode(1, "Cap", ref)) to null
         }
     }

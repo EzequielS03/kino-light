@@ -113,7 +113,7 @@ class CaracolDownloadProbe : BroadcastReceiver() {
     private suspend fun load(
         graph: AppGraph,
         seriesId: String,
-    ): Triple<GatewayResult, List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewaySerie?>? {
+    ): Triple<GatewayResult, List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewaySeries?>? {
         val ref = "ditu1:BUNDLE:$seriesId"
         val (chapters, series) = runCatching { graph.contentSource.episodesWithSeries(ref) }
             .getOrElse { Log.e(TAG, "couldn't list the season", it); return null }

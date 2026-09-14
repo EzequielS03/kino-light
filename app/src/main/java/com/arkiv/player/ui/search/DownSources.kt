@@ -54,7 +54,7 @@ private fun isDown(tab: SourceTab, state: SourcesState): Boolean =
  */
 fun downSourceNotices(state: SourcesState, tab: SourceTab): List<String> =
     state.failed
-        .filter { (source, _) -> tab == SourceTab.TODO || tabForSource(source) == tab }
+        .filter { (source, _) -> tab == SourceTab.ALL || tabForSource(source) == tab }
         .map { (source, error) ->
             if (tabForSource(source) == SourceTab.CARACOL) {
                 CaracolFailure.inSearch(state.causes[source], error)

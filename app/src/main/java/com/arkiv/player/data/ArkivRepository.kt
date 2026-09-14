@@ -621,7 +621,7 @@ class ArkivRepository(
      * [seriesRef] is the SEASON's ref (the one used to ask the portal for the chapter list),
      * different from the [ref] of the chapter that's about to play.
      *
-     * [season], [tmdbId], [still], [tmdbTitle] and [overview] are what `GatewaySerie`/
+     * [season], [tmdbId], [still], [tmdbTitle] and [overview] are what `GatewaySeries`/
      * `GatewayEpisode` bring when the caller has them on hand (today, `NewChapterFinder.checkMagis`
      * when adding a new chapter in the background): a chapter that comes out this way ends up
      * enriched the same as if it had been opened by hand, with nobody having to open the season.
@@ -911,10 +911,10 @@ class ArkivRepository(
         // Null when TMDB didn't resolve this series (or the gateway hasn't sent it yet):
         // `buildSeason` doesn't overwrite it against what was already saved, see its KDoc.
         tmdbId: Int? = null,
-        // `GatewaySerie`'s `season_number`: `buildSeason` needs it so episodes save the real
+        // `GatewaySeries`'s `season_number`: `buildSeason` needs it so episodes save the real
         // season, without which `ensureEpisodeStills` flattens wrong (see its KDoc).
         seasonNumber: Int? = null,
-        // The name TMDB knows the series by (`GatewaySerie.title`), so the card stops showing the
+        // The name TMDB knows the series by (`GatewaySeries.title`), so the card stops showing the
         // portal's. See `MagisEntities.buildSeason`.
         tituloCanonico: String? = null,
     ): Map<Int, String> {

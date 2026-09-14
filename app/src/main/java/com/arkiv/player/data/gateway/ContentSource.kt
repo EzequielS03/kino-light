@@ -28,10 +28,10 @@ interface ContentSource {
     suspend fun resolve(ref: String): GatewayPlayable
 
     /**
-     * Episodes of a season and, if the series could be matched against TMDB, its [GatewaySerie]
+     * Episodes of a season and, if the series could be matched against TMDB, its [GatewaySeries]
      * block (null if not).
      */
-    suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?>
+    suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySeries?>
 
     suspend fun episodes(ref: String): List<GatewayEpisode> = episodesWithSeries(ref).first
 }

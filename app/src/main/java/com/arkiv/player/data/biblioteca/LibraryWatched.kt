@@ -3,7 +3,7 @@ package com.arkiv.player.data.biblioteca
 import com.arkiv.player.data.LibraryGroup
 
 /**
- * What's been watched of ONE library item. Pure model: the Room row (`VistoRow`) is mapped to
+ * What's been watched of ONE library item. Pure model: the Room row (`WatchedRow`) is mapped to
  * this in the repository, so this object can be tested without bringing Room into the test.
  */
 data class ItemWatched(

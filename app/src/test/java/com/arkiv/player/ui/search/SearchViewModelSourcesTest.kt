@@ -17,7 +17,7 @@ import com.arkiv.player.data.gateway.GatewayException
 import com.arkiv.player.data.gateway.GatewayPlayable
 import com.arkiv.player.data.gateway.GatewayResult
 import com.arkiv.player.data.gateway.GatewaySearchQuery
-import com.arkiv.player.data.gateway.GatewaySerie
+import com.arkiv.player.data.gateway.GatewaySeries
 import com.arkiv.player.data.gateway.SearchEvent
 import com.arkiv.player.ui.catalog.PlaySource
 import java.lang.reflect.Proxy
@@ -107,7 +107,7 @@ class SearchViewModelSourcesTest {
 
         assertFalse(vm.searchingSources.value.isSearching(SourceTab.MAGIS))
         assertTrue(vm.searchingSources.value.isSearching(SourceTab.CARACOL))
-        assertTrue(vm.searchingSources.value.isSearching(SourceTab.TODO))
+        assertTrue(vm.searchingSources.value.isSearching(SourceTab.ALL))
 
         caracolAnswers.complete(Unit)
         advanceUntilIdle()
@@ -142,7 +142,7 @@ private class FlowSource(private val flow: () -> Flow<SearchEvent>) : ContentSou
     override fun recognizes(ref: String) = false
     override fun search(ctx: GatewaySearchQuery): Flow<SearchEvent> = flow()
     override suspend fun resolve(ref: String): GatewayPlayable = throw GatewayException("sin uso en el test")
-    override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> =
+    override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySeries?> =
         emptyList<GatewayEpisode>() to null
 }
 
@@ -151,7 +151,7 @@ private class TestSource(private val events: () -> List<SearchEvent>) : ContentS
     override fun recognizes(ref: String) = false
     override fun search(ctx: GatewaySearchQuery): Flow<SearchEvent> = events().asFlow()
     override suspend fun resolve(ref: String): GatewayPlayable = throw GatewayException("sin uso en el test")
-    override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> =
+    override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySeries?> =
         emptyList<GatewayEpisode>() to null
 }
 

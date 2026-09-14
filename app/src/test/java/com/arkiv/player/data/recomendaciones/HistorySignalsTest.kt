@@ -1,6 +1,6 @@
 package com.arkiv.player.data.recomendaciones
 
-import com.arkiv.player.data.db.FilaDeHistorial
+import com.arkiv.player.data.db.HistoryRow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -16,7 +16,7 @@ class HistorySignalsTest {
         titulo: String = item,
         tipo: String? = "movie",
         episodio: Int? = null,
-    ) = FilaDeHistorial(
+    ) = HistoryRow(
         episodeId = "$item::$clock", positionMs = pos, durationMs = dur, watched = watched,
         lastPlayedAt = clock--, episodio = episodio, itemId = item, titulo = titulo,
         tituloCanonico = null, tipo = tipo, categoryOverride = null, tmdbId = null,

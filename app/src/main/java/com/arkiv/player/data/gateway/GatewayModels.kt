@@ -101,7 +101,7 @@ data class GatewayEpisode(
     /**
      * THIS chapter's season, when the source knows it per chapter; null = it doesn't say. Magis
      * doesn't send it: each of its seasons is a separate result, and its number travels in
-     * [GatewaySerie.seasonNumber].
+     * [GatewaySeries.seasonNumber].
      *
      * Exists because of Caracol: a `GROUP_OF_BUNDLES` arrives as ONE list with all its seasons
      * flattened (`DituEpisodes`), and each season can bring its own chapter 1. With no season
@@ -118,7 +118,7 @@ data class GatewayEpisode(
  * seiki evangerion Temp.1"): it's what the library adopts as `tituloCanonico`. Comes **empty**
  * when TMDB didn't resolve -- not null, so that "there's no name" is one question, not two.
  */
-data class GatewaySerie(
+data class GatewaySeries(
     val imdbId: String,
     val tmdbId: Int,
     val seasonNumber: Int,

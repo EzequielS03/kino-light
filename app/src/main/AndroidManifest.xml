@@ -13,7 +13,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
-    <!-- Android TV: no exigir pantalla táctil -->
+    <!-- Android TV: don't require a touchscreen -->
     <uses-feature
         android:name="android.hardware.touchscreen"
         android:required="false" />
@@ -47,16 +47,16 @@
         </service>
 
         <!--
-            El servicio de foreground de WorkManager viene de la librería SIN
-            `foregroundServiceType`, y desde API 34 Android exige que el tipo que pide
-            `setForeground()` esté declarado en el elemento <service>. Sin esto, la cola de
-            descargas (LocalDownloadWorker, que pide DATA_SYNC) tira
-            "foregroundServiceType 0x1 is not a subset of 0x0" y **mata la app**.
+            WorkManager's foreground service ships from the library WITHOUT
+            `foregroundServiceType`, and since API 34 Android requires the type that
+            `setForeground()` asks for to be declared on the <service> element. Without this, the
+            download queue (LocalDownloadWorker, which asks for DATA_SYNC) throws
+            "foregroundServiceType 0x1 is not a subset of 0x0" and **kills the app**.
 
-            OJO: no alcanza con el permiso FOREGROUND_SERVICE_DATA_SYNC, que ya estaba. Y
-            tampoco alcanza con envolver `setForeground()` en un runCatching: la excepción no
-            se lanza en la corrutina del worker sino después, en el hilo principal, dentro del
-            propio SystemForegroundService. Verificado crasheando en un S24+ con Android 16.
+            NOTE: the FOREGROUND_SERVICE_DATA_SYNC permission, which was already there, isn't
+            enough by itself. Neither is wrapping `setForeground()` in a runCatching: the exception
+            isn't thrown in the worker's coroutine but later, on the main thread, inside
+            SystemForegroundService itself. Confirmed crashing on an S24+ running Android 16.
         -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
@@ -64,18 +64,18 @@
             tools:node="merge" />
 
         <!--
-            El banner va TAMBIÉN acá y no solo en <application>, que es lo que pide la doc de
-            Android TV para la actividad de LEANBACK_LAUNCHER: sin esto, `aapt2 dump badging`
-            mostraba `leanback-launchable-activity: ... banner=''`.
+            The banner is declared here TOO, not only on <application>, which is what Android TV's
+            docs ask for the LEANBACK_LAUNCHER activity: without this, `aapt2 dump badging` showed
+            `leanback-launchable-activity: ... banner=''`.
 
-            OJO, que esto NO arregla el Fire TV Stick, y se probó: en el AFTKM (Fire OS /
-            Android 11), con el banner ya resuelto en la actividad (`banner=0x7f0800f9` según
-            `cmd package resolve-activity`) y tras un reinicio COMPLETO para descartar el caché
-            del lanzador, la ficha del home siguió pintando el icono adaptativo con barras
-            grises a los lados. El lanzador de Fire TV usa el ICONO para las apps sideloaded, no
-            el banner. Por eso además existe mipmap-television/: ahí el icono que se le entrega
-            en un TV ya es apaisado 16:9, que es la forma de la ficha. Ese camino quedó SIN
-            verificar (hace falta otro reinicio para vaciar el caché del lanzador).
+            NOTE: this does NOT fix the Fire TV Stick, and it was tested: on an AFTKM (Fire OS /
+            Android 11), with the banner already resolved on the activity (`banner=0x7f0800f9` per
+            `cmd package resolve-activity`) and after a FULL reboot to rule out the launcher's
+            cache, the home card kept painting the adaptive icon with grey bars on the sides. Fire
+            TV's launcher uses the ICON for sideloaded apps, not the banner. That's also why
+            mipmap-television/ exists: the icon handed to a TV there is already 16:9 landscape,
+            which is the card's shape. That path was left UNVERIFIED (needs another reboot to
+            clear the launcher's cache).
         -->
         <activity
             android:name=".MainActivity"
@@ -101,8 +101,8 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- El botón "Cancelar" de la notificación de descarga. `exported=false`: lo dispara solo
-             nuestro propio PendingIntent, nadie de afuera. -->
+        <!-- The download notification's "Cancel" button. `exported=false`: only our own
+             PendingIntent can fire it, no one from outside. -->
         <receiver
             android:name=".data.local.DownloadActionsReceiver"
             android:exported="false" />

@@ -87,7 +87,7 @@ import coil.compose.AsyncImage
 import com.arkiv.player.data.db.ContinueRow
 import com.arkiv.player.data.db.LibraryRow
 import com.arkiv.player.data.db.LiveChannelCacheEntity
-import com.arkiv.player.data.db.RecomendacionEntity
+import com.arkiv.player.data.db.RecommendationEntity
 import com.arkiv.player.data.gateway.LiveChannel
 import com.arkiv.player.thumbnails.ThumbnailChoice
 import com.arkiv.player.ui.home.HomeViewModel
@@ -156,17 +156,17 @@ private fun discoveryMeta(card: com.arkiv.player.ui.search.TitleCard): String {
  * of a loose `.isNotEmpty()` in the composable) so the rule can be tested without spinning up
  * Compose.
  */
-internal fun showForYouRow(recommendations: List<RecomendacionEntity>): Boolean = recommendations.isNotEmpty()
+internal fun showForYouRow(recommendations: List<RecommendationEntity>): Boolean = recommendations.isNotEmpty()
 
 /**
  * What the hero shows on focusing a "Para ti" card: the "why" the gateway brings goes in
  * [Featured.meta] -- the same spot where "Continuar viendo" puts "te faltan 12 min" -- because
  * it's the datum that explains the recommendation, not a synopsis. Top-level and not local to
  * [TvHomeScreen] (unlike `continueFeatured`/`libraryFeatured`, which do read the composable's
- * state) so it can be tested without Compose: it's pure, only depends on [RecomendacionEntity]'s
+ * state) so it can be tested without Compose: it's pure, only depends on [RecommendationEntity]'s
  * fields.
  */
-internal fun recommendationFeatured(rec: RecomendacionEntity): Featured = Featured(
+internal fun recommendationFeatured(rec: RecommendationEntity): Featured = Featured(
     title = rec.titulo,
     subtitle = if (rec.tipo == "movie") "Película" else "Serie",
     imageUrl = rec.posterUrl.ifBlank { null },
@@ -276,7 +276,7 @@ fun TvHomeScreen(
     // (`data/recomendaciones`) asks Kilo directly and writes here through
     // `AppGraph.forYouGenerator`, triggered from `repo.onEpisodeFinished` whenever something
     // finishes playing -- no server of its own involved.
-    val recommendationDao = remember { graph.database.recomendacionDao() }
+    val recommendationDao = remember { graph.database.recommendationDao() }
     val aggregator = remember { graph.recommendationAggregator }
     val recommendations by recommendationDao.observeActive().collectAsStateWithLifecycle(initialValue = emptyList())
 

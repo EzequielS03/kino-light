@@ -27,11 +27,11 @@ class SourceTabTest {
         assertTrue(SourceTab.CARACOL in counts)
         assertEquals(0, counts[SourceTab.CARACOL])
         assertEquals(1, counts[SourceTab.MAGIS])
-        assertEquals(1, counts[SourceTab.TODO])
+        assertEquals(1, counts[SourceTab.ALL])
     }
 
     @Test fun `caracol goes after magis even if it arrives first`() {
-        val r = visibleRows(listOf(caracol("c"), magis("m")), SourceTab.TODO)
+        val r = visibleRows(listOf(caracol("c"), magis("m")), SourceTab.ALL)
         assertEquals(listOf(SourceTab.MAGIS, SourceTab.CARACOL), r.map { it.first })
     }
 
@@ -42,17 +42,17 @@ class SourceTabTest {
     }
 
     @Test fun `the rows go in the enum's order`() {
-        val r = visibleRows(listOf(magis("m")), SourceTab.TODO)
+        val r = visibleRows(listOf(magis("m")), SourceTab.ALL)
         assertEquals(listOf(SourceTab.MAGIS), r.map { it.first })
     }
 
     @Test fun `a source with no results leaves no row`() {
-        val r = visibleRows(listOf(magis("m")), SourceTab.TODO)
+        val r = visibleRows(listOf(magis("m")), SourceTab.ALL)
         assertEquals(listOf(SourceTab.MAGIS), r.map { it.first })
     }
 
     @Test fun `with no results there's no row at all`() {
-        assertTrue(visibleRows(emptyList(), SourceTab.TODO).isEmpty())
+        assertTrue(visibleRows(emptyList(), SourceTab.ALL).isEmpty())
     }
 
     @Test fun `with a filter set only one row is left`() {
@@ -67,7 +67,7 @@ class SourceTabTest {
 
     @Test fun `each row keeps its source's arrival order`() {
         val sources = listOf(magis("a"), magis("b"))
-        val row = visibleRows(sources, SourceTab.TODO).first { it.first == SourceTab.MAGIS }
+        val row = visibleRows(sources, SourceTab.ALL).first { it.first == SourceTab.MAGIS }
         assertEquals(listOf("a", "b"), row.second.map { (it as PlaySource.Magis).result.title })
     }
 }

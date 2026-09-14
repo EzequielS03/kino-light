@@ -8,7 +8,7 @@ import com.arkiv.player.data.gateway.GatewayException
 import com.arkiv.player.data.gateway.GatewayPlayable
 import com.arkiv.player.data.gateway.GatewayResult
 import com.arkiv.player.data.gateway.GatewaySearchQuery
-import com.arkiv.player.data.gateway.GatewaySerie
+import com.arkiv.player.data.gateway.GatewaySeries
 import com.arkiv.player.data.gateway.SearchEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -91,7 +91,7 @@ internal class DituSource(
     @Volatile
     private var cachedCatalog: CachedCatalog? = null
 
-    override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> {
+    override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySeries?> {
         val ownRef = DituRef.decode(ref) ?: throw GatewayException("Ese enlace no es de Caracol")
         val season = runCatching { episodes.forRef(ownRef) }
             .getOrElse { throw GatewayException(it.message ?: "No se pudieron leer los capítulos", it) }
@@ -102,7 +102,7 @@ internal class DituSource(
         }
         if (season.seriesTitle.isBlank() && season.posterUrl.isBlank()) return eps to null
 
-        var series = GatewaySerie(
+        var series = GatewaySeries(
             imdbId = "",
             tmdbId = 0,
             seasonNumber = season.season,

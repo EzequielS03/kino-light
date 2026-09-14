@@ -5,7 +5,7 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
-/** Lee una clave del archivo .env de la raíz del repo (para no hardcodear credenciales). */
+/** Reads a key from the repo root's .env file (to avoid hardcoding credentials). */
 fun readEnv(key: String, default: String = ""): String {
     val f = rootProject.file(".env")
     if (!f.exists()) return default
@@ -19,13 +19,13 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.arkiv.player.light" // id propio: conviven Arkiv completo y Arkiv Light en el mismo device
+        applicationId = "com.arkiv.player.light" // own id: full Arkiv and Arkiv Light coexist on the same device
         minSdk = 26
         targetSdk = 35
-        // Aca vivia `ADULT_CODE`, el codigo del candado 18+, que salia del .env al compilar. Ya no:
-        // el codigo lo elige la persona en Ajustes y arranca en un default publico (ver
-        // `CandadoDeAdultos`). Un APK distribuido con un codigo que solo conoce quien lo compilo
-        // dejaba la seccion cerrada para todos los demas.
+        // `ADULT_CODE` used to live here, the 18+ lock's code baked in from .env at build time. Not
+        // anymore: the person picks the code in Settings and it starts at a public default (see
+        // `CandadoDeAdultos`). An APK distributed with a code only the person who built it knew left
+        // the section locked for everyone else.
         buildConfigField("String", "IPTV_3DES_KEY", "\"${readEnv("IPTV_3DES_KEY")}\"")
         buildConfigField("String", "IPTV_HOSTS", "\"${readEnv("IPTV_HOSTS")}\"")
         buildConfigField("String", "IPTV_APP_ID", "\"${readEnv("IPTV_APP_ID")}\"")
@@ -38,23 +38,24 @@ android {
         buildConfigField("String", "CAST_RECEIVER_ID", "\"${readEnv("CAST_RECEIVER_ID")}\"")
         versionCode = 48
         versionName = "0.9.17"
-        // Task 8 (Paso 3): acá vivía `ARKIV_API_KEY`, la última credencial de build que quedaba
-        // en el APK -- una constante compilada, igual para todos los aparatos, que cualquiera que
-        // abriera el APK podía extraer. Salió del todo: la app se autentica con la credencial POR
-        // DISPOSITIVO que ya emitía el alta (sesión de persona + aparato), revocable de a una.
-        // Ver `docs/INVENTARIO_DE_LLAVES.md`.
+        // Task 8 (Step 3): `ARKIV_API_KEY` used to live here, the last build-time credential still
+        // left in the APK -- a compiled-in constant, the same for every device, that anyone who
+        // opened the APK could extract. Gone entirely: the app now authenticates with the PER-DEVICE
+        // credential already issued at sign-up (person session + device), revocable one at a time.
+        // See `docs/INVENTARIO_DE_LLAVES.md`.
         ndk {
-            // Solo ABIs de dispositivos reales (celular arm64, Fire Stick armeabi-v7a).
+            // Only real-device ABIs (phone arm64, Fire Stick armeabi-v7a).
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
     }
 
-    // Firma de release desde .env (mismo mecanismo que las credenciales: el archivo está gitignoreado,
-    // así que la llave y su clave nunca entran al repo). Si no está configurada, el bloque no se crea
-    // y `assembleRelease` sale sin firmar — es a propósito: mejor que fallar en silencio firmando con debug.
+    // Release signing from .env (same mechanism as the credentials: the file is gitignored, so the
+    // keystore and its password never enter the repo). If it isn't configured, the block isn't
+    // created and `assembleRelease` comes out unsigned -- on purpose: better than silently falling
+    // back to signing with the debug key.
     val keystorePath = readEnv("RELEASE_KEYSTORE_PATH")
-    val hayFirma = keystorePath.isNotBlank() && file(keystorePath).exists()
-    if (hayFirma) {
+    val hasSigningConfig = keystorePath.isNotBlank() && file(keystorePath).exists()
+    if (hasSigningConfig) {
         signingConfigs {
             create("release") {
                 storeFile = file(keystorePath)
@@ -74,7 +75,7 @@ android {
             // NOT exercised on a device yet: installing a release build means uninstalling the debug
             // one, which wipes app data, so that check waits for a device that can afford it.
             isMinifyEnabled = true
-            if (hayFirma) signingConfig = signingConfigs.getByName("release")
+            if (hasSigningConfig) signingConfig = signingConfigs.getByName("release")
         }
         debug {
             isMinifyEnabled = false
@@ -103,9 +104,9 @@ android {
 }
 
 ksp {
-    // Room genera Kotlin en vez de Java: esquiva el bug de javac en JDK 17.0.13+/21.0.5+
-    // ("insert(Iterable) and insert(T) inherited with the same signature") que rompe la
-    // compilación del código generado en el variant de unit test.
+    // Room generates Kotlin instead of Java: sidesteps the javac bug on JDK 17.0.13+/21.0.5+
+    // ("insert(Iterable) and insert(T) inherited with the same signature") that breaks compilation
+    // of the generated code in the unit test variant.
     arg("room.generateKotlin", "true")
 }
 
@@ -114,7 +115,7 @@ dependencies {
     implementation(composeBom)
 
     implementation("androidx.core:core-ktx:1.15.0")
-    // Splash del sistema: evita el frame negro entre el lanzamiento y el primer frame de Compose.
+    // System splash: avoids the black frame between launch and Compose's first frame.
     implementation("androidx.core:core-splashscreen:1.0.1")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
@@ -135,9 +136,9 @@ dependencies {
     // Media3 / ExoPlayer
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-exoplayer-dash:1.5.1")
-    // HLS: lo necesita LiveExoPlayer (canal en vivo de Magis, vía LiveHlsProxy) -- faltaba y
-    // causaba ClassNotFoundException en tiempo de ejecucion (DefaultMediaSourceFactory busca
-    // HlsMediaSource$Factory por reflexion, el compilador no lo detecta).
+    // HLS: needed by LiveExoPlayer (Magis' live channel, via LiveHlsProxy) -- was missing and
+    // caused a runtime ClassNotFoundException (DefaultMediaSourceFactory looks up
+    // HlsMediaSource$Factory by reflection, the compiler can't detect it).
     implementation("androidx.media3:media3-exoplayer-hls:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
     implementation("androidx.media3:media3-datasource:1.5.1")
@@ -168,17 +169,17 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
 
     testImplementation("junit:junit:4.13.2")
-    // org.json real para unit tests JVM: el de Android (android.jar) es un stub que lanza en runtime,
-    // así que cualquier test que parsee JSON fallaría sin esto.
+    // Real org.json for JVM unit tests: Android's own (android.jar) is a stub that throws at
+    // runtime, so any test that parses JSON would fail without this.
     testImplementation("org.json:json:20240303")
-    // Dispatchers.setMain + runTest/StandardTestDispatcher: sin esto, cualquier ViewModel real
-    // (viewModelScope = Dispatchers.Main.immediate) revienta en un test JVM puro ("Module with the
-    // Main dispatcher had failed to initialize"). Testing-only: no viaja en el APK, mismo trato que
-    // mockwebserver un poco más abajo.
+    // Dispatchers.setMain + runTest/StandardTestDispatcher: without this, any real ViewModel
+    // (viewModelScope = Dispatchers.Main.immediate) blows up in a pure JVM test ("Module with the
+    // Main dispatcher had failed to initialize"). Testing-only: doesn't ship in the APK, same deal
+    // as mockwebserver a bit further down.
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
-    // Servidor HTTP falso para tests de HttpFetcher (cookie cacheada, challenge/reintento) sin red real.
+    // Fake HTTP server for HttpFetcher tests (cached cookie, challenge/retry) with no real network.
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
-    // SQLite de verdad para probar el DDL que Room no valida (los triggers de `updatedAt`): son SQL
-    // puro, así que ejecutarlos es la única forma honesta de saber si sellan lo que tienen que sellar.
+    // Real SQLite to test the DDL Room doesn't validate (the `updatedAt` triggers): they're plain
+    // SQL, so running them is the only honest way to know whether they seal what they must seal.
     testImplementation("org.xerial:sqlite-jdbc:3.45.3.0")
 }

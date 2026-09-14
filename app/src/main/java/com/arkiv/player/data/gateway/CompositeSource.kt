@@ -69,7 +69,7 @@ internal class CompositeSource(private val sources: List<ContentSource>) : Conte
 
     override suspend fun resolve(ref: String): GatewayPlayable = sourceFor(ref).resolve(ref)
 
-    override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> =
+    override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySeries?> =
         sourceFor(ref).episodesWithSeries(ref)
 
     private fun sourceFor(ref: String): ContentSource =

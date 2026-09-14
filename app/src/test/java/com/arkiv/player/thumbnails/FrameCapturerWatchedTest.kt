@@ -1,12 +1,12 @@
 package com.arkiv.player.thumbnails
 
 import com.arkiv.player.data.db.ContinueRow
-import com.arkiv.player.data.db.FilaDeHistorial
+import com.arkiv.player.data.db.HistoryRow
 import com.arkiv.player.data.db.PlaybackDao
-import com.arkiv.player.data.db.UltimaReproduccionRow
+import com.arkiv.player.data.db.LastPlayedRow
 import com.arkiv.player.data.db.PlaybackEntity
-import com.arkiv.player.data.db.ProgresoConSiguienteRow
-import com.arkiv.player.data.db.VistoRow
+import com.arkiv.player.data.db.ProgressWithNextRow
+import com.arkiv.player.data.db.WatchedRow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
@@ -42,19 +42,19 @@ class FrameCapturerWatchedTest {
         override suspend fun upsert(playback: PlaybackEntity) { rows[playback.episodeId] = playback }
         override suspend fun get(episodeId: String): PlaybackEntity? = rows[episodeId]
         override fun observe(episodeId: String): Flow<PlaybackEntity?> = MutableStateFlow(rows[episodeId])
-        override fun observeProgressWithNext(): Flow<List<ProgresoConSiguienteRow>> =
+        override fun observeProgressWithNext(): Flow<List<ProgressWithNextRow>> =
             MutableStateFlow(emptyList())
         override suspend fun continueWatchingRows(episodeIds: List<String>): List<ContinueRow> = emptyList()
-        override fun observeWatched(): Flow<List<VistoRow>> = MutableStateFlow(emptyList())
+        override fun observeWatched(): Flow<List<WatchedRow>> = MutableStateFlow(emptyList())
         override fun observePlaybackForItem(itemId: String): Flow<List<PlaybackEntity>> =
             MutableStateFlow(emptyList())
         // Another branch added this (library ordering by last watched) while this one was open.
         // FrameCapturer doesn't use it; it's here only so the fake keeps implementing the DAO.
-        override fun observeLastPlayed(): Flow<List<UltimaReproduccionRow>> =
+        override fun observeLastPlayed(): Flow<List<LastPlayedRow>> =
             MutableStateFlow(emptyList())
         // Task 7 added this (local history for "For you"). FrameCapturer doesn't use it; it's here
         // only so the fake keeps implementing the DAO.
-        override suspend fun recentHistory(limit: Int): List<FilaDeHistorial> = emptyList()
+        override suspend fun recentHistory(limit: Int): List<HistoryRow> = emptyList()
     }
 
     private fun progress(episodeId: String, watched: Boolean) = PlaybackEntity(

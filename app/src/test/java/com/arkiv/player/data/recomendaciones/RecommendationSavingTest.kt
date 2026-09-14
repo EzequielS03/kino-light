@@ -1,8 +1,8 @@
 package com.arkiv.player.data.recomendaciones
 
-import com.arkiv.player.data.db.RecomendacionEntity
+import com.arkiv.player.data.db.RecommendationEntity
 import com.arkiv.player.data.gateway.GatewayEpisode
-import com.arkiv.player.data.gateway.GatewaySerie
+import com.arkiv.player.data.gateway.GatewaySeries
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -25,7 +25,7 @@ import org.junit.Test
  */
 class RecommendationSavingTest {
 
-    private fun rec(tipo: String) = RecomendacionEntity(
+    private fun rec(tipo: String) = RecommendationEntity(
         id = "cammiy790r3ky1o",
         tmdbId = 65930,
         tipo = tipo,
@@ -46,7 +46,7 @@ class RecommendationSavingTest {
         )
     }
 
-    private val SERIES = GatewaySerie(imdbId = "tt5626028", tmdbId = 65930, seasonNumber = 1)
+    private val SERIES = GatewaySeries(imdbId = "tt5626028", tmdbId = 65930, seasonNumber = 1)
 
     @Test fun a_series_is_saved_with_all_its_chapters() {
         val season = RecommendationSaving.seasonFor(THIRTEEN, SERIES)
@@ -112,11 +112,11 @@ class RecommendationSavingTest {
     }
 
     /**
-     * `GatewaySerie.tmdbId` comes from an `optInt`: a field that didn't come back gives 0, not
+     * `GatewaySeries.tmdbId` comes from an `optInt`: a field that didn't come back gives 0, not
      * null. That 0 would beat the `?:` `buildSeason` uses to preserve an already-saved tmdbId.
      */
     @Test fun a_tmdbId_of_zero_is_not_an_identification() {
-        val season = RecommendationSaving.seasonFor(THIRTEEN, GatewaySerie("", 0, 1))
+        val season = RecommendationSaving.seasonFor(THIRTEEN, GatewaySeries("", 0, 1))
         assertNull(season!!.tmdbId)
     }
 
@@ -128,7 +128,7 @@ class RecommendationSavingTest {
         assertNull(season.seasonNumber)
     }
 
-    private fun recCon(id: String, ref: String) = RecomendacionEntity(
+    private fun recCon(id: String, ref: String) = RecommendationEntity(
         id = id, tmdbId = 0, tipo = "movie", titulo = "x", posterUrl = "", porque = "", ref = ref,
         orden = 0, generadoAt = 0,
     )

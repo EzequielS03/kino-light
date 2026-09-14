@@ -190,7 +190,7 @@ fun TvSearchScreen(
         chapters: List<com.arkiv.player.data.gateway.GatewayEpisode>,
         // Same as on the phone: the series travels along in the save too, because saving rewrites
         // the whole episode row. See `SearchPlayback.magisEpisodeIdFor`.
-        series: com.arkiv.player.data.gateway.GatewaySerie?,
+        series: com.arkiv.player.data.gateway.GatewaySeries?,
     ) {
         preparing = true; playError = null
         scope.launch {
@@ -927,7 +927,7 @@ private fun TvSourceTabRow(
     ) {
         SourceTab.entries.forEach { t ->
             val accent = when (t) {
-                SourceTab.TODO -> androidx.compose.ui.graphics.Color.White
+                SourceTab.ALL -> androidx.compose.ui.graphics.Color.White
                 SourceTab.MAGIS -> com.arkiv.player.ui.catalog.ArkivMagisBlue
                 SourceTab.CARACOL -> com.arkiv.player.ui.catalog.ArkivCaracolVerde
             }
@@ -1061,7 +1061,7 @@ private fun TvResultsContent(
 
     // Filter by source. The counters come from `ordered` (already deduplicated), not `sources`, so
     // the chip's number is exactly the count of rows that'll be seen on picking it.
-    var tab by remember { mutableStateOf(SourceTab.TODO) }
+    var tab by remember { mutableStateOf(SourceTab.ALL) }
     val counts = countsByTab(ordered)
     // Each tab spins while its source is still searching, and "Todo" while any is missing: see
     // [SearchingSources].
@@ -1308,9 +1308,9 @@ private fun TvMagisSeasonContent(
     client: com.arkiv.player.data.gateway.ContentSource,
     posterUrl: String,
     preparing: Boolean,
-    onPlayOne: (List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewayEpisode, com.arkiv.player.data.gateway.GatewaySerie?) -> Unit,
+    onPlayOne: (List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewayEpisode, com.arkiv.player.data.gateway.GatewaySeries?) -> Unit,
     // Null = no save button (Caracol: doesn't download to the device, see `DownloadSource`).
-    onSaveAll: ((List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewaySerie?) -> Unit)?,
+    onSaveAll: ((List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewaySeries?) -> Unit)?,
     // The source's name, in the data line above.
     label: String = "Magis",
 ) {
@@ -1318,7 +1318,7 @@ private fun TvMagisSeasonContent(
     // The `series` block from the same response: that's where the `tmdbId` comes from that
     // `SearchPlayback.playMagisSeason` needs to save it on the item, without requesting it again
     // on tapping a chapter (see its KDoc).
-    var series by remember(season.ref) { mutableStateOf<com.arkiv.player.data.gateway.GatewaySerie?>(null) }
+    var series by remember(season.ref) { mutableStateOf<com.arkiv.player.data.gateway.GatewaySeries?>(null) }
     var error by remember(season.ref) { mutableStateOf<String?>(null) }
     val saveAllFocus = remember { FocusRequester() }
 

@@ -5,8 +5,9 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * The IPC round trip's VALUES, not just its field LIST (see the "todo campo del tag..." guard in
- * [PlayerSourceTagTest]): a tag with every field populated has to survive encode→decode exactly. A
+ * The IPC round trip's VALUES, not just its field LIST (see the "every tag field either travels
+ * through the IPC or is listed as left behind" guard in [PlayerSourceTagTest]): a tag with every
+ * field populated has to survive encode→decode exactly. A
  * `preferSoftware` bug already slipped through exactly here once -- it stayed false and magis's
  * HEVC kept opening in hardware -- and nothing short of round-tripping the real values would have
  * caught it.

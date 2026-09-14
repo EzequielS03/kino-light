@@ -1,6 +1,6 @@
 package com.arkiv.player.ui.tv
 
-import com.arkiv.player.data.db.RecomendacionEntity
+import com.arkiv.player.data.db.RecommendationEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -23,7 +23,7 @@ class TvHomeScreenParaTiTest {
         porque: String = "porque terminaste Dragon Ball",
         ref: String = "magis:algo",
         orden: Int = 0,
-    ) = RecomendacionEntity(
+    ) = RecommendationEntity(
         id = id, tmdbId = tmdbId, tipo = tipo, titulo = titulo, posterUrl = posterUrl,
         porque = porque, ref = ref, orden = orden, generadoAt = 0L,
     )

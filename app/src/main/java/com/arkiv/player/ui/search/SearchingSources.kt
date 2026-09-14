@@ -27,12 +27,12 @@ data class SearchingSources(
 
     /** Whether [tab] has to show that it's still searching. */
     fun isSearching(tab: SourceTab): Boolean = when (tab) {
-        SourceTab.TODO -> SourceTab.entries.any { it != SourceTab.TODO && isSearching(it) }
+        SourceTab.ALL -> SourceTab.entries.any { it != SourceTab.ALL && isSearching(it) }
         else -> !done && finished.none { tabForSource(it) == tab }
     }
 
     /** Whether any source is still searching: the same as "Todo". */
-    val any: Boolean get() = isSearching(SourceTab.TODO)
+    val any: Boolean get() = isSearching(SourceTab.ALL)
 
     companion object {
         /** A search that's starting: everything searching. */

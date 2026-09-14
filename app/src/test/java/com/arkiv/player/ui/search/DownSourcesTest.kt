@@ -17,7 +17,7 @@ class DownSourcesTest {
     /** With no errors, Magis looks exactly as before: no notice and the usual texts. */
     @Test fun `with no errors the screen says the usual thing`() {
         for (state in listOf(SourcesState(), noErrors)) {
-            assertTrue(downSourceNotices(state, SourceTab.TODO).isEmpty())
+            assertTrue(downSourceNotices(state, SourceTab.ALL).isEmpty())
             assertEquals(NO_SOURCES_TEXT, noSourcesText(state))
             assertEquals("Sin resultados en Caracol.", emptyTabText(SourceTab.CARACOL, false, state))
             assertEquals("Buscando en Magis…", emptyTabText(SourceTab.MAGIS, true, state))
@@ -27,7 +27,7 @@ class DownSourcesTest {
 
     @Test fun `caracol down leaves its line without covering magis`() {
         // "sin red" says nothing understandable: the line is the generic one, without the raw text.
-        assertEquals(listOf("Caracol no respondió"), downSourceNotices(caracolDown, SourceTab.TODO))
+        assertEquals(listOf("Caracol no respondió"), downSourceNotices(caracolDown, SourceTab.ALL))
         assertEquals(listOf("Caracol no respondió"), downSourceNotices(caracolDown, SourceTab.CARACOL))
         assertTrue(downSourceNotices(caracolDown, SourceTab.MAGIS).isEmpty())
         // Caracol's tab doesn't say "Buscando…" or "Sin resultados": its line already explains it.
@@ -45,7 +45,7 @@ class DownSourcesTest {
         assertFalse(noSourcesText(everythingDown).contains("temporada"))
         assertEquals(
             listOf("Magis no respondió: timeout", "Caracol no respondió"),
-            downSourceNotices(everythingDown, SourceTab.TODO),
+            downSourceNotices(everythingDown, SourceTab.ALL),
         )
     }
 
@@ -65,13 +65,13 @@ class DownSourcesTest {
     /** Magis untouched: its line is still its name and its error text, as before. */
     @Test fun `magis's line stays the same`() {
         val state = SourcesState().withFailure("magis", "Unable to resolve host \"x\"", UnknownHostException("x"))
-        assertEquals(listOf("Magis no respondió: Unable to resolve host \"x\""), downSourceNotices(state, SourceTab.TODO))
+        assertEquals(listOf("Magis no respondió: Unable to resolve host \"x\""), downSourceNotices(state, SourceTab.ALL))
     }
 
     /** `CompositeSource` names "desconocida" a source that goes down before announcing itself. */
     @Test fun `an unnamed source still gets a notice`() {
         val state = SourcesState().withFailure("desconocida", "boom")
-        assertEquals(listOf("Una fuente no respondió: boom"), downSourceNotices(state, SourceTab.TODO))
+        assertEquals(listOf("Una fuente no respondió: boom"), downSourceNotices(state, SourceTab.ALL))
         assertTrue(downSourceNotices(state, SourceTab.CARACOL).isEmpty())
     }
 }

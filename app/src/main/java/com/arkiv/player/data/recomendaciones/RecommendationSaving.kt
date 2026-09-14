@@ -1,9 +1,9 @@
 package com.arkiv.player.data.recomendaciones
 
 import com.arkiv.player.data.SeasonChapter
-import com.arkiv.player.data.db.RecomendacionEntity
+import com.arkiv.player.data.db.RecommendationEntity
 import com.arkiv.player.data.gateway.GatewayEpisode
-import com.arkiv.player.data.gateway.GatewaySerie
+import com.arkiv.player.data.gateway.GatewaySeries
 
 /**
  * The season to save from a recommendation, already in the model `ArkivRepository.addMagisSeason`
@@ -46,12 +46,12 @@ object RecommendationSaving {
     /**
      * Whether this recommendation needs its episode list requested before saving it.
      *
-     * Decided by [RecomendacionEntity.tipo] —already matched against TMDB— and only applies to
+     * Decided by [RecommendationEntity.tipo] —already matched against TMDB— and only applies to
      * Magis: Caracol decides by its own `ref` (`DituRef.isSeries`, see
      * `RecommendationAggregator.addFromCaracol`). Asking for a movie would pay a portal listing
      * call for nothing.
      */
-    fun needsChapters(rec: RecomendacionEntity): Boolean = rec.tipo == "tv"
+    fun needsChapters(rec: RecommendationEntity): Boolean = rec.tipo == "tv"
 
     /**
      * Which source this `ref` is from, or null if it's from none known. Caracol is asked first,
@@ -69,7 +69,7 @@ object RecommendationSaving {
      * it to `loadMagis`). An old row with a ref that isn't understood falls back to Magis with its
      * id, which is how it used to be saved.
      */
-    internal fun targetFor(rec: RecomendacionEntity): RecommendationTarget =
+    internal fun targetFor(rec: RecommendationEntity): RecommendationTarget =
         targetForRef(rec.ref) ?: RecommendationTarget.Magis(rec.id)
 
     /** The id of the item left in the library: the same one the search for that source builds. */
@@ -87,12 +87,12 @@ object RecommendationSaving {
      * card would stay unsaved and never open its detail. Caracol refs never get here: `targetFor()`
      * sends them to `RecommendationAggregator.addFromCaracol`.
      *
-     * A [GatewaySerie.tmdbId] of 0 is "didn't come" and not an identification: it comes from an
+     * A [GatewaySeries.tmdbId] of 0 is "didn't come" and not an identification: it comes from an
      * `optInt`, and that 0 would beat the `?:` `buildSeason` uses to preserve an already-saved tmdbId.
      */
     fun seasonFor(
         chapters: List<GatewayEpisode>,
-        series: GatewaySerie?,
+        series: GatewaySeries?,
     ): RecommendationSeason? {
         if (chapters.isEmpty()) return null
         return RecommendationSeason(

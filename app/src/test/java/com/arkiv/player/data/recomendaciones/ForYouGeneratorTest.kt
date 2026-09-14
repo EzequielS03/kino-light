@@ -1,6 +1,6 @@
 package com.arkiv.player.data.recomendaciones
 
-import com.arkiv.player.data.db.RecomendacionEntity
+import com.arkiv.player.data.db.RecommendationEntity
 import com.arkiv.player.data.ia.AiResponse
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -54,7 +54,7 @@ class ForYouGeneratorTest {
 
     // --- the generator ---------------------------------------------------------
 
-    private class Saved { var last: List<RecomendacionEntity>? = null }
+    private class Saved { var last: List<RecommendationEntity>? = null }
 
     private fun generator(
         ia: (String) -> AiResponse,

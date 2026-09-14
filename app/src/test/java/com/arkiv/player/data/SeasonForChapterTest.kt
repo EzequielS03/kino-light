@@ -1,7 +1,7 @@
 package com.arkiv.player.data
 
 import com.arkiv.player.data.gateway.GatewayEpisode
-import com.arkiv.player.data.gateway.GatewaySerie
+import com.arkiv.player.data.gateway.GatewaySeries
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -16,7 +16,7 @@ import org.junit.Test
  */
 class SeasonForChapterTest {
 
-    private fun series(season: Int) = GatewaySerie(imdbId = "", tmdbId = 0, seasonNumber = season)
+    private fun series(season: Int) = GatewaySeries(imdbId = "", tmdbId = 0, seasonNumber = season)
 
     @Test fun `the chapter's own season wins over the series'`() {
         val chapterFromS2 = GatewayEpisode(number = 1, title = "Uno", ref = "ditu1:VOD:b", season = 2)
