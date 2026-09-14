@@ -9,7 +9,7 @@ English" line in `.claude/reglas.md`.
 Order chosen by the user: **módulo por módulo, de menor a mayor riesgo** (module by module,
 lowest to highest risk).
 
-## Overall completion: **`ui/` and `data/`'s three known gaps are both 100% done.**
+## Overall completion: **`ui/` is 100% done.** `data/` is NOT yet fully done — see below.
 
 - `playback/`, `security/`, `dlna/`, `cast/`, `thumbnails/`: **100% done.**
 - `ui/` (159 main files across 14 subpackages, plus 6 top-level files, plus tests): **100% done.**
@@ -17,16 +17,17 @@ lowest to highest risk).
   was the last file in the entire `ui/` tree — done and committed at `4e5ce086`.
 - `data/`'s three known gaps — `MagisEntities.kt` (`791a5988`), `DituEntities.kt` (`a2a1d073`),
   `LibraryGrouping.kt` (`5900c67d`) — are **all done.**
-- **Newly discovered while closing those three** (same pattern as before: a package declared
-  "done" that wasn't actually swept file-by-file) — **`data/nuevos/` is a whole small package
-  that was never touched**: `BuscadorDeCapitulos.kt` (mixed English/Spanish — its KDoc had
-  already been partly translated by ripple work, but its own identifiers/locals are still
-  Spanish) and `SeriesPorRevisar.kt` (fully Spanish) need a real pass; `MissingChapters.kt` and
-  `NewEpisodeCounter.kt` in the same package are already fully English (0 accented-char hits).
-  Also **`data/gateway/ReparacionDeMagis.kt`** (fully Spanish, one file, not part of the original
-  three) was found the same way. These are the next items — see "Next steps" below.
-- The deferred `MagisFuente`/`DituFuente` class-name revisit (exception f) is still outstanding
-  after these.
+- **`data/nuevos/` package and `data/gateway/ReparacionDeMagis.kt`** (discovered while closing
+  the three gaps above, same pattern) — **also done, commit `f127153b`.**
+  `BuscadorDeCapitulos.kt`→`NewChapterFinder.kt`, `SeriesPorRevisar.kt`→`SeriesToCheck.kt`,
+  `ReparacionDeMagis.kt`→`MagisIdentityRepair.kt`. `SerieConProgresoRow` (in `Daos.kt`) and its
+  fields (`episodios`/`ultimoVistoMs`) were deliberately left untouched — a Room DAO row bound to
+  `SELECT ... AS alias`, same frozen-DTO rule as `ProgresoConSiguienteRow`/`FilaDeHistorial`.
+- **NOT yet done, discovered right after the above**: three more files in `data/gateway/` —
+  `FuenteCompuesta.kt`, `GatewayModels.kt`, `LiveModels.kt` — are still substantially Spanish. See
+  the "Correction" note in the `data/` section below and "Next steps".
+- After those: revisit whether `MagisFuente`/`DituFuente` class names are now cheap enough to
+  rename (exception f) — the last already-known deferred item.
 
 ## Hard-won lesson this session: bare-name imports break silently after a rename
 
@@ -78,18 +79,32 @@ while rippling an unrelated rename into `ArkivRepository.kt`). **Lesson, reconfi
 time: a package being "done" needs a final broad grep across every top-level file in it, not
 just the subpackages that were the original focus.**
 
-**New gaps discovered while closing these three** (same pattern, found by grepping every file
-these three touched via ripple comments): `data/nuevos/` package (`BuscadorDeCapitulos.kt`,
-`SeriesPorRevisar.kt` — still Spanish; `MissingChapters.kt`/`NewEpisodeCounter.kt` already fully
-English) and `data/gateway/ReparacionDeMagis.kt` (fully Spanish, one file). Not yet started — see
-"Next steps".
+**Gaps discovered while closing these three, also now done (commit `f127153b`):**
+`data/nuevos/` package (`BuscadorDeCapitulos.kt`→`NewChapterFinder.kt`,
+`SeriesPorRevisar.kt`→`SeriesToCheck.kt`; `MissingChapters.kt`/`NewEpisodeCounter.kt` were already
+fully English) and `data/gateway/ReparacionDeMagis.kt`→`MagisIdentityRepair.kt`
+(`repararIdentidadDeMagis`→`repairMagisIdentity`, rippled into its two call sites in
+`DetailScreen.kt`/`TvDetailScreen.kt`). `AppGraph.kt` itself is explicitly NOT translated — it's a
+much larger not-yet-processed file (the whole DI graph, `fuenteDeContenido`/`catalogoDeVivo`/
+`almacenDeCaracol` all live there); only its two call sites referencing renamed symbols got
+minimal targeted fixes.
 
 Everything else in `data/` (all subpackages, `data/local/`, `data/magis/`, `data/ditu/`,
 `data/db/`, `ArkivRepository.kt`, `ContinueWatchingRule.kt` (was `PorDondeVas.kt`),
 `StillMerge.kt` (was `MezclaDeStills.kt`), `EncodedNumbering.kt` (was `NumeracionCodificada.kt`),
 `EpisodeNavigation.kt`, `WatchedThreshold.kt`) is translated and verified. See git log for the
 full commit trail (`data/db/` through `ArkivRepository.kt` finishing at `c805220c`, then the gap
-closures at `cad8b4af`, `6eb17c8f`, and now `791a5988`/`a2a1d073`/`5900c67d`).
+closures at `cad8b4af`, `6eb17c8f`, `791a5988`/`a2a1d073`/`5900c67d`, and `f127153b`).
+
+**Correction — do NOT declare `data/` 100% done yet.** A file-by-file accented-character check of
+every top-level file in `data/gateway/` (done right after closing `ReparacionDeMagis.kt`, since
+that file lived in this same subpackage) found THREE more untranslated files that were never part
+of any prior "done" declaration: `FuenteCompuesta.kt` (12 hits), `GatewayModels.kt` (28 hits), and
+`LiveModels.kt` (39 hits) — `LiveModels.kt` is the same file `PlayerScreen.kt`'s exception list
+already flagged for its `nombre` field, confirming it's genuinely untouched, not just one stray
+field. `ContentSource.kt`, `GatewayMapper.kt`, and the newly-renamed `MagisIdentityRepair.kt` are
+the only fully-English files in the subpackage (0 hits each). **This is the fourth time in this
+session alone that a "done" declaration turned out to be wrong** — see the recurring lesson below.
 
 ### `ui/` — fully done packages
 
@@ -470,42 +485,47 @@ f. Two `ContentSource` implementations — **`MagisFuente`** and **`DituFuente`*
 
 ## Next steps
 
-**`ui/` is entirely done as of `4e5ce086` (`PlayerScreen.kt`), and the three original `data/` gaps
-are done as of `791a5988`/`a2a1d073`/`5900c67d`. Everything below is what's left in the whole
-sweep.**
+**`ui/` is entirely done as of `4e5ce086`. `data/`'s three original gaps plus `data/nuevos/`/
+`ReparacionDeMagis.kt` are done as of `791a5988`/`a2a1d073`/`5900c67d`/`f127153b`. Everything
+below is what's left.**
 
-1. Translate the newly-discovered `data/nuevos/` package gaps: `BuscadorDeCapitulos.kt` (mixed —
-   its KDoc is already partly English from ripple work, but `TAG`/locals/some function names are
-   still Spanish; read it in full before touching anything, it's already been edited several times
-   this sweep with minimal targeted fixes for `MagisEntities`/`DituEntities` renames) and
-   `SeriesPorRevisar.kt` (fully Spanish, smaller). `MissingChapters.kt` and `NewEpisodeCounter.kt`
-   in the same package are already fully English, confirmed via accented-character grep — no work
-   needed there. Consider whether the package name `data.nuevos` itself should become something
-   like `data.newchapters` — check the blast radius first (it's referenced by package-qualified
-   name in several places, e.g. `com.arkiv.player.data.nuevos.NewEpisodeCounter`).
-2. Translate `data/gateway/ReparacionDeMagis.kt` (fully Spanish, one file, found the same way).
-   Check for other not-yet-swept top-level files in `data/gateway/` while there — `ContentSource.kt`
-   and `FuenteCompuesta.kt` are known already translated (per exception f's note), but a fresh grep
-   across the whole subpackage before declaring it done would catch anything else missed, given the
-   pattern has now repeated three separate times in this sweep.
+1. **Translate the three files just found in `data/gateway/`**: `FuenteCompuesta.kt` (12 Spanish
+   hits — this is the `ContentSource` composite implementation; its own CLASS NAME is deliberately
+   kept per exception f, but its internals/comments are apparently not fully translated, needs a
+   read to see what's actually left), `GatewayModels.kt` (28 hits — likely the `Gateway*` model
+   classes referenced all over as `GatewayEpisode`/`GatewaySerie`/`GatewayResult`, high ripple risk
+   if any field names are still Spanish, read fully before touching), `LiveModels.kt` (39 hits —
+   confirmed to include at minimum `LiveChannel.nombre`, already known and deliberately left as-is
+   in several already-"done" files per their own notes; read fully to find what else is Spanish
+   there before assuming it's just that one field).
+2. **Before declaring `data/gateway/` (or any package) done, run the file-by-file
+   accented-character check show below across literally every top-level `.kt` file in it** — this
+   is now the FOURTH time in this session a "done" declaration turned out to have missed files
+   sitting in plain sight (`MagisEntities.kt`/`DituEntities.kt` → `LibraryGrouping.kt` →
+   `data/nuevos/`+`ReparacionDeMagis.kt` → now these three). One-liner used each time:
+   `ls <dir>/*.kt | xargs -I{} sh -c 'echo "{}: $(command grep -c "[áéíóúñÁÉÍÓÚÑ]" {})"'`
+   (note: quote/parens can trip some shells on `{}` with spaces in it — run per-file with `command
+   grep -c` directly if the one-liner errors).
 3. Then revisit whether `MagisFuente`/`DituFuente` class names are now cheap enough to rename too
-   (exception f above) — now that literally everything else is done, this is the last deferred item.
-3. **Whenever a bare top-level `fun`/`val` gets renamed** (not a class/object member), grep
+   (exception f above) — this is the last already-known deferred item, but do it AFTER step 1/2,
+   since `FuenteCompuesta.kt` and the `Gateway*`/`Live*` models are exactly the kind of file that
+   would need touching for that rename anyway.
+4. **Whenever a bare top-level `fun`/`val` gets renamed** (not a class/object member), grep
    separately for `^import .*\.<oldName>$` — a call-site-anchored sed pattern will not catch a bare
    import line, and that's a real, previously-hit compile break (see the lesson noted near the top
    of this doc).
-4. **When a rename's sed pattern could match multiple near-identical call sites to DIFFERENT
+5. **When a rename's sed pattern could match multiple near-identical call sites to DIFFERENT
    functions**, a blanket sed will rename the wrong one too. Check the compile error carefully (it
    names the exact line) and use a line-number-targeted `sed 'N s/.../.../''` to fix only the
    intended call site.
-5. **After every rename, grep the WHOLE repo (not just the package) for stale KDoc/comment
+6. **After every rename, grep the WHOLE repo (not just the package) for stale KDoc/comment
    cross-references** — this session repeatedly found stale mentions in already-processed files
    several packages away (`playback/LiveHlsProxy.kt`, `data/recomendaciones/HistorySignals.kt`,
    `ui/live/DrawerDpad.kt`) that a package-scoped grep would have missed. Two exceptions:
    verbatim historical notes tied to a specific past commit (e.g. `ArkivApp.kt`/`Daos.kt`'s
    2026-08-14 purge comments naming `abrirCanalActual`) document what the code was ACTUALLY called
    at that commit and should stay as-is.
-6. **On a giant file (`PlayerScreen.kt`'s ~4000 lines proved this out), even after a full read and
+7. **On a giant file (`PlayerScreen.kt`'s ~4000 lines proved this out), even after a full read and
    careful pass, a final accented-character + common-Spanish-word grep over the WHOLE file still
    turned up ~10 missed spots** — mostly stray leftover comment lines and stale identifier
    references from earlier ripple work that predated the file's own translation turn (e.g.
@@ -513,5 +533,5 @@ sweep.**
    of lines past where the equivalent local was first renamed). **Always run that final sweep after
    finishing a large file, even one done carefully via sequential `Edit` calls** — it catches
    things a top-to-bottom pass alone misses when the same identifier appears far apart in the file.
-7. Update this document and the auto-memory file `code-must-be-english.md` again at the next
+8. Update this document and the auto-memory file `code-must-be-english.md` again at the next
    natural pause point.
