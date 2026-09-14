@@ -7,15 +7,15 @@ import com.arkiv.player.data.local.DuplicateDownloadPolicy
 import com.arkiv.player.data.local.EnqueueOutcome
 
 /**
- * Aviso de "eso ya lo tenés bajado" para los botones de guardar en el dispositivo.
+ * "You already have that downloaded" notice for the save-to-device buttons.
  *
- * La cola saltea sola las descargas cuyo contenido ya está en disco bajo otro ítem (ver
- * [com.arkiv.player.data.local.LocalDownloadManager.enqueue]); sin este aviso el botón parecería no
- * hacer nada. Mismo molde que [rememberPostNotificationsRequest]: devuelve una lambda para invocar
- * después de encolar.
+ * The queue skips downloads on its own whose content is already on disk under another item (see
+ * [com.arkiv.player.data.local.LocalDownloadManager.enqueue]); without this notice the button
+ * would look like it does nothing. Same shape as [rememberPostNotificationsRequest]: returns a
+ * lambda to call after queuing.
  *
- * Se le pasan TODOS los resultados de la acción juntos (un pack manda los N capítulos de una) para
- * que salga un solo Toast y no uno por capítulo.
+ * ALL the action's results are passed together (a pack sends its N chapters at once) so a single
+ * Toast comes out instead of one per chapter.
  */
 @Composable
 fun rememberDuplicateDownloadNotice(): (List<EnqueueOutcome>) -> Unit {

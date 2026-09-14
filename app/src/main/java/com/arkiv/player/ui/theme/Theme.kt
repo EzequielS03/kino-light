@@ -56,7 +56,7 @@ private val ArkivTypography = Typography(
 @Composable
 fun ArkivTheme(content: @Composable () -> Unit) {
     @Suppress("UNUSED_EXPRESSION")
-    isSystemInDarkTheme() // Arkiv siempre es oscuro
+    isSystemInDarkTheme() // Arkiv is always dark
     MaterialTheme(
         colorScheme = ArkivColorScheme,
         typography = ArkivTypography,

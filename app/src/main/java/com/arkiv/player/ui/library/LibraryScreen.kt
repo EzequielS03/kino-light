@@ -68,25 +68,26 @@ fun LibraryScreen(
     val vm: HomeViewModel = viewModel(
         factory = viewModelFactory { initializer { HomeViewModel(graph.repository, graph.tmdbApi, graph.aniListApi, graph.settings) } },
     )
-    // Ordenada por lo último que viste: lo que venís viendo queda primero, sin ir a buscarlo abajo.
+    // Ordered by what you last watched: what you're currently watching comes first, no need to
+    // scroll down for it.
     val library by vm.bibliotecaOrdenada.collectAsStateWithLifecycle()
     val continueWatching by vm.continueWatching.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    // Avisa "eso ya lo tenés bajado" cuando la cola saltea una descarga duplicada (ver
-    // DuplicateDownloadPolicy): si no, el menú parecería no hacer nada.
+    // Shows "you already have that downloaded" when the queue skips a duplicate download (see
+    // DuplicateDownloadPolicy): otherwise the menu would look like it does nothing.
     val notifyDuplicates = com.arkiv.player.ui.offline.rememberDuplicateDownloadNotice()
 
-    // Ítems con (al menos) un episodio ya guardado en el dispositivo, para el tilde en la tarjeta.
+    // Items with (at least) one episode already saved on the device, for the card's checkmark.
     val savedIds by graph.localDownloads.observeRows()
         .map { rows -> rows.filter { it.state == LocalDownloadState.COMPLETED }.map { it.itemId }.toSet() }
         .collectAsStateWithLifecycle(initialValue = emptySet())
 
-    // Ítem con el menú contextual (long-press) abierto.
+    // Item with the contextual (long-press) menu open.
     var menuRow by remember { mutableStateOf<LibraryRow?>(null) }
-    // Ítem pendiente de confirmar borrado.
+    // Item pending delete confirmation.
     var confirmDeleteRow by remember { mutableStateOf<LibraryRow?>(null) }
 
-    // Al tocar un ítem: si es película, reproduce directo; si es serie, abre la lista.
+    // On tapping an item: if it's a movie, play it directly; if it's a series, open the list.
     fun open(row: LibraryRow) {
         if (row.isMovie) {
             scope.launch {
@@ -136,7 +137,7 @@ fun LibraryScreen(
                         val progress = if (row.durationMs > 0) {
                             row.positionMs.toFloat() / row.durationMs
                         } else 0f
-                        // El thumb de archive.org que iba en medio se borró en la poda de esta rama.
+                        // The archive.org thumb that used to go in the middle was deleted in this branch's pruning.
                         val thumb = ThumbnailChoice.choose(
                             row.framePath,
                             null,
@@ -158,7 +159,7 @@ fun LibraryScreen(
         item(span = { GridItemSpan(maxLineSpan) }) {
             SectionHeader("Mi biblioteca")
         }
-        // Chips de filtro (solo si hay de ambos tipos, para no estorbar).
+        // Filter chips (only if there's both types, so as not to get in the way).
         if (hasMovies && hasSeries) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -184,15 +185,15 @@ fun LibraryScreen(
                 badgeColor = if (row.isMovie) ArkivRed else SeriesBadgeColor,
                 meta = libraryMeta(row.isMovie, row.durationSeconds, row.episodeCount),
                 saved = row.identifier in savedIds,
-                // Mantener pulsado abre el menú (detalle/descargar + cambiar categoría).
+                // Long-press opens the menu (detail/download + change category).
                 onLongClick = { menuRow = row },
                 onClick = { open(row) },
             )
         }
     }
 
-    // Con qué fuentes se puede bajar algo (hoy, solo Magis). Ver `DownloadSource.hasStrategy`.
-    val estrategias = remember { graph.downloadStrategies.keys }
+    // Which sources something can be downloaded with (today, only Magis). See `DownloadSource.hasStrategy`.
+    val strategies = remember { graph.downloadStrategies.keys }
     menuRow?.let { row ->
         ModalBottomSheet(onDismissRequest = { menuRow = null }) {
             Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
@@ -209,14 +210,14 @@ fun LibraryScreen(
                 )
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 SheetAction("Ver detalle / descargar") { onOpenItem(row.identifier); menuRow = null }
-                // Solo si hay con qué bajarlo: sin estrategia para su fuente (Caracol, o una fila vieja
-                // de archive.org) la descarga terminaba FAILED con "Fuente no soportada" después de
-                // aceptarla. Una opción que va a fallar no se muestra.
-                if (com.arkiv.player.data.local.DownloadSource.hasStrategy(row.source, estrategias)) SheetAction("Guardar en el dispositivo") {
+                // Only if there's something to download it with: with no strategy for its source
+                // (Caracol, or an old archive.org row) the download used to end up FAILED with
+                // "Fuente no soportada" after accepting it. An option that's going to fail isn't shown.
+                if (com.arkiv.player.data.local.DownloadSource.hasStrategy(row.source, strategies)) SheetAction("Guardar en el dispositivo") {
                     scope.launch {
-                        // Una película es un ítem de un solo episodio; una serie se guarda desde su
-                        // detalle, capítulo por capítulo (no tiene sentido encolar 200 capítulos
-                        // desde un menú contextual sin decir cuáles).
+                        // A movie is a single-episode item; a series is saved from its detail
+                        // screen, chapter by chapter (queuing 200 chapters from a contextual menu
+                        // with no way to say which makes no sense).
                         val episodes = graph.repository.episodesOf(row.identifier)
                         val single = episodes.singleOrNull()
                         if (single != null) {
@@ -278,7 +279,7 @@ fun LibraryScreen(
     }
 }
 
-/** Fila de acción dentro del bottom sheet contextual. */
+/** Action row inside the contextual bottom sheet. */
 @Composable
 private fun SheetAction(text: String, color: Color = Color.Unspecified, onClick: () -> Unit) {
     Text(

@@ -10,17 +10,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 
 /**
- * Pide POST_NOTIFICATIONS **en el momento en que hace falta** (justo al disparar una descarga al
- * dispositivo), no al abrir la app: mismo criterio contextual que el permiso de cámara en
- * `QrScannerScreen` -- el usuario entiende para qué se le está pidiendo.
+ * Requests POST_NOTIFICATIONS **at the moment it's actually needed** (right when a device
+ * download is triggered), not when the app opens: same contextual criterion as the camera
+ * permission in `QrScannerScreen` -- the user understands what they're being asked for.
  *
- * El permiso está declarado en el manifiesto, pero desde Android 13 (API 33) además hay que
- * pedirlo en runtime; sin esto la notificación de "descarga completa" de
- * [com.arkiv.player.data.local.LocalDownloadWorker] se descartaba en silencio. Por debajo de
- * API 33 el permiso no existe y las notificaciones funcionan sin pedir nada.
+ * The permission is declared in the manifest, but since Android 13 (API 33) it also has to be
+ * requested at runtime; without this, [com.arkiv.player.data.local.LocalDownloadWorker]'s
+ * "download complete" notification was silently dropped. Below API 33 the permission doesn't
+ * exist and notifications work without asking for anything.
  *
- * Devuelve una lambda para invocar al iniciar la descarga. No bloquea nada: si el usuario dice que
- * no, la descarga igual arranca y el progreso se sigue viendo en la pantalla de Descargas.
+ * Returns a lambda to call when starting the download. Doesn't block anything: if the user says
+ * no, the download starts anyway and progress can still be seen on the Descargas screen.
  */
 @Composable
 fun rememberPostNotificationsRequest(): () -> Unit {

@@ -20,14 +20,15 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
- * El estado sale de Room, que actualiza el worker. Ya no hay poll: el `refreshProgress()` cada 1,5 s
- * existía porque el progreso vivía en el DownloadManager del sistema y había que ir a buscarlo.
+ * The state comes from Room, which the worker updates. There's no polling anymore: the
+ * `refreshProgress()` every 1.5s used to exist because progress lived in the system's
+ * DownloadManager and had to be fetched.
  *
- * Agrupa las filas de `downloads` por ítem (ver [DownloadGroupPolicy], que es la parte pura y
- * testeada). Para mostrar TODOS los capítulos de la serie -- no solo los que pasaron por la cola --
- * mantiene un cache de `repository.episodesOf(itemId)` por itemId, que solo se refresca cuando
- * cambia el CONJUNTO de ítems en la cola (no en cada tick de progreso, que llega varias veces por
- * segundo mientras algo está bajando).
+ * Groups `downloads` rows by item (see [DownloadGroupPolicy], the pure and tested part). To show
+ * ALL of a series' chapters -- not just the ones that went through the queue -- it keeps a cache
+ * of `repository.episodesOf(itemId)` per itemId, which only refreshes when the SET of items in
+ * the queue changes (not on every progress tick, which arrives several times a second while
+ * something is downloading).
  */
 class DownloadsViewModel(
     private val manager: LocalDownloadManager,
@@ -63,12 +64,12 @@ class DownloadsViewModel(
         viewModelScope.launch { manager.confirmSize(episodeId) }
     }
 
-    /** Reintenta una descarga fallida: la vuelve a poner en cola y despierta al worker. */
+    /** Retries a failed download: puts it back in the queue and wakes the worker. */
     fun retry(episodeId: String) {
         viewModelScope.launch { manager.retry(episodeId) }
     }
 
-    /** Detiene la descarga conservando el parcial (se puede reintentar y reanuda desde donde iba). */
+    /** Stops the download while keeping the partial (can be retried and resumes from where it was). */
     fun cancel(episodeId: String) {
         viewModelScope.launch { manager.cancel(episodeId) }
     }
@@ -78,10 +79,10 @@ class DownloadsViewModel(
     }
 
     /**
-     * Aviso de una sola vez para el usuario ("ya lo tenés bajado"). Vive acá y no en la pantalla
-     * porque el caso que lo necesita es justo el que NO deja rastro: si la cola saltea la descarga
-     * por duplicado, no se crea ninguna fila, así que el capítulo sigue mostrándose como "no
-     * descargado" y el tap parece no hacer nada. La pantalla lo muestra y llama a [messageShown].
+     * One-time notice for the user ("ya lo tenés bajado"). Lives here and not in the screen
+     * because the case that needs it is exactly the one that leaves NO trace: if the queue skips
+     * the download as a duplicate, no row gets created, so the chapter keeps showing as "not
+     * downloaded" and the tap looks like it does nothing. The screen shows it and calls [messageShown].
      */
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message
@@ -90,7 +91,7 @@ class DownloadsViewModel(
         _message.value = null
     }
 
-    /** Encola un capítulo que todavía no se había descargado, desde la fila expandida del grupo. */
+    /** Queues a chapter that hadn't been downloaded yet, from the group's expanded row. */
     fun download(episodeId: String, source: String) {
         viewModelScope.launch {
             val outcome = manager.enqueue(episodeId, source)
@@ -101,12 +102,12 @@ class DownloadsViewModel(
     }
 
     /**
-     * Cancela TODO lo activo del grupo (encolado + en vuelo). Va fila por fila por
-     * [LocalDownloadManager.cancel] -- es el único camino que corta de verdad el worker cuando la
-     * que está en vuelo es una de estas (ver su KDoc); llamarlo también para las encoladas de más
-     * no hace nada raro, porque `cancel` ya distingue cuál es la fila que corre. Sin esto, "cancelar
-     * todos" solo tacharía filas de la cola dejando la descarga en curso corriendo sola -- el bug de
-     * archivo huérfano que ya se arregló una vez.
+     * Cancels EVERYTHING active in the group (queued + in flight). Goes row by row through
+     * [LocalDownloadManager.cancel] -- it's the only path that actually cuts off the worker when
+     * the one in flight is one of these (see its KDoc); calling it for the extra queued ones too
+     * does nothing odd, because `cancel` already tells which row is running. Without this,
+     * "cancel all" would only cross out queue rows and leave the in-progress download running on
+     * its own -- the orphan-file bug that already got fixed once.
      */
     fun cancelGroup(group: DownloadGroup) {
         viewModelScope.launch {
@@ -114,14 +115,14 @@ class DownloadsViewModel(
         }
     }
 
-    /** Quita todas las filas descargadas/en curso del grupo (los "no descargados" no tienen nada que quitar). */
+    /** Removes every downloaded/in-progress row of the group (the "not downloaded" ones have nothing to remove). */
     fun removeGroup(group: DownloadGroup) {
         viewModelScope.launch {
             for (episodeId in DownloadGroupPolicy.trackedEpisodeIds(group)) manager.remove(episodeId)
         }
     }
 
-    /** Reencola solo los capítulos fallidos del grupo. */
+    /** Re-queues only the group's failed chapters. */
     fun retryFailedGroup(group: DownloadGroup) {
         viewModelScope.launch {
             for (episodeId in DownloadGroupPolicy.failedEpisodeIds(group)) manager.retry(episodeId)

@@ -34,7 +34,7 @@ import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
-/** Carátula tipo póster (2:3) con título debajo. Para la grilla de biblioteca. */
+/** Poster-shaped (2:3) cover with title below. For the library grid. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PosterCard(
@@ -44,7 +44,7 @@ fun PosterCard(
     badge: String? = null,
     badgeColor: Color = ArkivRed,
     meta: String? = null,
-    /** Ya tiene (al menos) un episodio guardado en el dispositivo; dibuja el tilde de "guardado". */
+    /** Already has (at least) one episode saved on the device; draws the "saved" checkmark. */
     saved: Boolean = false,
     onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
@@ -70,8 +70,8 @@ fun PosterCard(
                     modifier = Modifier.align(Alignment.TopStart).padding(6.dp),
                 )
             }
-            // Informativo, no una acción: solo avisa que el ítem ya tiene algo guardado en el
-            // dispositivo. Esquina opuesta al badge de tipo para no pisarlo.
+            // Informational, not an action: it only signals the item already has something saved
+            // on the device. Opposite corner from the type badge so it doesn't overlap it.
             if (saved) {
                 Icon(
                     Icons.Default.DownloadDone,
@@ -106,7 +106,7 @@ fun PosterCard(
     }
 }
 
-/** Etiqueta pequeña de tipo ("PELÍCULA" / "SERIE") sobre la carátula. */
+/** Small type label ("PELÍCULA" / "SERIE") over the cover. */
 @Composable
 fun TypeBadge(text: String, color: Color, modifier: Modifier = Modifier) {
     Text(
@@ -121,7 +121,7 @@ fun TypeBadge(text: String, color: Color, modifier: Modifier = Modifier) {
     )
 }
 
-/** Miniatura apaisada (16:9) con barra de progreso roja. Para "Continuar viendo". */
+/** Landscape (16:9) thumbnail with a red progress bar. For "Continuar viendo". */
 @Composable
 fun ContinueCard(
     title: String,
@@ -177,7 +177,7 @@ fun ContinueCard(
     }
 }
 
-/** Encabezado de fila/sección ("Continuar viendo", "Mi biblioteca"). */
+/** Row/section header ("Continuar viendo", "Mi biblioteca"). */
 @Composable
 fun SectionHeader(text: String, modifier: Modifier = Modifier) {
     Text(

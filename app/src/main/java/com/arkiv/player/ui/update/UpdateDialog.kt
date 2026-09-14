@@ -25,9 +25,9 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Diálogo modal de actualización OTA: muestra versión/notas, dispara la descarga del APK
- * (vía [AppGraph.apkDownloader]) y lanza la instalación al terminar. No es descartable
- * mientras descarga (ni back ni tap afuera), para evitar dejar la descarga a medio camino.
+ * Modal OTA update dialog: shows version/notes, triggers the APK download (via
+ * [AppGraph.apkDownloader]) and launches the install once it's done. Not dismissible while
+ * downloading (neither back nor a tap outside), to avoid leaving the download half-done.
  */
 @Composable
 fun UpdateDialog(info: UpdateInfo, graph: AppGraph, onDismiss: () -> Unit) {

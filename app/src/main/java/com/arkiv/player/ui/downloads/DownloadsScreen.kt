@@ -71,10 +71,10 @@ fun DownloadsScreen(
     )
     val groups by vm.groups.collectAsStateWithLifecycle()
 
-    // Aviso de una sola vez del ViewModel. Es la ÚNICA salida que tiene esta pantalla cuando la cola
-    // saltea una descarga por duplicado: en ese caso no se crea ninguna fila, así que el capítulo
-    // sigue apareciendo como "no descargado" y el tap no dejaría ningún rastro visible.
-    // Va antes del `return` de la lista vacía para que valga en los dos caminos.
+    // One-time notice from the ViewModel. It's the ONLY output this screen has when the queue
+    // skips a download as a duplicate: in that case no row gets created, so the chapter keeps
+    // showing as "not downloaded" and the tap would leave no visible trace.
+    // Goes before the empty-list `return` so it holds on both paths.
     val context = androidx.compose.ui.platform.LocalContext.current
     val message by vm.message.collectAsStateWithLifecycle()
     androidx.compose.runtime.LaunchedEffect(message) {
@@ -128,10 +128,10 @@ fun DownloadsScreen(
 }
 
 /**
- * Una fila del listado de Descargas. Un ítem de un solo episodio (película) no tiene nada que
- * plegar y se muestra plana, como antes. Uno con varios muestra la cabecera con carátula + resumen
- * y, al desplegar, TODOS los capítulos del ítem -- no solo los que pasaron por la cola: los que
- * todavía no se descargaron llevan su propio botón de bajar.
+ * A row in the Downloads list. A single-episode item (a movie) has nothing to collapse and
+ * shows flat, as before. One with several shows the header with cover + summary and, when
+ * expanded, ALL of the item's chapters -- not just the ones that went through the queue: the
+ * ones not downloaded yet carry their own download button.
  */
 @Composable
 private fun DownloadGroupSection(
@@ -147,8 +147,8 @@ private fun DownloadGroupSection(
     onRetryFailed: () -> Unit,
 ) {
     if (group.isSingleEpisode) {
-        // Ver DownloadGroupPolicy.buildGroups: un itemId solo entra a `groups` si tiene al menos una
-        // fila en `downloads`, así que el único episodio de una película siempre está trackeado.
+        // See DownloadGroupPolicy.buildGroups: an itemId only enters `groups` if it has at least
+        // one row in `downloads`, so a movie's single episode is always tracked.
         val row = (group.episodes.firstOrNull()?.status as? EpisodeDownloadStatus.Tracked)?.row ?: return
         DownloadItem(
             row = row,
@@ -161,9 +161,9 @@ private fun DownloadGroupSection(
         return
     }
 
-    // `rememberSaveable` (no `remember`): el `LazyColumn` con `key = { it.itemId }` desarma la
-    // composición de los grupos que salen de la ventana visible, y sin esto un grupo perdía su
-    // "desplegado" cada vez que se scrolleaba fuera de vista y volvía.
+    // `rememberSaveable` (not `remember`): the `LazyColumn` with `key = { it.itemId }` tears down
+    // the composition of groups that scroll out of the visible window, and without this a group
+    // would lose its "expanded" state every time it scrolled out of view and back.
     var expanded by rememberSaveable { mutableStateOf(false) }
 
     Column(Modifier.fillMaxWidth()) {
@@ -200,7 +200,7 @@ private fun DownloadGroupSection(
     }
 }
 
-/** Cabecera plegable de un grupo: carátula del ítem, título, resumen y acciones a nivel de serie. */
+/** Collapsible header of a group: item cover, title, summary, and series-level actions. */
 @Composable
 private fun DownloadGroupHeader(
     group: DownloadGroup,
@@ -272,7 +272,7 @@ private fun DownloadGroupHeader(
     }
 }
 
-/** Fila de un capítulo que todavía no se bajó: sale del catálogo completo del ítem, no de `downloads`. */
+/** Row for a chapter not downloaded yet: comes from the item's full catalog, not from `downloads`. */
 @Composable
 private fun NotDownloadedRow(
     episode: Episode,
@@ -428,8 +428,8 @@ private fun DownloadItem(
                     TextButton(onClick = onRetry) { Text("Reintentar") }
                     TextButton(onClick = onRemove) { Text("Quitar") }
                 }
-                // Lo que está en vuelo o en cola se puede CANCELAR (para la descarga y conserva el
-                // parcial, así "Reintentar" reanuda) o QUITAR (para y borra todo).
+                // What's in flight or queued can be CANCELED (stops the download and keeps the
+                // partial, so "Retry" resumes) or REMOVED (stops and deletes everything).
                 LocalDownloadState.QUEUED, LocalDownloadState.STAGING, LocalDownloadState.DOWNLOADING -> {
                     TextButton(onClick = onCancel) { Text("Cancelar") }
                     TextButton(onClick = onRemove) { Text("Quitar") }
@@ -440,20 +440,21 @@ private fun DownloadItem(
     }
 }
 
-/** Texto que se le muestra al usuario para cada estado de la cola. */
+/** Text shown to the user for each queue state. */
 private fun stateLabel(row: DownloadRow): String = when (row.state) {
     LocalDownloadState.QUEUED -> "En cola"
-    // Sin porcentaje: el backend solo puede reportar 0% o 100% para esta fase (ver el comentario
-    // de la barra indeterminada más arriba), así que un número acá mentiría.
+    // No percentage: the backend can only report 0% or 100% for this phase (see the indeterminate
+    // bar comment above), so a number here would lie.
     LocalDownloadState.STAGING -> "Preparando en el servidor…"
-    // El error con la fila todavía en `downloading` es un fallo transitorio que WorkManager va a
-    // reintentar solo (ver DownloadRetryPolicy): decirlo evita que parezca colgada.
+    // The error with the row still in `downloading` is a transient failure that WorkManager will
+    // retry on its own (see DownloadRetryPolicy): showing it avoids it looking stuck.
     LocalDownloadState.DOWNLOADING ->
         row.error?.let { "Reintentando · $it" } ?: "Bajando ${(row.progress * 100).toInt()}%"
     LocalDownloadState.NEEDS_CONFIRMATION -> "Necesita confirmación · ${FileSizeFormat.formatSize(row.bytes)}"
-    // El "error" de una fila completada no es un fallo: es el motivo por el que no hubo que bajar
-    // nada (ver DuplicateDownloadPolicy.ADOPTED_REASON, "Ya estaba descargado"). Decirlo evita que
-    // parezca que se bajaron 461 MB que en realidad ya estaban en disco bajo otro ítem.
+    // The "error" on a completed row is not a failure: it's the reason nothing needed to be
+    // downloaded (see DuplicateDownloadPolicy.ADOPTED_REASON, "Ya estaba descargado"). Showing it
+    // avoids making it look like 461 MB got downloaded when they were already on disk under
+    // another item.
     LocalDownloadState.COMPLETED -> row.error?.let { "Listo · $it" } ?: "Listo"
     LocalDownloadState.FAILED -> row.error ?: "Falló"
     else -> row.state
