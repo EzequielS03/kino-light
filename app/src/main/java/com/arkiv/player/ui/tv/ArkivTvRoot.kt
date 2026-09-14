@@ -43,64 +43,63 @@ fun ArkivTvRoot(
     val graph = rememberGraph()
     val context = LocalContext.current
 
-    // Task 10 (condición actualizada en Task 8, sub-proyecto 2B): ofrecer vincular Magis apenas se
-    // entra, ANTES que nada más. Ya NO depende de ninguna sesión de Kino: `MainActivity` compone
-    // `ArkivTvRoot` sin gate de sesión (ver su comentario "Sin gate de sesión" en MainActivity.kt) y
-    // `TvPantallaDeEntrada`/`PanelDeLogin` se borraron enteras en la Task 9 (sub-proyecto 2B) junto
-    // con el resto del login de Kino, así que esta pantalla decide solo con [MagisAccountState] (¿hay
-    // Magis vinculado en ESTE aparato?), nunca con `AccountState`/`AccountManager`. Sirve para las DOS
-    // rutas que dejan un aparato sin Magis
-    // vinculado (recién instalado, o vinculado y luego desvinculado). Ver el KDoc de
-    // `shouldOfferMagisLink` para la condición exacta.
+    // Task 10 (condition updated in Task 8, sub-project 2B): offer linking Magis right on entry,
+    // BEFORE anything else. No longer depends on any Kino session: `MainActivity` composes
+    // `ArkivTvRoot` with no session gate (see its "Sin gate de sesión" comment in MainActivity.kt)
+    // and `TvPantallaDeEntrada`/`PanelDeLogin` were removed entirely in Task 9 (sub-project 2B)
+    // along with the rest of Kino's login, so this screen decides using only [MagisAccountState]
+    // (is Magis linked on THIS device?), never `AccountState`/`AccountManager`. Serves the TWO
+    // routes that leave a device without Magis linked (freshly installed, or linked and then
+    // unlinked). See `shouldOfferMagisLink`'s KDoc for the exact condition.
     //
-    // `mostrarOferta` se decide UNA SOLA VEZ, al confirmarse el estado real -no en cada
-    // recomposición-: esto es una oferta DE ENTRADA, no un gate que se reevalúa todo el tiempo. Si
-    // lo fuera, desvincular Magis después desde Ajustes (`TvSettingsCuenta`, compuesta DENTRO del
-    // `NavHost` de más abajo) dejaría `magisAccount.state` en `None` otra vez, y como este `if` se
-    // evalúa POR ENCIMA del `NavHost`, la próxima recomposición volvería a dar `true`, haría este
-    // `return` y le destruiría la pantalla de Ajustes a alguien que no pidió volver acá -el caso
-    // probable, no el raro: quien vinculó desde esta misma oferta nunca tocó "Ahora no", así que
-    // `magisOfertaDescartada` sigue en `false`-. `MagisAccount.state` arranca siempre en `None` -no
-    // lee las prefs cifradas en el constructor, ver su KDoc-, así que sin la espera de
-    // `magisConfirmado` esta decisión única se tomaría con un `None` que todavía no es la respuesta
-    // real; mientras tanto se sigue de largo al contenido normal -nunca al revés: un pedido que
-    // tarda no puede dejar a nadie mirando una pantalla en blanco antes de llegar al home-.
-    var magisConfirmado by remember { mutableStateOf(false) }
-    var mostrarOferta by remember { mutableStateOf(false) }
+    // `showOffer` is decided ONCE, once the real state is confirmed -not on every
+    // recomposition-: this is an ENTRY offer, not a gate re-evaluated all the time. If it were,
+    // unlinking Magis later from Settings (`TvSettingsCuenta`, composed INSIDE the `NavHost`
+    // below) would leave `magisAccount.state` at `None` again, and since this `if` is evaluated
+    // ABOVE the `NavHost`, the next recomposition would give `true` again, do this `return`, and
+    // destroy the Settings screen for someone who didn't ask to come back here -the likely case,
+    // not the rare one: whoever linked through this same offer never touched "Ahora no", so
+    // `magisOfertaDescartada` stays `false`-. `MagisAccount.state` always starts at `None` -it
+    // doesn't read the encrypted prefs in the constructor, see its KDoc-, so without waiting for
+    // `magisConfirmed` this one-time decision would be made with a `None` that isn't the real
+    // answer yet; meanwhile it goes straight through to the normal content -never the other way
+    // around: a slow request can't leave anyone staring at a blank screen before reaching home-.
+    var magisConfirmed by remember { mutableStateOf(false) }
+    var showOffer by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         graph.magisAccount.refresh()
-        mostrarOferta = shouldOfferMagisLink(
+        showOffer = shouldOfferMagisLink(
             graph.magisAccount.state.value,
             graph.settings.magisOfertaDescartada.value,
         )
-        magisConfirmado = true
+        magisConfirmed = true
     }
 
-    // Mantener la pantalla encendida mientras la app de TV esté abierta (no meter el wallpaper).
-    // Va ANTES del `return` de la oferta de vincular Magis, a propósito: esa pantalla es donde
-    // alguien tipea un email letra por letra con el control remoto, y sin esto el TV se podía
-    // apagar solo a mitad de escribirlo.
+    // Keep the screen on while the TV app is open (no wallpaper kicking in). Goes BEFORE the
+    // Magis linking offer's `return` on purpose: that screen is where someone types an email
+    // letter by letter with the remote, and without this the TV could turn itself off halfway
+    // through typing it.
     val view = LocalView.current
     DisposableEffect(Unit) {
         view.keepScreenOn = true
         onDispose { view.keepScreenOn = false }
     }
 
-    if (magisConfirmado && mostrarOferta) {
-        // Reactivo adentro del `if`, pero para CERRAR esta misma pantalla cuando la propia acción de
-        // vincular sale bien -no para volver a decidir si mostrarla, que es la decisión de arriba-.
-        val estadoMagis by graph.magisAccount.state.collectAsStateWithLifecycle()
-        LaunchedEffect(estadoMagis) {
-            if (estadoMagis is MagisAccountState.Linked) mostrarOferta = false
+    if (magisConfirmed && showOffer) {
+        // Reactive inside the `if`, but to CLOSE this same screen when the linking action itself
+        // succeeds -not to decide again whether to show it, which is the decision above-.
+        val magisState by graph.magisAccount.state.collectAsStateWithLifecycle()
+        LaunchedEffect(magisState) {
+            if (magisState is MagisAccountState.Linked) showOffer = false
         }
         TvMagisLinkOffer(
             account = graph.magisAccount,
-            // Se guarda la decisión (Task 10, ver SettingsStore.magisOfertaDescartada): "Ahora no" no
-            // vuelve a preguntar en cada arranque. El camino sigue vivo en Ajustes
-            // (TvSettingsCuenta), a propósito -esto es un atajo, no la única puerta-.
+            // The decision is saved (Task 10, see SettingsStore.magisOfertaDescartada): "Ahora no"
+            // doesn't ask again on every launch. The path stays alive in Settings
+            // (TvSettingsCuenta), on purpose -this is a shortcut, not the only door-.
             onNotNow = {
                 graph.settings.setMagisOfertaDescartada(true)
-                mostrarOferta = false
+                showOffer = false
             },
         )
         return
@@ -127,8 +126,8 @@ fun ArkivTvRoot(
         modifier = Modifier.fillMaxSize().background(ArkivBlack),
     ) {
         composable("home") {
-            // En home, el back sale de la app: pedimos confirmación con doble-atrás para
-            // evitar salidas accidentales del control remoto.
+            // On home, back exits the app: we ask for double-back confirmation to
+            // avoid accidental exits from the remote.
             var lastBackAt by remember { mutableStateOf(0L) }
             BackHandler {
                 val now = SystemClock.elapsedRealtime()
@@ -178,16 +177,16 @@ fun ArkivTvRoot(
             )
         }
         composable("categorias") {
-            // Las secciones de adultos solo si ESTE aparato tiene el código puesto (Ajustes).
-            // `MagisLiveCatalog.arbol` filtra la sección 18+ del lado del cliente y revienta con
-            // `require` si se pide su raíz sin el flag, así que el default es el seguro incluso
-            // si esta pantalla se abriera por otro camino.
-            val desbloqueado = graph.settings.adultosDesbloqueado.value
-            val alcance = rememberCoroutineScope()
+            // The adults sections only if THIS device has the code set (Settings).
+            // `MagisLiveCatalog.arbol` filters the 18+ section client-side and blows up with
+            // `require` if its root is requested without the flag, so the default is the safe
+            // one even if this screen got opened some other way.
+            val unlocked = graph.settings.adultosDesbloqueado.value
+            val scope = rememberCoroutineScope()
             TvSeccionesDeCatalogo(
-                incluirAdultos = desbloqueado,
+                incluirAdultos = unlocked,
                 onReproducir = { item ->
-                    alcance.launch {
+                    scope.launch {
                         if (item.adulto) {
                             // Doesn't go through the library. `addMagisSource` would write a row
                             // that shows up right here on this device -- and, until cloud sync was
@@ -200,8 +199,8 @@ fun ArkivTvRoot(
                             )
                             goToPlayer(id)
                         } else {
-                            // Camino de siempre: guardarlo es lo que le da "seguir viendo" y tarjeta
-                            // en la biblioteca, igual que si hubiera entrado por el buscador.
+                            // Usual path: saving it is what gives it "continue watching" and a
+                            // card in the library, same as if it had come in through search.
                             val epId = graph.repository.addMagisSource(
                                 ref = item.ref,
                                 contentId = item.id,
@@ -233,10 +232,10 @@ fun ArkivTvRoot(
         }
         composable("live") {
             TvLiveGuideScreen(
-                // Tarea 14: el reproductor en modo vivo ya existe (bandera `enVivo` en
-                // PlayerViewModel/PlayerScreen). `TvLiveGuideScreen.verCanal()` ya dejó en
-                // LiveZappingSource la lista con la que se entró -- acá solo hace falta navegar
-                // con el prefijo que PlayerSource.kindFor() reconoce como vivo.
+                // Task 14: the player's live mode already exists (`enVivo` flag in
+                // PlayerViewModel/PlayerScreen). `TvLiveGuideScreen.verCanal()` already left in
+                // LiveZappingSource the list it was entered with -- here it only needs to
+                // navigate with the prefix PlayerSource.kindFor() recognizes as live.
                 onVerCanal = { canal ->
                     goToPlayer("${com.arkiv.player.playback.PlayerSource.LIVE_PREFIX}${canal.code}")
                 },
@@ -244,8 +243,8 @@ fun ArkivTvRoot(
             )
         }
         composable("caracol") {
-            // Lo que llega es el episodeId con el que navegar: el de un título que se guardó igual
-            // que desde la búsqueda, o el de un canal en vivo que viaja por `DituLive`.
+            // What arrives is the episodeId to navigate with: a title's that got saved the same
+            // way as from search, or a live channel's that travels via `DituLive`.
             TvCaracolScreen(onPlay = { goToPlayer(it) })
         }
         composable("detail/{itemId}") { entry ->
@@ -260,13 +259,13 @@ fun ArkivTvRoot(
         }
         composable("player/{episodeId}") { entry ->
             val episodeId = Uri.decode(entry.arguments?.getString("episodeId").orEmpty())
-            // El publisher usa esto para saber si de verdad hay algo reproduciéndose acá. Sin esta
-            // señal se guiaba por NowPlaying.episodeId, que no se limpia nunca, así que el TV
-            // seguía anunciando el último capítulo en pausa y la barra del celu no se iba jamás.
+            // The publisher uses this to know whether something's really playing here. Without
+            // this signal it went by NowPlaying.episodeId, which never gets cleared, so the TV
+            // kept announcing the last paused chapter and the phone's bar never went away.
             androidx.compose.runtime.DisposableEffect(Unit) {
                 com.arkiv.player.playback.NowPlaying.playerOpen = true
-                // No se limpia en el onDispose: solo es significativo mientras playerOpen es true,
-                // así que borrarlo acá no compra nada.
+                // Not cleared in onDispose: it's only meaningful while playerOpen is true, so
+                // clearing it here buys nothing.
                 com.arkiv.player.playback.NowPlaying.playerOpenedAtMs = System.currentTimeMillis()
                 onDispose { com.arkiv.player.playback.NowPlaying.playerOpen = false }
             }
@@ -298,7 +297,7 @@ fun ArkivTvRoot(
     }
 }
 
-/** Desenvuelve el Context hasta encontrar la Activity (para inyectar eventos de tecla). */
+/** Unwraps the Context until finding the Activity (to inject key events). */
 private fun Context.findActivity(): Activity? {
     var ctx: Context? = this
     while (ctx is ContextWrapper) {
