@@ -9,36 +9,37 @@ import com.arkiv.player.data.magis.EncryptedPrefs
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-/** Ajustes simples persistidos en SharedPreferences. */
+/** Simple settings persisted in SharedPreferences. */
 class SettingsStore(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("arkiv_settings", Context.MODE_PRIVATE)
 
-    // Modo noche del reproductor: nivel del velo negro que va encima del video, de 0 (normal) a
-    // DIM_MAX_LEVEL (negro total). Persistido a propósito (no por sesión): quien lo baja ve casi
-    // siempre de noche. El nivel lo acota el reproductor; acá se guarda tal cual llega.
+    // Player's night mode: level of the black scrim over the video, from 0 (normal) to
+    // DIM_MAX_LEVEL (full black). Persisted on purpose (not per session): whoever lowers it
+    // watches almost always at night. The player clamps the level; this saves it exactly as it
+    // arrives.
     private val _dimLevel = MutableStateFlow(prefs.getInt(KEY_DIM_LEVEL, 0))
     val dimLevel: StateFlow<Int> = _dimLevel
 
-    // ¿Ya se reparó el arte que se resolvió antes del match exacto de TMDB? Ver
-    // ArkivRepository.repairArtworkMatches. Se marca SOLO cuando la pasada termina entera, para que
-    // un arranque sin internet no la dé por hecha y deje los títulos mal apuntados para siempre.
+    // Has the artwork resolved before TMDB's exact match already been repaired? See
+    // ArkivRepository.repairArtworkMatches. Marked ONLY when the whole pass finishes, so a launch
+    // with no internet doesn't count it as done and leave titles mismatched forever.
     private val _artworkRematchDone = MutableStateFlow(prefs.getBoolean(KEY_ARTWORK_REMATCH, false))
     val artworkRematchDone: StateFlow<Boolean> = _artworkRematchDone
 
-    // "Ahora no" a la oferta de vincular Magis apenas se entra a la TV (Task 10, ver
-    // `shouldOfferMagisLink` en ui/tv/TvMagisLinkOffer.kt). Es una decisión del DISPOSITIVO,
-    // no de la cuenta -mismo criterio que [artworkRematchDone] acá arriba-: este es un TV
-    // de uso personal, no un kiosco compartido entre cuentas. Ya NO se resetea en ningún logout
-    // -Task 8 (sub-proyecto 2B) sacó los botones de "Cerrar sesión" de las pantallas de Magis, que
-    // eran los últimos llamadores de `AccountManager.logout()`, así que esa ruta quedó muerta-: sin
-    // cuentas de Kino no hay logout que dispare el reseteo, y la oferta sigue accesible a mano desde
-    // Ajustes (`TvSettingsCuenta`) para quien quiera volver a vincular Magis sin depender de este flag.
+    // "Not now" to the offer to link Magis as soon as the TV is opened (Task 10, see
+    // `shouldOfferMagisLink` in ui/tv/TvMagisLinkOffer.kt). It's a DEVICE decision, not an
+    // account one -same criterion as [artworkRematchDone] above-: this is a TV for personal use,
+    // not a kiosk shared between accounts. NO LONGER reset on any logout -Task 8 (sub-project 2B)
+    // removed the "Log out" buttons from the Magis screens, which were the last callers of
+    // `AccountManager.logout()`, so that path went dead-: with no Kino accounts there's no logout
+    // to trigger the reset, and the offer stays reachable by hand from Settings
+    // (`TvSettingsCuenta`) for anyone who wants to link Magis again without depending on this flag.
     private val _magisOfertaDescartada = MutableStateFlow(prefs.getBoolean(KEY_MAGIS_OFERTA_DESCARTADA, false))
     val magisOfertaDescartada: StateFlow<Boolean> = _magisOfertaDescartada
 
-    // Task 7 (sub-proyecto 2B): candado 18+ del APARATO. Vivía en `SecureDeviceStore`, que la
-    // Task 9 borra junto con las cuentas -- no es un dato de cuenta, así que se rescata acá antes.
-    // Igual criterio que [magisOfertaDescartada]: por device, no por persona.
+    // Task 7 (sub-project 2B): the DEVICE's 18+ lock. Used to live in `SecureDeviceStore`, which
+    // Task 9 deletes along with the accounts -- it isn't account data, so it's rescued here first.
+    // Same criterion as [magisOfertaDescartada]: per device, not per person.
     private val _adultosDesbloqueado = MutableStateFlow(prefs.getBoolean(KEY_ADULTOS_DESBLOQUEADO, false))
     val adultosDesbloqueado: StateFlow<Boolean> = _adultosDesbloqueado
 
@@ -50,9 +51,9 @@ class SettingsStore(context: Context) {
     private val _codigoAdultos = MutableStateFlow(prefs.getString(KEY_CODIGO_ADULTOS, null))
     val codigoAdultos: StateFlow<String?> = _codigoAdultos
 
-    // Marcador de la purga única de recientes del 2026-08-14 (ver `ArkivApp.onCreate`). Mismo
-    // rescate que [adultosDesbloqueado]: si se pierde, la purga simplemente vuelve a correr una
-    // vez más -- no hace falta un StateFlow porque nada la observa, solo se lee al arrancar.
+    // Marker for the 2026-08-14 one-time recents purge (see `ArkivApp.onCreate`). Same rescue as
+    // [adultosDesbloqueado]: if it's lost, the purge simply runs once more -- no StateFlow needed
+    // since nothing observes it, it's only read on launch.
     val recientesPurgados: Boolean
         get() = prefs.getBoolean(KEY_RECIENTES_PURGADOS, false)
 
@@ -77,7 +78,7 @@ class SettingsStore(context: Context) {
         _adultosDesbloqueado.value = v
     }
 
-    /** `null` borra la clave y devuelve el candado a su código por defecto. */
+    /** `null` deletes the key and returns the lock to its default code. */
     fun setCodigoAdultos(v: String?) {
         if (_codigoAdultos.value == v) return
         prefs.edit().apply { if (v == null) remove(KEY_CODIGO_ADULTOS) else putString(KEY_CODIGO_ADULTOS, v) }.apply()
@@ -88,10 +89,10 @@ class SettingsStore(context: Context) {
         prefs.edit().putBoolean(KEY_RECIENTES_PURGADOS, v).apply()
     }
 
-    /** Cuándo se intentó generar "Para ti" por última vez (0 = nunca). Ver `ForYouGate`. */
+    /** When "For you" was last attempted (0 = never). See `ForYouGate`. */
     val paraTiUltimoIntentoMs: Long get() = prefs.getLong(KEY_PARA_TI_ULTIMO_INTENTO, 0L)
 
-    /** Si ese intento falló en el modelo: entonces se reintenta a los 15 min, no a las 24 h. */
+    /** Whether that attempt failed on the model: then it's retried after 15 min, not 24 h. */
     val paraTiUltimoFueFalloDelModelo: Boolean get() = prefs.getBoolean(KEY_PARA_TI_FALLO_MODELO, false)
 
     fun marcarIntentoDeParaTi(ahoraMs: Long, falloDelModelo: Boolean) {
@@ -102,17 +103,17 @@ class SettingsStore(context: Context) {
     }
 
     /**
-     * Trae el candado 18+ del store cifrado del aparato la primera vez que corre. `deStoreViejo`
-     * es `null` cuando ese store no se pudo leer (ver `ArkivApp.onCreate`) -- ahí se queda con lo
-     * que ya haya acá (o el default). Idempotente: en los arranques siguientes `prefs` ya tiene la
-     * clave y `valorMigrado` la respeta sin volver a mirar el store viejo.
+     * Pulls the 18+ lock from the device's encrypted store the first time it runs. `deStoreViejo`
+     * is `null` when that store couldn't be read (see `ArkivApp.onCreate`) -- then it's left with
+     * whatever's already here (or the default). Idempotent: on later launches `prefs` already has
+     * the key and `valorMigrado` respects it without looking at the old store again.
      *
-     * Escribe directo a `prefs` en vez de pasar por [setAdultosDesbloqueado]: ese setter no
-     * escribe si el valor no cambió (para no pisar el StateFlow con un `apply()` de más), pero acá
-     * el caso más común es justo ese -- el store viejo nunca se desbloqueó y el resultado coincide
-     * con el default en memoria. Si pasara por el guard, la clave nunca quedaría anotada y esta
-     * función volvería a mirar `SecureDeviceStore` en cada arranque, que es lo que el comentario de
-     * arriba dice que NO pasa.
+     * Writes straight to `prefs` instead of going through [setAdultosDesbloqueado]: that setter
+     * doesn't write if the value didn't change (to avoid an extra `apply()` overwriting the
+     * StateFlow), but here the most common case is exactly that -- the old store was never
+     * unlocked and the result matches the in-memory default. If it went through the guard, the
+     * key would never end up recorded and this function would look at `SecureDeviceStore` again
+     * on every launch, which the comment above says does NOT happen.
      */
     fun migrarAdultosDesbloqueado(deStoreViejo: Boolean?) {
         val migrado = valorMigrado(leerNullable(KEY_ADULTOS_DESBLOQUEADO), deStoreViejo, false)
@@ -120,30 +121,30 @@ class SettingsStore(context: Context) {
         _adultosDesbloqueado.value = migrado
     }
 
-    /** Mismo rescate que [migrarAdultosDesbloqueado] para el marcador de la purga de recientes. */
+    /** Same rescue as [migrarAdultosDesbloqueado] for the recents-purge marker. */
     fun migrarRecientesPurgados(deStoreViejo: Boolean?) {
         setRecientesPurgados(valorMigrado(leerNullable(KEY_RECIENTES_PURGADOS), deStoreViejo, false))
     }
 
-    /** `null` si `key` todavía no se escribió en estos ajustes -- distinto de que valga `false`. */
+    /** `null` if `key` hasn't been written to these settings yet -- different from being `false`. */
     private fun leerNullable(key: String): Boolean? = if (prefs.contains(key)) prefs.getBoolean(key, false) else null
 
     /**
-     * Dispara [migrarAdultosDesbloqueado]/[migrarRecientesPurgados] leyendo el archivo cifrado
-     * VIEJO directo (Task 9, sub-proyecto 2B).
+     * Fires [migrarAdultosDesbloqueado]/[migrarRecientesPurgados] by reading the OLD encrypted
+     * file directly (Task 9, sub-project 2B).
      *
-     * Ese archivo (`arkiv_pb_secure`) era de `SecureDeviceStore`, que la Task 9 borra junto con el
-     * resto de `pocketbase/` -- las dos claves que interesan (`adultosDesbloqueado`,
-     * `recientesPurgados2026_08_14`) NO son datos de cuenta, así que se rescatan leyendo el mismo
-     * archivo con el mismo esquema (`EncryptedSharedPreferences` + `MasterKey` AES256_GCM +
-     * AES256_SIV/AES256_GCM) que usaba esa clase, sin resucitarla. `EncryptedPrefs.openOrRepair`
-     * sigue vivo porque lo usa `EncryptedMagisCredentialStore` -- se reusa acá para el mismo
-     * problema (Keystore que ya no descifra el archivo).
+     * That file (`arkiv_pb_secure`) belonged to `SecureDeviceStore`, which Task 9 deletes along
+     * with the rest of `pocketbase/` -- the two keys that matter (`adultosDesbloqueado`,
+     * `recientesPurgados2026_08_14`) are NOT account data, so they're rescued by reading the same
+     * file with the same scheme (`EncryptedSharedPreferences` + `MasterKey` AES256_GCM +
+     * AES256_SIV/AES256_GCM) that class used, without resurrecting it. `EncryptedPrefs.openOrRepair`
+     * is still alive because `EncryptedMagisCredentialStore` uses it -- reused here for the same
+     * problem (a Keystore that no longer decrypts the file).
      *
-     * Si ya migraron las dos claves, ni se mira el archivo viejo: `EncryptedSharedPreferences.create`
-     * cuesta Keystore + Tink, y esto se llama en CADA arranque. Y si el archivo ni existe -una
-     * instalación limpia de esta rama, que nunca tuvo `SecureDeviceStore`-, tampoco se intenta
-     * abrir: ver [archivoStoreDeCuentasViejoExiste].
+     * If both keys already migrated, the old file isn't even looked at:
+     * `EncryptedSharedPreferences.create` costs Keystore + Tink, and this is called on EVERY
+     * launch. And if the file doesn't even exist -a clean install of this branch, which never had
+     * `SecureDeviceStore`-, opening it isn't attempted either: see [archivoStoreDeCuentasViejoExiste].
      */
     fun migrarDelStoreDeCuentasViejo(context: Context) {
         if (leerNullable(KEY_ADULTOS_DESBLOQUEADO) != null && leerNullable(KEY_RECIENTES_PURGADOS) != null) return
@@ -153,20 +154,20 @@ class SettingsStore(context: Context) {
         } else {
             null
         }
-        // Mismas keys de texto que el archivo viejo (ver el comentario junto a estas constantes,
-        // más abajo): `SecureDeviceStore` las escribía tal cual.
+        // Same text keys as the old file (see the comment next to these constants, further
+        // below): `SecureDeviceStore` wrote them verbatim.
         migrarAdultosDesbloqueado(viejas.leerBooleanoViejo(KEY_ADULTOS_DESBLOQUEADO))
         migrarRecientesPurgados(viejas.leerBooleanoViejo(KEY_RECIENTES_PURGADOS))
         if (viejas != null) {
-            // Las dos claves de interés ya quedaron migradas arriba: borrar el archivo viejo saca
-            // el email y la contraseña de la cuenta de Kino que seguían viviendo ahí, de un
-            // subsistema que ya no existe. Va DESPUÉS de migrar, nunca antes. Si el archivo era
-            // indescifrable, `discardUndecryptable` (ver [abrirStoreDeCuentasViejo]) ya lo borró y
-            // `EncryptedPrefs` reintentó: `viejas` queda apuntando a un archivo recién creado y
-            // vacío, del que no hay nada que migrar, y este borrado lo saca de nuevo. Es un borrado
-            // de más sin consecuencia -- el estado final es el mismo. Esto solo toca el archivo de
-            // shared_prefs -- JAMÁS la llave maestra del Keystore, que es la MISMA que usa
-            // `EncryptedMagisCredentialStore` para la sesión de Magis.
+            // Both keys that matter are already migrated above: deleting the old file removes the
+            // Kino account's email and password that were still living there, from a subsystem
+            // that no longer exists. Goes AFTER migrating, never before. If the file was
+            // undecryptable, `discardUndecryptable` (see [abrirStoreDeCuentasViejo]) already
+            // deleted it and `EncryptedPrefs` retried: `viejas` ends up pointing at a freshly
+            // created, empty file with nothing to migrate from, and this delete removes it again.
+            // It's a redundant delete with no consequence -- the end state is the same. This only
+            // touches the shared_prefs file -- NEVER the Keystore's master key, which is the SAME
+            // one `EncryptedMagisCredentialStore` uses for the Magis session.
             runCatching { app.deleteSharedPreferences(ARCHIVO_STORE_DE_CUENTAS_VIEJO) }
         }
     }
@@ -180,10 +181,10 @@ class SettingsStore(context: Context) {
         private const val KEY_ARTWORK_REMATCH = "artwork_rematch_done"
         private const val KEY_MAGIS_OFERTA_DESCARTADA = "magis_oferta_descartada"
 
-        // Task 7: mismas keys de texto que usaba `SecureDeviceStore` (`K_ADULTOS`,
-        // `K_PURGA_RECIENTES`) para el nombre, aunque el valor viva en otro archivo de prefs --
-        // así el histórico del código sigue siendo buscable por ese nombre. Task 9:
-        // [migrarDelStoreDeCuentasViejo] lee esas mismas dos keys del archivo original.
+        // Task 7: same text keys `SecureDeviceStore` used (`K_ADULTOS`, `K_PURGA_RECIENTES`) for
+        // the name, even though the value lives in a different prefs file -- this way the code's
+        // history stays searchable by that name. Task 9: [migrarDelStoreDeCuentasViejo] reads
+        // those same two keys from the original file.
         private const val KEY_ADULTOS_DESBLOQUEADO = "adultosDesbloqueado"
         private const val KEY_CODIGO_ADULTOS = "codigoAdultos"
         private const val KEY_RECIENTES_PURGADOS = "recientesPurgados2026_08_14"
@@ -191,28 +192,28 @@ class SettingsStore(context: Context) {
         private const val KEY_PARA_TI_ULTIMO_INTENTO = "para_ti_ultimo_intento"
         private const val KEY_PARA_TI_FALLO_MODELO = "para_ti_fallo_modelo"
 
-        /** El archivo cifrado que escribía `SecureDeviceStore` (borrado en la Task 9). */
+        /** The encrypted file `SecureDeviceStore` used to write (deleted in Task 9). */
         private const val ARCHIVO_STORE_DE_CUENTAS_VIEJO = "arkiv_pb_secure"
 
         /**
-         * `true` si el archivo existe en disco. Chequearlo ANTES de [abrirStoreDeCuentasViejo] es
-         * la diferencia entre leer algo y CREARLO: `EncryptedSharedPreferences.create` escribe el
-         * keyset de Tink la primera vez, así que sin este chequeo una instalación limpia -que nunca
-         * tuvo `SecureDeviceStore`- terminaría generando `arkiv_pb_secure` y tocando el Keystore en
-         * el hilo principal de `Application.onCreate`, para rescatar un archivo que nunca existió.
+         * `true` if the file exists on disk. Checking this BEFORE [abrirStoreDeCuentasViejo] is
+         * the difference between reading something and CREATING it: `EncryptedSharedPreferences.create`
+         * writes the Tink keyset the first time, so without this check a clean install -which
+         * never had `SecureDeviceStore`- would end up generating `arkiv_pb_secure` and touching
+         * the Keystore on `Application.onCreate`'s main thread, to rescue a file that never existed.
          */
         private fun archivoStoreDeCuentasViejoExiste(app: Context): Boolean =
             java.io.File(app.dataDir, "shared_prefs/$ARCHIVO_STORE_DE_CUENTAS_VIEJO.xml").exists()
 
         /**
-         * Abre `arkiv_pb_secure` con el mismo esquema con el que `SecureDeviceStore.cifradas()` lo
-         * escribía, para [migrarDelStoreDeCuentasViejo]. Solo lectura: acá nunca se le vuelve a
-         * escribir nada, así que si el Keystore no lo descifra no hace falta reparar nada -- alcanza
-         * con borrar el archivo (JAMÁS la llave maestra: es la MISMA que usa
-         * `EncryptedMagisCredentialStore` para `arkiv_magis_secure`, `MasterKey.Builder(app)` sin
-         * alias propio, así que tocarla de paso rompería la sesión de Magis sin necesidad) y dejar
-         * que el segundo intento abra un archivo vacío -- que para una migración es exactamente
-         * "no había nada que migrar".
+         * Opens `arkiv_pb_secure` with the same scheme `SecureDeviceStore.cifradas()` used to
+         * write it, for [migrarDelStoreDeCuentasViejo]. Read-only: nothing is ever written back to
+         * it here, so if the Keystore can't decrypt it there's nothing to repair -- deleting the
+         * file is enough (NEVER the master key: it's the SAME one
+         * `EncryptedMagisCredentialStore` uses for `arkiv_magis_secure`, `MasterKey.Builder(app)`
+         * with no alias of its own, so touching it in passing would break the Magis session for no
+         * reason) and letting the second attempt open an empty file -- which for a migration is
+         * exactly "there was nothing to migrate".
          */
         private fun abrirStoreDeCuentasViejo(app: Context): SharedPreferences? =
             EncryptedPrefs.openOrRepair<SharedPreferences?>(
@@ -233,25 +234,25 @@ class SettingsStore(context: Context) {
             )
 
         private const val TAG_MIGRACION = "ArkivMigracion"
-        // La key del `POST /api/refresh` del mirror ya no existe acá: ese endpoint pasó a pedirse
-        // por el gateway (`/v1/catalog/refresh`), que es quien pone la credencial. Con eso el APK
-        // dejó de llevarla — que era lo que decía el comentario que estaba en este lugar: sacarla de
-        // git no la sacaba del binario, y un secreto embebido en un cliente distribuido no es un
-        // secreto. Ver `MirrorApiClient.refresh`.
+        // The mirror's `POST /api/refresh` key no longer lives here: that endpoint moved to being
+        // requested through the gateway (`/v1/catalog/refresh`), which is the one that supplies
+        // the credential. With that, the APK stopped carrying it -- which is what the comment that
+        // used to be in this spot said: removing it from git didn't remove it from the binary,
+        // and a secret embedded in a distributed client isn't a secret. See `MirrorApiClient.refresh`.
         //
-        // Task 8 (Paso 3): `DEFAULT_ARKIV_API_KEY`/`ARKIV_API_KEY` (la última llave de build que
-        // quedaba) salió del todo por el mismo motivo -- ver `docs/INVENTARIO_DE_LLAVES.md`.
+        // Task 8 (Step 3): `DEFAULT_ARKIV_API_KEY`/`ARKIV_API_KEY` (the last remaining build key)
+        // left entirely for the same reason -- see `docs/INVENTARIO_DE_LLAVES.md`.
         //
-        // Sub-proyecto 2A: se fueron `KEY_GATEWAY_CONFIG_SOURCE` (de qué venía la config del
-        // gateway: lo leía el mensaje de error del vivo, que ahora pregunta por la cuenta de Magis)
-        // y `KEY_USE_GATEWAY` (el flag para "caer al camino viejo", que ya no existe).
+        // Sub-project 2A: `KEY_GATEWAY_CONFIG_SOURCE` (where the gateway's config came from: read
+        // by live's error message, which now asks about the Magis account) and `KEY_USE_GATEWAY`
+        // (the flag to "fall back to the old path", which no longer exists) are both gone.
     }
 }
 
 /**
- * Qué valor queda tras mudar una preferencia del store cifrado del aparato a estos ajustes.
- * Lo que ya esté acá MANDA: si la persona cambió el valor después de migrar, el viejo no puede
- * resucitar en el próximo arranque.
+ * What value is left after moving a preference from the device's encrypted store to these
+ * settings. Whatever's already here WINS: if the person changed the value after migrating, the
+ * old one can't come back to life on the next launch.
  */
 internal fun valorMigrado(deSettings: Boolean?, deStoreViejo: Boolean?, default: Boolean): Boolean =
     deSettings ?: deStoreViejo ?: default
