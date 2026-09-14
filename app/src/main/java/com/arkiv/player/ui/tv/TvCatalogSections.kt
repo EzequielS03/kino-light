@@ -298,12 +298,12 @@ fun TvCatalogSections(
 }
 
 /**
- * El nombre de la sección, sobre su fila.
+ * The section's name, above its row.
  *
- * Propio y no [TvRowLabel] (el del inicio) a propósito: acá el nombre de la sección es lo que
- * ORIENTA —son 30 y pico de secciones por raíz, con nombres largos del portal—, mientras que en el
- * inicio las filas son cuatro o cinco fijas y conocidas. Va más grande y con más aire contra la
- * fila; cambiar el compartido para lograrlo habría movido también el inicio, que no lo pidió.
+ * Its own and not [TvRowLabel] (the home's) on purpose: here the section's name is what
+ * ORIENTS -there are 30-odd sections per root, with long names from the portal-, while on the
+ * home the rows are four or five fixed, known ones. It goes bigger and with more room against the
+ * row; changing the shared one to get that would have also moved the home, which never asked for it.
  */
 /** Immersive background for the focused item, with the same gradients as the home. */
 @Composable

@@ -13,9 +13,9 @@ class ArkivApp : Application(), ImageLoaderFactory {
         private set
 
     /**
-     * Lo más temprano que corre en el proceso: antes que los ContentProviders (WorkManager y
-     * compañía) y antes de [onCreate]. El reporte de errores se instala acá a propósito, para que
-     * un crash al abrir -incluido el de armar el [AppGraph]- también quede capturado.
+     * The earliest thing that runs in the process: before the ContentProviders (WorkManager and
+     * friends) and before [onCreate]. Error reporting is installed here on purpose, so a crash on
+     * startup -including one while building the [AppGraph]- also gets captured.
      */
     override fun attachBaseContext(base: Context?) {
         super.attachBaseContext(base)
@@ -26,25 +26,26 @@ class ArkivApp : Application(), ImageLoaderFactory {
         super.onCreate()
         graph = AppGraph.from(this)
 
-        // Migración única (Task 7, sub-proyecto 2B; reescrita en la Task 9): el candado 18+ y la
-        // purga de recientes vivían en `SecureDeviceStore` (prefs cifradas del subsistema de
-        // cuentas, borrado entero en esta misma tarea). Ninguna de las dos es un dato de cuenta,
-        // así que [SettingsStore.migrarDelStoreDeCuentasViejo] las rescata leyendo ese archivo
-        // directo, sin esa clase -- una sola lectura, síncrona y ANTES de cualquier pantalla, para
-        // que nada llegue a leer `graph.settings.adultosDesbloqueado` sin migrar todavía. Si el
-        // archivo no existe o el Keystore no lo descifra, se trata como "no había nada que migrar"
-        // y sigue con el default -- no puede ser motivo para no arrancar.
+        // One-off migration (Task 7, sub-project 2B; rewritten in Task 9): the 18+ lock and the
+        // recents purge used to live in `SecureDeviceStore` (encrypted prefs from the accounts
+        // subsystem, deleted entirely in this same task). Neither of the two is account data, so
+        // [SettingsStore.migrarDelStoreDeCuentasViejo] rescues them by reading that file directly,
+        // without that class -- a single read, synchronous and BEFORE any screen, so nothing ever
+        // reads `graph.settings.adultosDesbloqueado` before it's migrated. If the file doesn't
+        // exist or the Keystore can't decrypt it, it's treated as "there was nothing to migrate"
+        // and falls back to the default -- it can never be a reason not to start.
         runCatching {
             graph.settings.migrarDelStoreDeCuentasViejo(this)
-        }.onFailure { reportar(it, "arranque: migrar prefs del store cifrado") }
+        }.onFailure { reportar(it, "startup: migrate encrypted-store prefs") }
 
-        // Purga única del 2026-08-14: canales de adultos que quedaron anotados en "Recientes"
-        // ANTES de que `abrirCanalActual` dejara de anotarlos. Estaban saliendo en la fila
-        // "Canales en vivo" del inicio, a la vista de cualquiera, con su nombre y su logo.
+        // One-off purge from 2026-08-14: adult channels that stayed logged in "Recents" from
+        // BEFORE `abrirCanalActual` stopped logging them. They were showing up in the home's
+        // "Live channels" row, in plain view of anyone, with their name and logo.
         //
-        // Se borra TODO y no solo los de adultos porque el aparato no puede saber cuáles lo eran:
-        // los recientes guardan código y nombre, nunca la categoría. Y no cuesta nada — los de la
-        // nube ya se limpiaron a mano, así que el próximo sync repuebla la lista con los legítimos.
+        // EVERYTHING gets deleted, not just the adult ones, because the device can't know which
+        // ones were: recents only store code and name, never the category. And it costs nothing —
+        // the cloud ones were already cleaned up by hand, so the next sync repopulates the list
+        // with the legitimate ones.
         graph.applicationScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
                 if (!graph.settings.recientesPurgados) {
@@ -52,12 +53,12 @@ class ArkivApp : Application(), ImageLoaderFactory {
                     graph.settings.setRecientesPurgados(true)
                     android.util.Log.w("ArkivCuenta", "recent items purged (adult channel leak)")
                 }
-            }.onFailure { reportar(it, "arranque: purgar recientes") }
+            }.onFailure { reportar(it, "startup: purge recents") }
         }
 
         graph.iniciarMonitorDeRed()
 
-        // OTA: chequeo periódico cada 6 horas + chequeo inmediato al arrancar.
+        // OTA: periodic check every 6 hours + immediate check on startup.
         androidx.work.WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "update_check",
             androidx.work.ExistingPeriodicWorkPolicy.KEEP,
@@ -68,35 +69,35 @@ class ArkivApp : Application(), ImageLoaderFactory {
             ).build(),
         )
         graph.applicationScope.launch {
-            runCatching { graph.checkForUpdate() }.onFailure { reportar(it, "arranque: buscar actualización") }
+            runCatching { graph.checkForUpdate() }.onFailure { reportar(it, "startup: check for update") }
         }
 
-        // Capítulos nuevos de las series que estás viendo. Va en background y sin bloquear nada:
-        // es una mejora oportunista, no un camino crítico. La cota de "una vez cada N horas" está
-        // adentro porque el arranque de la app pasa muchas veces por día (basta con salir y volver
-        // a entrar), y revisar en cada una sería gastar red para nada.
+        // New episodes of the series you're watching. Runs in the background and blocks nothing:
+        // it's an opportunistic improvement, not a critical path. The "once every N hours" cap
+        // lives inside because app startup happens many times a day (just leaving and coming back
+        // does it), and checking every single time would waste network for nothing.
         graph.applicationScope.launch {
             runCatching { graph.buscarCapitulosNuevos() }
-                .onFailure { reportar(it, "arranque: buscar capítulos nuevos") }
+                .onFailure { reportar(it, "startup: look for new episodes") }
         }
     }
 
     /**
-     * Coil venía con los defaults, y su caché de memoria por defecto es el **25% del límite de
-     * heap**. En el Fire TV Stick eso son ~48 MB reservados solo para bitmaps en un aparato de
-     * 1.7 GB que corre con ~48 MB libres y el swap casi lleno (medido con `dumpsys meminfo`).
-     * Con los stills de capítulo de TMDB hay bastantes más imágenes en pantalla que antes, así
-     * que conviene ponerle un techo explícito en vez de dejar el porcentaje por defecto.
+     * Coil came with the defaults, and its default memory cache is **25% of the heap limit**. On
+     * the Fire TV Stick that's ~48 MB reserved just for bitmaps on a 1.7 GB device that runs with
+     * ~48 MB free and swap nearly full (measured with `dumpsys meminfo`). With TMDB's episode
+     * stills there are quite a few more images on screen than before, so it's worth setting an
+     * explicit ceiling instead of leaving the default percentage.
      *
-     * En TV se recorta al 10% y se permite RGB_565: pósters y stills son JPEG sin transparencia,
-     * así que bajan a la mitad de bytes por bitmap sin diferencia visible a distancia de sofá.
-     * En teléfono se deja un 20% (holgado, pero por debajo del default) y color completo, que es
-     * donde sí se nota en una pantalla a 30 cm.
+     * On TV it's trimmed to 10% and RGB_565 is allowed: posters and stills are JPEGs with no
+     * transparency, so they drop to half the bytes per bitmap with no visible difference from
+     * couch distance. On phone it's left at 20% (generous, but below the default) and full color,
+     * which is where it actually shows on a screen 30 cm away.
      */
     /**
-     * Cada tarea de arranque corre en su propio `runCatching` para que un fallo no tumbe a las
-     * otras — pero eso también las volvía mudas: si el sync nunca arrancaba, no quedaba rastro de
-     * por qué. Reportar no cambia el aislamiento, solo deja constancia.
+     * Every startup task runs in its own `runCatching` so a failure doesn't take down the others
+     * — but that also made them silent: if a sync never started, there was no trace of why.
+     * Reporting doesn't change the isolation, it just leaves a record.
      */
     private fun reportar(error: Throwable, etiqueta: String) {
         android.util.Log.w("ArkivArranque", "$etiqueta: ${error.message}", error)
@@ -111,8 +112,8 @@ class ArkivApp : Application(), ImageLoaderFactory {
                     .maxSizePercent(if (tv) 0.10 else 0.20)
                     .build()
             }
-            // La caché de disco evita volver a bajar la misma portada en cada arranque; el default
-            // de Coil (2% del espacio libre) puede ser enorme en un teléfono con mucho disco.
+            // The disk cache avoids re-downloading the same cover art on every launch; Coil's
+            // default (2% of free space) can be huge on a phone with a lot of disk.
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache"))

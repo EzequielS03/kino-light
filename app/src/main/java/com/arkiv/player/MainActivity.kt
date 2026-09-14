@@ -61,7 +61,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingEpisode by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Antes de super.onCreate: cambia del tema de arranque (logo del sistema) al tema real.
+        // Before super.onCreate: switches from the launch theme (system logo) to the real theme.
         installSplashScreen()
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -81,29 +81,29 @@ class MainActivity : AppCompatActivity() {
             ArkivTheme {
                 val graph = (application as ArkivApp).graph
 
-                // La intro se dibuja ENCIMA de la app para tapar el arranque en frío.
+                // The intro is drawn ON TOP of the app to cover the cold start.
                 //
-                // El contenido NO se compone de entrada: armar el root (Room, filas del
-                // home) satura el hilo principal y el reloj de la animación salta hasta el final
-                // sin llegar a dibujarse. Dándole ~1s de hilo libre, la intro se reproduce de
-                // verdad y recién ahí empieza a componerse la app, por detrás del fundido.
+                // The content is NOT composed from the get-go: building the root (Room, the
+                // home's rows) saturates the main thread and the animation's clock jumps straight
+                // to the end without ever getting drawn. By giving it ~1s of free thread time, the
+                // intro actually plays, and only then does the app start composing, behind the fade.
                 var splashDone by remember { mutableStateOf(false) }
                 var loadContent by remember { mutableStateOf(false) }
                 var contentSettled by remember { mutableStateOf(false) }
                 LaunchedEffect(Unit) {
                     delay(INTRO_HEAD_START_MS)
                     loadContent = true
-                    // La composición del root bloquea el hilo principal; esta espera se reanuda
-                    // recién cuando termina, así el fundido destapa algo ya dibujado.
+                    // The root's composition blocks the main thread; this wait only resumes once
+                    // it's done, so the fade uncovers something already drawn.
                     delay(CONTENT_SETTLE_MS)
                     contentSettled = true
                 }
                 Box(Modifier.fillMaxSize()) {
                     if (loadContent) {
-                        // Sin gate de sesión: Kino L entra directo al home, sin preguntarle a
-                        // PocketBase ni al gateway si hay sesión. El subsistema de cuentas
-                        // (ui/entrada/, EntradaViewModel) se borró entero en la Task 9
-                        // (sub-proyecto 2B): no queda nada que llamar desde acá.
+                        // No session gate: Kino L goes straight to the home, without asking
+                        // PocketBase or the gateway whether there's a session. The accounts
+                        // subsystem (ui/entrada/, EntradaViewModel) was deleted entirely in Task 9
+                        // (sub-project 2B): there's nothing left to call from here.
                         if (isTv) {
                             ArkivTvRoot(
                                 deepLinkEpisodeId = pendingEpisode,
@@ -124,9 +124,9 @@ class MainActivity : AppCompatActivity() {
                         )
                     }
 
-                    // OTA: se muestra sola cuando AppGraph detecta una versión nueva (chequeo al
-                    // arrancar o el UpdateWorker periódico). "dismissed" solo tapa esta instancia
-                    // del diálogo global; el chequeo manual desde Ajustes usa su propia instancia.
+                    // OTA: shows up on its own when AppGraph detects a new version (the check at
+                    // launch or the periodic UpdateWorker). "dismissed" only hides this instance
+                    // of the global dialog; the manual check from Settings uses its own instance.
                     val updateAvailable by graph.updateInfo.collectAsState()
                     var dismissed by remember { mutableStateOf(false) }
                     updateAvailable?.let { info ->
@@ -151,9 +151,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleIntent(intent: Intent?) {
         if (intent?.action == ACTION_OPEN_PLAYER) {
-            // El extra manda cuando viene (aviso de "descarga completa", que apunta a un capítulo
-            // concreto); sin él se abre el que está sonando, que es lo que pide la notificación del
-            // reproductor.
+            // The extra takes priority when present (a "download complete" notice, which points to
+            // a specific episode); without it, the one currently playing opens, which is what the
+            // player's notification asks for.
             pendingEpisode = intent.getStringExtra(EXTRA_EPISODE_ID) ?: NowPlaying.episodeId
         }
     }

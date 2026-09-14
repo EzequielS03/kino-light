@@ -30,7 +30,7 @@ import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 
-/** Grafo de dependencias manual (sin Hilt): singletons de app. */
+/** Manual dependency graph (no Hilt): app singletons. */
 class AppGraph(context: Context) {
     private val appContext = context.applicationContext
 
@@ -65,7 +65,7 @@ class AppGraph(context: Context) {
             runCatching {
                 val cm = appContext.getSystemService(android.net.ConnectivityManager::class.java)
                     ?: return@runCatching
-                // Estado inicial: verificar si ya hay red al arrancar
+                // Initial state: check whether there's already a network at startup
                 val activa = cm.activeNetwork
                 val caps = activa?.let { cm.getNetworkCapabilities(it) }
                 _hayInternet.value = caps?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
@@ -74,22 +74,22 @@ class AppGraph(context: Context) {
         }
     }
 
-    /** Inicia el monitor de conectividad; llamar desde Application.onCreate. */
-    fun iniciarMonitorDeRed() { monitorDeRed }  // acceso fuerza la inicialización del lazy
+    /** Starts the connectivity monitor; call from Application.onCreate. */
+    fun iniciarMonitorDeRed() { monitorDeRed }  // access forces the lazy to initialize
 
     val apkDownloader: ApkDownloader by lazy { ApkDownloader(appContext) }
 
     /**
-     * `OkHttpClient` del portal de Magis (Task 9, sub-proyecto 2B): con el subsistema de cuentas
-     * afuera -`InterceptorDeSesion`, que colgaba acá para cerrar la sesión de la persona ante un
-     * 401/403 real, se fue junto con el resto de `pocketbase/`- este cliente quedó con un solo
-     * usuario, [magisPortal].
+     * `OkHttpClient` for the Magis portal (Task 9, sub-project 2B): with the accounts subsystem
+     * gone -`InterceptorDeSesion`, which used to hang here to close the person's session on a real
+     * 401/403, left along with the rest of `pocketbase/`- this client is down to a single user,
+     * [magisPortal].
      *
-     * `callTimeout` de 45 s: TOPE A LA LLAMADA ENTERA, no al socket -los timeouts sueltos de OkHttp
-     * se reinician con cada byte que llega, así que una respuesta que llega a cuentagotas nunca
-     * vencería-. [magisPortal] arma sobre este mismo cliente (mismo pool de conexiones) un
-     * `readTimeout` más paciente, 25 s, porque el portal tarda hasta ~11 s en resolver algunos
-     * canales (medido) y el default de lectura de OkHttp son 10 -lo mataba justo antes de llegar-.
+     * `callTimeout` of 45s: CAP ON THE WHOLE CALL, not the socket -OkHttp's individual timeouts
+     * reset with every byte that arrives, so a response that trickles in would never expire-.
+     * [magisPortal] builds on top of this same client (same connection pool) a more patient
+     * `readTimeout`, 25s, because the portal takes up to ~11s to resolve some channels (measured)
+     * and OkHttp's default read timeout is 10 -it was killing it right before it landed-.
      */
     val httpDelPortal: okhttp3.OkHttpClient by lazy {
         okhttp3.OkHttpClient.Builder()
@@ -97,11 +97,11 @@ class AppGraph(context: Context) {
             .build()
     }
 
-    // --- Magis directo (sub-proyecto 2A) ------------------------------------------------------
+    // --- Direct Magis (sub-project 2A) --------------------------------------------------------
     //
-    // Todo el protocolo del portal vive en `data/magis`. El `sn` del device sale del store en CADA
-    // llamada (no se captura): lo acuña `MagisSession` en caliente la primera vez, y el body de esa
-    // misma activación ya tiene que llevarlo.
+    // The whole portal protocol lives in `data/magis`. The device's `sn` comes out of the store on
+    // EVERY call (never captured): `MagisSession` mints it on the fly the first time, and that same
+    // activation's body already has to carry it.
 
     internal val magisStore: com.arkiv.player.data.magis.MagisCredentialStore by lazy {
         com.arkiv.player.data.magis.EncryptedMagisCredentialStore(appContext)
@@ -114,10 +114,10 @@ class AppGraph(context: Context) {
             appId = BuildConfig.IPTV_APP_ID,
             apkVersion = BuildConfig.IPTV_APK_VERSION,
             snProvider = { magisStore.readSession()?.sn.orEmpty() },
-            // PACIENTE: el portal tarda ~11 s en resolver algunos canales (medido) y el default de
-            // lectura de OkHttp son 10, o sea que los mataba justo antes de llegar. `newBuilder()`
-            // y no un cliente nuevo: comparte pool de conexiones con el resto de las llamadas al
-            // portal.
+            // PATIENT: the portal takes ~11s to resolve some channels (measured) and OkHttp's
+            // default read timeout is 10, i.e. it was killing them right before they landed.
+            // `newBuilder()` and not a new client: shares the connection pool with the rest of the
+            // calls to the portal.
             http = httpDelPortal.newBuilder()
                 .readTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
                 .build(),
@@ -129,11 +129,11 @@ class AppGraph(context: Context) {
     }
 
     /**
-     * El vínculo con Magis visto desde "Ajustes → Cuenta" (celu y TV) y la oferta al entrar a la TV
-     * (Task 8, sub-proyecto 2B): las tres pantallas dejaron de usar `AccountManager` para esto -ya
-     * no depende de ninguna sesión de Kino, ver el KDoc de [com.arkiv.player.data.magis.MagisAccount]-.
-     * `AccountManager` mismo se borró del todo en la Task 9 (sub-proyecto 2B), junto con el resto
-     * del subsistema de cuentas.
+     * The link with Magis as seen from "Settings → Account" (phone and TV) and the prompt on
+     * entering the TV (Task 8, sub-project 2B): all three screens stopped using `AccountManager`
+     * for this -it no longer depends on any Kino session, see the KDoc on
+     * [com.arkiv.player.data.magis.MagisAccount]-. `AccountManager` itself was deleted entirely in
+     * Task 9 (sub-project 2B), along with the rest of the accounts subsystem.
      */
     internal val magisAccount: com.arkiv.player.data.magis.MagisAccount by lazy {
         com.arkiv.player.data.magis.MagisAccount(magisSession)
@@ -143,7 +143,7 @@ class AppGraph(context: Context) {
         com.arkiv.player.data.magis.MagisCatalog(magisPortal, magisSession)
     }
 
-    /** Los títulos de Magis, directo del portal. Afuera solo se ve a través de [fuenteDeContenido]. */
+    /** Magis titles, straight from the portal. Only visible from outside through [fuenteDeContenido]. */
     private val magisSource: com.arkiv.player.data.gateway.ContentSource by lazy {
         com.arkiv.player.data.magis.MagisSource(
             catalog = magisCatalog,
@@ -152,17 +152,17 @@ class AppGraph(context: Context) {
         )
     }
 
-    // --- Caracol (Ditu) directo ---------------------------------------------------------------
+    // --- Direct Caracol (Ditu) -----------------------------------------------------------------
     //
-    // Todo el protocolo de Caracol vive en `data/ditu`. Sin cuenta ni sesión: el contenido gratuito
-    // se pide y se sirve (ver el KDoc de `DituClient`).
+    // The whole Caracol protocol lives in `data/ditu`. No account or session: the free content is
+    // requested and served as-is (see the KDoc on `DituClient`).
 
     private val dituClient: com.arkiv.player.data.ditu.DituClientLike by lazy {
         com.arkiv.player.data.ditu.DituClient()
     }
 
-    /** Caracol como fuente de títulos. `internal` además de estar dentro de [fuenteDeContenido]:
-     *  los canales y el catálogo completo no son parte del contrato común. */
+    /** Caracol as a title source. `internal` in addition to being inside [fuenteDeContenido]:
+     *  the channels and the full catalog aren't part of the common contract. */
     internal val dituSource: com.arkiv.player.data.ditu.DituSource by lazy {
         com.arkiv.player.data.ditu.DituSource(
             catalog = com.arkiv.player.data.ditu.DituCatalog(dituClient),
@@ -173,9 +173,9 @@ class AppGraph(context: Context) {
     }
 
     /**
-     * De dónde salen los títulos que la app busca y reproduce: Magis y Caracol detrás de un solo
-     * objeto. Para resolver y listar capítulos reparte por el `ref` (cada fuente reconoce los
-     * suyos); para buscar, mezcla las dos. Ver [com.arkiv.player.data.gateway.CompositeSource].
+     * Where the titles the app searches and plays come from: Magis and Caracol behind a single
+     * object. To resolve and list episodes it dispatches by `ref` (each source recognizes its
+     * own); to search, it merges both. See [com.arkiv.player.data.gateway.CompositeSource].
      */
     val fuenteDeContenido: com.arkiv.player.data.gateway.ContentSource by lazy {
         com.arkiv.player.data.gateway.CompositeSource(listOf(magisSource, dituSource))
@@ -185,28 +185,28 @@ class AppGraph(context: Context) {
         com.arkiv.player.data.magis.MagisLive(magisPortal, magisSession)
     }
 
-    /** Categorías y canales de vivo + el árbol de secciones del catálogo, directo del portal. */
+    /** Live categories and channels + the catalog's section tree, straight from the portal. */
     internal val catalogoDeVivo: com.arkiv.player.data.magis.MagisLiveCatalog by lazy {
         com.arkiv.player.data.magis.MagisLiveCatalog(magisCatalog, magisPortal, magisSession)
     }
 
     /**
-     * Proxy HLS local del canal en vivo. La firma de cada segmento se calcula EN EL APARATO y no
-     * tiene respaldo: el respaldo era pedírsela al gateway, que en esta rama no existe. Si algún día
-     * Magis cambia el algoritmo, se arregla publicando un APK (antes se arreglaba redesplegando el
-     * servidor, que es justo la dependencia que esta rama saca).
+     * Local HLS proxy for the live channel. Each segment's signature is computed ON THE DEVICE and
+     * has no fallback: the fallback used to be asking the gateway for it, which doesn't exist on
+     * this branch. If Magis ever changes the algorithm, it gets fixed by shipping an APK (it used
+     * to get fixed by redeploying the server, which is exactly the dependency this branch removes).
      */
     val liveHlsProxy: com.arkiv.player.playback.LiveHlsProxy by lazy {
         com.arkiv.player.playback.LiveHlsProxy(
             com.arkiv.player.playback.LocalSignature(),
-            // Tras un doble 403 irrecuperable (sesión caducada, no firma): invalida la sesión
-            // cacheada de ESE canal para que el próximo abrir()/precalentar() vuelva a resolver
-            // contra el gateway en vez de reusar la que ya sabemos muerta hasta 300s más.
+            // After an unrecoverable double 403 (expired session, no signature): invalidates THAT
+            // channel's cached session so the next abrir()/precalentar() resolves against the
+            // gateway again instead of reusing the one we already know is dead for up to 300s more.
             onSessionDead = { canal -> liveController.invalidate(canal) },
         )
     }
 
-    /** Abre canales en vivo: resuelve contra el portal y le entrega al reproductor la URL de
+    /** Opens live channels: resolves against the portal and hands the player the URL from
      *  [liveHlsProxy]. */
     val liveController: com.arkiv.player.ui.live.LiveController by lazy {
         com.arkiv.player.ui.live.LiveController(
@@ -215,25 +215,25 @@ class AppGraph(context: Context) {
         )
     }
 
-    /** Chequeo inmediato de OTA: llamado por [com.arkiv.player.data.update.UpdateWorker] y al arrancar la app. */
+    /** Immediate OTA check: called by [com.arkiv.player.data.update.UpdateWorker] and on app startup. */
     suspend fun checkForUpdate() {
         val info = updateChecker.check(BuildConfig.VERSION_CODE)
         if (info != null) _updateInfo.value = info
     }
 
-    // --- Descargas al propio dispositivo (ver docs/superpowers/specs/2026-08-07-...) ---
+    // --- Downloads to the device itself (see docs/superpowers/specs/2026-08-07-...) ---
     val httpRangeDownloader: com.arkiv.player.data.local.HttpRangeDownloader by lazy {
         com.arkiv.player.data.local.HttpRangeDownloader(
             okhttp3.OkHttpClient.Builder()
                 .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                // OJO: `readTimeout` en OkHttp es por CADA lectura del socket, no por el request
-                // completo — dispara solo si pasa este lapso sin que llegue NI UN byte. Por eso una
-                // descarga de varios GB que avanza lento nunca se corta: cada chunk que llega
-                // resetea el reloj. Iba en 0 (desactivado) pensando que protegía descargas largas,
-                // pero eso también desactiva la protección contra un servidor que deja de mandar
-                // datos sin cerrar el socket — la lectura queda colgada para siempre. Como la cola
-                // procesa de a una, ESE cuelgue no traba una sola descarga: traba TODAS (el worker
-                // nunca retorna, nunca se re-encola). 60s funciona como watchdog de estancamiento,
+                // HEADS UP: OkHttp's `readTimeout` is per socket read, not per whole request — it
+                // only fires if this long passes without a SINGLE byte arriving. That's why a
+                // multi-GB download that's crawling never gets cut off: every chunk that arrives
+                // resets the clock. It used to be 0 (disabled), on the thinking that it protected
+                // long downloads, but that also disables protection against a server that stops
+                // sending data without closing the socket — the read hangs forever. Since the queue
+                // processes one at a time, THAT hang doesn't jam a single download: it jams ALL of
+                // them (the worker never returns, never re-queues). 60s works as a stall watchdog,
                 // same idea as the stall cutoff `TorrentDownloadStrategy` used to have
                 // (POLL_MS/STALL_TIMEOUT_MS) before it was removed in this branch's pruning,
                 // without risking a legitimate download that's still coming in.
@@ -258,9 +258,9 @@ class AppGraph(context: Context) {
     }
 
     /**
-     * Carpeta en disco de los JPEG de frame, un solo punto para que quien escribe
-     * ([frameCapturer]) y quien lee ([almacenDeFrames], desde el repositorio) usen SIEMPRE la
-     * misma ruta.
+     * On-disk folder for the frame JPEGs, a single point so that whoever writes
+     * ([frameCapturer]) and whoever reads ([almacenDeFrames], from the repository) ALWAYS use the
+     * same path.
      */
     private val framesDir: java.io.File by lazy { java.io.File(appContext.filesDir, "frames") }
 
@@ -268,7 +268,7 @@ class AppGraph(context: Context) {
         com.arkiv.player.thumbnails.FrameStore(framesDir)
     }
 
-    /** Captura best-effort del frame que se está viendo, para la miniatura de cada capítulo. */
+    /** Best-effort capture of the frame currently playing, for each episode's thumbnail. */
     val frameCapturer: com.arkiv.player.thumbnails.FrameCapturer by lazy {
         com.arkiv.player.thumbnails.FrameCapturer(
             store = almacenDeFrames,
@@ -278,16 +278,17 @@ class AppGraph(context: Context) {
     }
 
     /**
-     * Único punto que sabe borrar un frame (archivo + fila), y una sola instancia para todos: se la
-     * pasa por constructor a [repository] (toggle manual, progreso al 60%, y sacar un ítem de la
-     * biblioteca) -antes también a `LibraryWiper` (logout), borrado en la Task 9 junto con el resto
-     * de las cuentas- — mismo [almacenDeFrames], mismo `episodeFrameDao` que [frameCapturer].
+     * The only point that knows how to delete a frame (file + row), and a single instance for
+     * everyone: it's passed by constructor to [repository] (manual toggle, progress at 60%, and
+     * removing an item from the library) -it used to also go to `LibraryWiper` (logout), deleted in
+     * Task 9 along with the rest of accounts- — same [almacenDeFrames], same `episodeFrameDao` as
+     * [frameCapturer].
      */
     val destructorDeFrames: com.arkiv.player.thumbnails.FrameDestroyer by lazy {
         com.arkiv.player.thumbnails.FrameDestroyer(almacenDeFrames, database.episodeFrameDao())
     }
 
-    /** Sirve el archivo local por HTTP para poder castearlo (un file:// no le llega al Chromecast). */
+    /** Serves the local file over HTTP so it can be cast (a file:// doesn't reach the Chromecast). */
     val localFileServer: com.arkiv.player.playback.LocalFileServer by lazy {
         com.arkiv.player.playback.LocalFileServer(lanIp = { lanIp() })
     }
@@ -317,38 +318,38 @@ class AppGraph(context: Context) {
         com.arkiv.player.playback.TsRemuxer(appContext, appContext.cacheDir, applicationScope)
     }
 
-    /** IP del aparato en la LAN (ver [com.arkiv.player.playback.LanIp]): la necesitan el proxy de
-     *  canal en vivo y el cast transcodificado para que un renderer en la LAN pueda alcanzarlos. */
+    /** The device's LAN IP (see [com.arkiv.player.playback.LanIp]): needed by the live channel
+     *  proxy and the transcoded cast so a renderer on the LAN can reach them. */
     fun lanIp(): String? = com.arkiv.player.playback.LanIp.current(appContext)
 
     /**
-     * Una estrategia por `source` de la tabla `downloads`. Sin entrada para "web" a propósito: la
-     * fuente web se borró en esta rama (regla del branch, "cero servidor propio") y
-     * `NucStagedStrategy` (que existía solo para servirla, hablando con el servidor NUC/arkiv-offline)
-     * se borró en la poda de NUC (Task 8) — una fila vieja con `source="web"` (de antes de este
-     * branch) ahora falla con gracia en vez de disparar esa llamada de red (ver
-     * `LocalDownloadWorker.doWork()`, que ya trata una entrada ausente como "Fuente no soportada").
+     * One strategy per `source` in the `downloads` table. No entry for "web" on purpose: the web
+     * source was deleted on this branch (branch rule, "zero self-hosted server") and
+     * `NucStagedStrategy` (which only existed to serve it, talking to the NUC/arkiv-offline server)
+     * was deleted in the NUC pruning (Task 8) — an old row with `source="web"` (from before this
+     * branch) now fails gracefully instead of triggering that network call (see
+     * `LocalDownloadWorker.doWork()`, which already treats a missing entry as "unsupported source").
      *
-     * Tampoco hay entrada para "archive": `ArchiveDownloadStrategy` se borró junto con el resto de
-     * archive.org en esta poda (llamaba a `ArchiveUrls.download`, red directa a archive.org — contra
-     * la regla del branch). Una fila vieja con `source="archive"` cae al mismo camino de gracia que
-     * "web".
+     * No entry for "archive" either: `ArchiveDownloadStrategy` was deleted along with the rest of
+     * archive.org in this pruning (it called `ArchiveUrls.download`, direct network to archive.org —
+     * against the branch rule). An old row with `source="archive"` falls into the same graceful path
+     * as "web".
      *
-     * Ni para "ditu": Caracol volvió con un cliente directo (`data/ditu`), pero su video viene
-     * cifrado con Widevine y no hay forma de bajarlo; `DituDownloadStrategy` se borró en la poda y no
-     * volvió. Una fila con `source="ditu"` cae al mismo camino de gracia.
+     * Nor for "ditu": Caracol came back with a direct client (`data/ditu`), but its video comes
+     * Widevine-encrypted and there's no way to download it; `DituDownloadStrategy` was deleted in
+     * the pruning and never came back. A row with `source="ditu"` falls into the same graceful path.
      *
-     * Las pantallas no ofrecen bajar lo que no tiene entrada acá: lo deciden
-     * `DownloadSource.canDownload`/`hasStrategy` con las claves de este mapa.
+     * The screens don't offer downloading what has no entry here: that's decided by
+     * `DownloadSource.canDownload`/`hasStrategy` using this map's keys.
      */
     val downloadStrategies: Map<String, com.arkiv.player.data.local.DownloadStrategy> by lazy {
         mapOf(
             "magis" to com.arkiv.player.data.local.MagisDownloadStrategy(
                 repository, fuenteDeContenido, httpRangeDownloader,
             ),
-            // Caracol. Con esta clave presente, `DownloadSource.canDownload` empieza a decir que
-            // sí para sus capítulos y la UI muestra el botón sola -- ese es justamente el contrato
-            // que documenta: una fuente sin estrategia queda escondida, una con estrategia aparece.
+            // Caracol. With this key present, `DownloadSource.canDownload` starts saying yes for
+            // its episodes and the UI shows the button on its own -- that's exactly the contract
+            // this documents: a source with no strategy stays hidden, one with a strategy shows up.
             "ditu" to com.arkiv.player.data.local.DituDownloadStrategy(
                 repository, fuenteDeContenido, almacenDeCaracol,
             ),
@@ -356,11 +357,11 @@ class AppGraph(context: Context) {
     }
 
     /**
-     * Dónde viven los capítulos de Caracol bajados. Uno solo por proceso: `SimpleCache` no deja
-     * abrir dos veces la misma carpeta, y acá lo comparten la descarga y el reproductor.
+     * Where downloaded Caracol episodes live. Only one per process: `SimpleCache` won't let the
+     * same folder be opened twice, and here it's shared between the download and the player.
      *
-     * Cuelga del mismo directorio que las descargas normales para que el espacio libre que mide
-     * `LocalDownloadManager` sea el mismo disco que realmente se llena.
+     * Hangs off the same directory as regular downloads so the free space `LocalDownloadManager`
+     * measures is the same disk that actually fills up.
      */
     val almacenDeCaracol: com.arkiv.player.data.caracol.CaracolStore by lazy {
         com.arkiv.player.data.caracol.CaracolStore(
@@ -377,8 +378,8 @@ class AppGraph(context: Context) {
             frameStore = almacenDeFrames,
             frameDestroyer = destructorDeFrames,
         ).also { repo ->
-            // "Para ti" solo existe en el home del TV: en el celular no hay fila que llenar, y cada
-            // generación le pregunta a Kilo varias veces.
+            // "For you" only exists on the TV home: on the phone there's no row to fill, and every
+            // generation pass asks Kilo several times.
             if (DeviceType.isTelevision(appContext)) {
                 repo.onEpisodeFinished = { applicationScope.launch { generadorParaTi.generateIfDue() } }
             }
@@ -389,13 +390,13 @@ class AppGraph(context: Context) {
         AnimeMappingRepository(cacheDir = appContext.filesDir)
     }
     /**
-     * Task 9 (sub-proyecto 2B): antes tomaba `httpGatewayCorto`, un cliente derivado de
-     * `httpGateway.newBuilder()` solo para compartir su pool de conexiones -y que por eso heredaba
-     * su `callTimeout(45 s)`-. Sin ese cliente compartido (ver [httpDelPortal], que ya es
-     * únicamente del portal de Magis), `TmdbApi` vuelve a su propio `OkHttpClient` por default,
-     * que ahora también lleva ese mismo `callTimeout(45 s)` -ver el default de su constructor- para
-     * no perderlo: TMDB es OTRO host, así que compartir pool con el portal no traía ningún
-     * beneficio real, pero el tope a la llamada entera sí hacía falta.
+     * Task 9 (sub-project 2B): it used to take `httpGatewayCorto`, a client derived from
+     * `httpGateway.newBuilder()` only to share its connection pool -and which for that reason
+     * inherited its `callTimeout(45s)`-. Without that shared client (see [httpDelPortal], which is
+     * now only for the Magis portal), `TmdbApi` goes back to its own default `OkHttpClient`, which
+     * now also carries that same `callTimeout(45s)` -see its constructor's default- so as not to
+     * lose it: TMDB is a DIFFERENT host, so sharing a pool with the portal never brought any real
+     * benefit, but the cap on the whole call was still needed.
      */
     val tmdbApi: TmdbApi by lazy {
         TmdbApi(language = "es-MX")
@@ -404,10 +405,10 @@ class AppGraph(context: Context) {
         com.arkiv.player.data.subtitles.SubtitlePrefs(appContext)
     }
     /**
-     * Vigila los cambios de red para que [archiveCacheProxy] abandone las conexiones que quedaron
-     * atadas a la red anterior. Se guarda la referencia aunque nadie la use: el vigilante vive lo
-     * que vive el proceso, igual que el proxy, y tenerlo a mano deja poder pararlo si algún día
-     * hace falta. Ver [com.arkiv.player.playback.NetworkChange].
+     * Watches for network changes so [archiveCacheProxy] abandons connections that stayed tied to
+     * the previous network. The reference is kept even though nobody uses it: the watchdog lives
+     * as long as the process, same as the proxy, and keeping it on hand leaves the option to stop
+     * it someday if needed. See [com.arkiv.player.playback.NetworkChange].
      */
     private var vigilanteDeRed: com.arkiv.player.playback.NetworkWatchdog? = null
 
@@ -421,7 +422,7 @@ class AppGraph(context: Context) {
     }
     val applicationScope: CoroutineScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
 
-    /** El cliente de los modelos gratis de Kilo (sub-proyecto 4). Sin llave: ver su KDoc. */
+    /** The client for Kilo's free models (sub-project 4). No key: see its KDoc. */
     internal val clienteDeIa: com.arkiv.player.data.ia.AiClient by lazy {
         com.arkiv.player.data.ia.AiClient(
             memory = com.arkiv.player.data.ia.ModelMemory(
@@ -430,7 +431,7 @@ class AppGraph(context: Context) {
         )
     }
 
-    /** El dato curioso del reproductor (sub-proyecto 4): Kilo, desde el aparato, un mes de caché. */
+    /** The player's fun fact (sub-project 4): Kilo, from the device, a month of caching. */
     internal val datosCuriosos: com.arkiv.player.data.trivia.TriviaFacts by lazy {
         com.arkiv.player.data.trivia.TriviaFacts(
             ia = { clienteDeIa.ask(it) },
@@ -441,9 +442,9 @@ class AppGraph(context: Context) {
     }
 
     /**
-     * "Para ti", generado en el aparato con Kilo (sub-proyecto 4). Verifica contra TMDB y contra la
-     * fuente compuesta (Magis y Caracol). Cada paso con red atrapa sus fallos para que un candidato
-     * roto no tumbe a los otros; la cancelación siempre se relanza.
+     * "For you", generated on the device with Kilo (sub-project 4). Verifies against TMDB and
+     * against the composite source (Magis and Caracol). Every network step catches its own
+     * failures so a broken candidate doesn't take down the others; cancellation is always rethrown.
      */
     internal val generadorParaTi: ForYouGenerator by lazy {
         val verificacion = ForYouVerification(
@@ -461,8 +462,9 @@ class AppGraph(context: Context) {
                     fuenteDeContenido
                         .search(com.arkiv.player.data.gateway.GatewaySearchQuery(q = titulo, type = tipo, tmdbId = tmdbId))
                         .filterIsInstance<com.arkiv.player.data.gateway.SearchEvent.ResultEvent>()
-                        // El `kind` que arma la fuente es el tipo que se BUSCÓ, no el del ítem (ver
-                        // KDoc de `withRealKind`): se corrige acá, antes de que el árbitro vea la lista.
+                        // The `kind` the source builds is the type that was SEARCHED FOR, not the
+                        // item's own (see the KDoc on `withRealKind`): fixed here, before the
+                        // referee sees the list.
                         .map { withRealKind(it.item) }
                         .take(25)
                         .toList()
@@ -494,9 +496,9 @@ class AppGraph(context: Context) {
     }
 
     /**
-     * Agrega a la biblioteca lo que se elige en la fila "Para ti" del inicio. Necesita
-     * `fuenteDeContenido` además del repositorio: una recomendación de serie trae el ref de la
-     * temporada, y los capítulos hay que pedírselos al portal (`MagisCatalog.detail`).
+     * Adds to the library whatever is picked from the home's "For you" row. Needs
+     * `fuenteDeContenido` in addition to the repository: a series recommendation carries the
+     * season's ref, and the episodes have to be requested from the portal (`MagisCatalog.detail`).
      */
     val agregadorDeRecomendaciones by lazy {
         com.arkiv.player.data.recomendaciones.RecommendationAggregator(
@@ -514,40 +516,40 @@ class AppGraph(context: Context) {
     }
 
     /**
-     * Busca capítulos nuevos de las series que se están viendo, con freno de repetición.
+     * Looks for new episodes of the series currently being watched, with a repeat-throttle.
      *
-     * El freno hace falta porque `Application.onCreate` corre muchas veces por día —basta con
-     * salir de la app y volver a entrar— y cada pasada cuesta red (para web, una búsqueda por
-     * capítulo candidato). Una vez cada [HORAS_ENTRE_BUSQUEDAS] horas alcanza de sobra: los
-     * capítulos no salen más seguido que eso.
+     * The throttle is needed because `Application.onCreate` runs many times a day —just leaving
+     * the app and coming back does it— and every pass costs network (for web, one search per
+     * candidate episode). Once every [HORAS_ENTRE_BUSQUEDAS] hours is more than enough: episodes
+     * don't come out more often than that.
      */
     suspend fun buscarCapitulosNuevos() {
         val prefs = appContext.getSharedPreferences("arkiv_nuevos", android.content.Context.MODE_PRIVATE)
         val ultima = prefs.getLong(KEY_ULTIMA_BUSQUEDA, 0L)
         val ahora = System.currentTimeMillis()
         if (ahora - ultima < HORAS_ENTRE_BUSQUEDAS * 60 * 60 * 1000L) return
-        // Se sella ANTES de buscar: si la búsqueda tarda y el usuario cierra y reabre la app en el
-        // medio, no arrancan dos pasadas pisándose contra las mismas fuentes.
+        // Sealed BEFORE searching: if the search takes a while and the user closes and reopens the
+        // app in the middle, two passes don't start stepping on each other against the same sources.
         prefs.edit().putLong(KEY_ULTIMA_BUSQUEDA, ahora).apply()
         buscadorDeCapitulos.findNewChapters()
     }
 
     /**
-     * Señal para resetear la búsqueda del catálogo al entrar desde otra pestaña. La emite el click
-     * en la pestaña "Catálogo" (que solo existe estando en una pestaña, nunca dentro de un detalle),
-     * así que volver de un detalle con "atrás" NO la dispara y preserva la búsqueda.
+     * Signal to reset the catalog search when entering from another tab. Emitted by the click on
+     * the "Catalog" tab (which only exists while on a tab, never inside a detail), so coming back
+     * from a detail with "back" does NOT trigger it and the search is preserved.
      */
     val catalogResetSignal = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(
         extraBufferCapacity = 1,
         onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
     )
 
-    /** CastContext de Chromecast, o null si Google Play Services no está disponible. */
+    /** Chromecast's CastContext, or null if Google Play Services isn't available. */
     val castContext: CastContext? by lazy {
         runCatching { CastContext.getSharedInstance(appContext) }.getOrNull()
     }
 
-    /** Dueño del CastPlayer con vida de app: sin esto, salir del reproductor corta el casteo. */
+    /** Owner of the CastPlayer with app-long lifetime: without this, leaving the player cuts the cast. */
     val castSession: com.arkiv.player.cast.CastSessionManager? by lazy {
         castContext?.let {
             com.arkiv.player.cast.CastSessionManager(it, repository, applicationScope)
@@ -555,9 +557,9 @@ class AppGraph(context: Context) {
     }
 
     init {
-        // CastPlayer/CastContext exigen el hilo principal. Forzamos su construcción ahí para que el
-        // manager exista desde el arranque (y adopte una sesión ya viva) sin depender de quién lo
-        // toque primero.
+        // CastPlayer/CastContext demand the main thread. We force its construction there so the
+        // manager exists from startup (and adopts an already-live session) without depending on
+        // who touches it first.
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             castSession
         }
@@ -567,7 +569,7 @@ class AppGraph(context: Context) {
         @Volatile
         private var instance: AppGraph? = null
 
-        /** Cada cuánto, como mucho, se buscan capítulos nuevos. Ver [buscarCapitulosNuevos]. */
+        /** At most how often new episodes are looked for. See [buscarCapitulosNuevos]. */
         private const val HORAS_ENTRE_BUSQUEDAS = 6L
         private const val KEY_ULTIMA_BUSQUEDA = "ultima_busqueda_ms"
 
