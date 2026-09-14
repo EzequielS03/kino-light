@@ -49,14 +49,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
- * Las descargas al dispositivo, vistas desde el TV.
+ * Downloads to the device, seen from the TV.
  *
- * Hasta ahora el TV no tenía NINGUNA pantalla de descargas, aunque "Guardar toda la temporada" del
- * buscador encola N descargas al disco del aparato. En un Fire TV Stick eso se llena sin avisar.
+ * Until now the TV had NO downloads screen at all, even though the search box's "Save whole
+ * season" queues N downloads to the device's disk. On a Fire TV Stick that fills up without warning.
  *
- * Una fila por SERIE, no por capítulo: `DownloadsViewModel` ya expone las acciones de grupo y el
- * caso real es una temporada entera encolada de una. Una lista por capítulo sería una pantalla
- * anidada más para navegar con el D-pad, sin ganar nada.
+ * One row per SERIES, not per chapter: `DownloadsViewModel` already exposes group actions and
+ * the real case is a whole season queued at once. A per-chapter list would be one more nested
+ * screen to navigate with the D-pad, for no gain.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -67,38 +67,38 @@ fun TvDownloadsSection(onPlayEpisode: (String) -> Unit, modifier: Modifier = Mod
             initializer { DownloadsViewModel(graph.localDownloads, graph.repository) }
         },
     )
-    val grupos by vm.groups.collectAsStateWithLifecycle()
-    // Se guarda el itemId y no el `DownloadGroup` entero: si mientras el diálogo está abierto una
-    // descarga termina o se encola otra, un grupo capturado en el momento del click quedaría con
-    // `hayActivas`/`hayFallidas` y episodios viejos. Buscando de nuevo en `grupos` en cada
-    // recomposición, el diálogo siempre lee el estado actual.
-    var accionesId by remember { mutableStateOf<String?>(null) }
-    val grupoAcciones = accionesId?.let { id -> grupos.firstOrNull { it.itemId == id } }
+    val groups by vm.groups.collectAsStateWithLifecycle()
+    // The itemId is saved, not the whole `DownloadGroup`: if while the dialog is open a download
+    // finishes or another one gets queued, a group captured at click time would end up with stale
+    // `hasActive`/`hasFailed` and old episodes. Looking it up again in `groups` on every
+    // recomposition, the dialog always reads the current state.
+    var actionsId by remember { mutableStateOf<String?>(null) }
+    val actionsGroup = actionsId?.let { id -> groups.firstOrNull { it.itemId == id } }
 
-    val ocupado = DiskSpace.usedByDownloads(grupos)
-    // Se remide cada vez que cambia lo ocupado (una descarga terminó, se borró algo). `StatFs` toca
-    // el filesystem, así que va fuera del hilo principal.
-    // Nullable a propósito: antes de la primera medición arrancaba en 0L y ese 0L se pintaba como
-    // "0 MB libres" -- en un aparato casi lleno eso se lee como alarma falsa. Con null no se dibuja
-    // nada hasta tener el dato real.
-    val libres by produceState<Long?>(initialValue = null, ocupado) {
+    val used = DiskSpace.usedByDownloads(groups)
+    // Re-measured every time what's used changes (a download finished, something got deleted).
+    // `StatFs` touches the filesystem, so it goes off the main thread.
+    // Nullable on purpose: before the first measurement it used to start at 0L and that 0L got
+    // painted as "0 MB free" -- on a nearly full device that reads as a false alarm. With null,
+    // nothing is drawn until the real value is in.
+    val free by produceState<Long?>(initialValue = null, used) {
         value = withContext(Dispatchers.IO) { graph.localDownloads.freeSpaceBytes() }
     }
 
-    // Mismo aire contra los bordes que el resto de la biblioteca (ver SAFE_H/SAFE_V): una sección
-    // con distinto margen se nota apenas cambiás de sección con el control.
+    // Same clearance against the edges as the rest of the library (see SAFE_H/SAFE_V): a section
+    // with a different margin is noticeable the moment you switch sections with the remote.
     Column(modifier.fillMaxSize().padding(horizontal = SAFE_H, vertical = SAFE_V)) {
         Text("Descargas", style = MaterialTheme.typography.headlineSmall, color = ArkivTextPrimary)
-        libres?.let { bytesLibres ->
+        free?.let { freeBytes ->
             Text(
-                DiskSpace.summary(bytesLibres, ocupado),
+                DiskSpace.summary(freeBytes, used),
                 style = MaterialTheme.typography.labelLarge,
                 color = ArkivTextSecondary,
                 modifier = Modifier.padding(top = 4.dp, bottom = 20.dp),
             )
         }
 
-        if (grupos.isEmpty()) {
+        if (groups.isEmpty()) {
             Text(
                 "No hay nada descargado en este aparato.\nGuardá una serie desde el buscador y va a aparecer acá.",
                 style = MaterialTheme.typography.bodyLarge,
@@ -111,22 +111,22 @@ fun TvDownloadsSection(onPlayEpisode: (String) -> Unit, modifier: Modifier = Mod
             contentPadding = PaddingValues(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            items(grupos, key = { it.itemId }) { grupo ->
+            items(groups, key = { it.itemId }) { group ->
                 Card(
-                    onClick = { accionesId = grupo.itemId },
+                    onClick = { actionsId = group.itemId },
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.colors(containerColor = ArkivSurfaceHigh),
                 ) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
                         Text(
-                            grupo.itemTitle,
+                            group.itemTitle,
                             style = MaterialTheme.typography.titleMedium,
                             color = ArkivTextPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            DownloadGroupPolicy.summarize(grupo.episodes),
+                            DownloadGroupPolicy.summarize(group.episodes),
                             style = MaterialTheme.typography.labelMedium,
                             color = ArkivTextSecondary,
                             modifier = Modifier.padding(top = 4.dp),
@@ -137,59 +137,59 @@ fun TvDownloadsSection(onPlayEpisode: (String) -> Unit, modifier: Modifier = Mod
         }
     }
 
-    // Si el grupo desapareció de `grupos` (se quitó la última descarga mientras el diálogo estaba
-    // abierto), `grupoAcciones` da null y el diálogo simplemente no se dibuja más -- no hace falta
-    // un efecto aparte para "cerrarlo".
-    grupoAcciones?.let { grupo ->
+    // If the group disappeared from `groups` (the last download got removed while the dialog was
+    // open), `actionsGroup` comes back null and the dialog simply stops being drawn -- no separate
+    // effect needed to "close it".
+    actionsGroup?.let { group ->
         TvDownloadActionsDialog(
-            grupo = grupo,
-            onCancelar = { vm.cancelGroup(grupo); accionesId = null },
-            onReintentar = { vm.retryFailedGroup(grupo); accionesId = null },
-            onQuitar = { vm.removeGroup(grupo); accionesId = null },
-            onPlayEpisode = { episodeId -> onPlayEpisode(episodeId); accionesId = null },
-            onDismiss = { accionesId = null },
+            group = group,
+            onCancel = { vm.cancelGroup(group); actionsId = null },
+            onRetry = { vm.retryFailedGroup(group); actionsId = null },
+            onRemove = { vm.removeGroup(group); actionsId = null },
+            onPlayEpisode = { episodeId -> onPlayEpisode(episodeId); actionsId = null },
+            onDismiss = { actionsId = null },
         )
     }
 }
 
-/** Qué paso de confirmación está abierto dentro de [TvDownloadActionsDialog], si alguno. */
-private enum class ConfirmacionDeDescarga { DETENER, QUITAR }
+/** Which confirmation step is open inside [TvDownloadActionsDialog], if any. */
+private enum class DownloadConfirmation { STOP, REMOVE }
 
 /**
- * Acciones de un grupo de descargas, en un diálogo y no como botones dentro de la fila: con el
- * D-pad, varios botones por fila multiplican los saltos de foco y hacen fácil apretar el equivocado
- * —y acá el equivocado borra gigabytes—.
+ * A download group's actions, in a dialog and not as buttons inside the row: with the D-pad,
+ * several buttons per row multiply focus jumps and make it easy to press the wrong one —and here
+ * the wrong one deletes gigabytes—.
  *
- * Solo se ofrece lo que el estado del grupo permite: "Detener"/"Reintentar" si hay algo
- * activo/fallido, "Reproducir" si hay al menos un episodio ya descargado. "Quitar del dispositivo"
- * está siempre: es lo que libera disco.
+ * Only what the group's state allows gets offered: "Detener"/"Reintentar" if there's something
+ * active/failed, "Reproducir" if at least one episode is already downloaded. "Quitar del
+ * dispositivo" is always there: it's what frees up disk.
  *
- * Tanto "Detener lo que está bajando" como "Quitar del dispositivo" piden confirmación: el spec
- * original ya pedía confirmar para cancelar-y-borrar, y antes solo "Quitar" la tenía. Un enum
- * ([ConfirmacionDeDescarga]) y no dos booleanos separados, porque los dos pasos de confirmación
- * son mutuamente excluyentes -- con dos booleanos habría que cuidar a mano que nunca estuvieran
- * los dos en `true` a la vez.
+ * Both "Detener lo que está bajando" and "Quitar del dispositivo" ask for confirmation: the
+ * original spec already asked to confirm cancel-and-delete, and before only "Quitar" had it. An
+ * enum ([DownloadConfirmation]) and not two separate booleans, because the two confirmation steps
+ * are mutually exclusive -- with two booleans you'd have to manually make sure both were never
+ * `true` at once.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvDownloadActionsDialog(
-    grupo: DownloadGroup,
-    onCancelar: () -> Unit,
-    onReintentar: () -> Unit,
-    onQuitar: () -> Unit,
+    group: DownloadGroup,
+    onCancel: () -> Unit,
+    onRetry: () -> Unit,
+    onRemove: () -> Unit,
     onPlayEpisode: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val hayActivas = DownloadGroupPolicy.activeEpisodeIds(grupo).isNotEmpty()
-    val hayFallidas = DownloadGroupPolicy.failedEpisodeIds(grupo).isNotEmpty()
-    val episodioAReproducir = DownloadGroupPolicy.firstPlayableEpisodeId(grupo)
-    var confirmando by remember { mutableStateOf<ConfirmacionDeDescarga?>(null) }
+    val hasActive = DownloadGroupPolicy.activeEpisodeIds(group).isNotEmpty()
+    val hasFailed = DownloadGroupPolicy.failedEpisodeIds(group).isNotEmpty()
+    val playableEpisode = DownloadGroupPolicy.firstPlayableEpisodeId(group)
+    var confirming by remember { mutableStateOf<DownloadConfirmation?>(null) }
     val focus = remember { FocusRequester() }
-    // Mismo patrón de reintento que `TvLibraryItemDialog`: es el único diálogo del feature que
-    // borraba gigabytes sin manejar el foco, así que el D-pad podía quedar sin dueño en el paso
-    // de confirmación. La key en `confirmando` hace que el foco salte de nuevo cuando cambia
-    // el paso (de la lista de acciones a cualquiera de las confirmaciones, o viceversa).
-    LaunchedEffect(confirmando) {
+    // Same retry pattern as `TvLibraryItemDialog`: it's the only dialog in the feature that
+    // deletes gigabytes without handling focus, so the D-pad could end up with no owner at the
+    // confirmation step. Keying on `confirming` makes focus jump again whenever the step changes
+    // (from the action list to either confirmation, or back).
+    LaunchedEffect(confirming) {
         var landed = false
         repeat(20) {
             if (landed) return@repeat
@@ -207,69 +207,69 @@ private fun TvDownloadActionsDialog(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                grupo.itemTitle,
+                group.itemTitle,
                 style = MaterialTheme.typography.titleMedium,
                 color = ArkivTextPrimary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                DownloadGroupPolicy.summarize(grupo.episodes),
+                DownloadGroupPolicy.summarize(group.episodes),
                 style = MaterialTheme.typography.bodySmall,
                 color = ArkivTextSecondary,
             )
-            when (confirmando) {
-                ConfirmacionDeDescarga.QUITAR -> {
+            when (confirming) {
+                DownloadConfirmation.REMOVE -> {
                     Text(
                         "Se borran del disco los archivos ya bajados de esta serie. La serie sigue en tu biblioteca.",
                         style = MaterialTheme.typography.bodySmall,
                         color = ArkivTextSecondary,
                     )
-                    Button(onClick = onQuitar, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
+                    Button(onClick = onRemove, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
                         Text("Sí, borrar del dispositivo", maxLines = 1)
                     }
-                    // El foco va al botón seguro, no al destructivo: con el control remoto un doble
-                    // OK (normal cuando la UI tarda un frame en componerse) puede llegar antes de
-                    // que el usuario alcance a leer la advertencia, y acá lo que se borra son
+                    // Focus goes to the safe button, not the destructive one: with the remote a
+                    // double OK (normal when the UI takes a frame to compose) can arrive before
+                    // the user manages to read the warning, and here what gets deleted is
                     // gigabytes.
-                    Button(onClick = { confirmando = null }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth().focusRequester(focus)) {
+                    Button(onClick = { confirming = null }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth().focusRequester(focus)) {
                         Text("Cancelar", maxLines = 1)
                     }
                 }
-                ConfirmacionDeDescarga.DETENER -> {
+                DownloadConfirmation.STOP -> {
                     Text(
                         "Se corta lo que está bajando ahora de esta serie. Los capítulos ya descargados no se tocan.",
                         style = MaterialTheme.typography.bodySmall,
                         color = ArkivTextSecondary,
                     )
-                    Button(onClick = onCancelar, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
+                    Button(onClick = onCancel, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
                         Text("Sí, detener", maxLines = 1)
                     }
-                    Button(onClick = { confirmando = null }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth().focusRequester(focus)) {
+                    Button(onClick = { confirming = null }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth().focusRequester(focus)) {
                         Text("Cancelar", maxLines = 1)
                     }
                 }
                 null -> {
-                    if (hayActivas) {
-                        Button(onClick = { confirmando = ConfirmacionDeDescarga.DETENER }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
+                    if (hasActive) {
+                        Button(onClick = { confirming = DownloadConfirmation.STOP }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
                             Text("Detener lo que está bajando", maxLines = 1)
                         }
                     }
-                    if (hayFallidas) {
-                        Button(onClick = onReintentar, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
+                    if (hasFailed) {
+                        Button(onClick = onRetry, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
                             Text("Reintentar lo que falló", maxLines = 1)
                         }
                     }
-                    if (episodioAReproducir != null) {
-                        Button(onClick = { onPlayEpisode(episodioAReproducir) }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
+                    if (playableEpisode != null) {
+                        Button(onClick = { onPlayEpisode(playableEpisode) }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
                             Text("Reproducir", maxLines = 1)
                         }
                     }
-                    Button(onClick = { confirmando = ConfirmacionDeDescarga.QUITAR }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
+                    Button(onClick = { confirming = DownloadConfirmation.REMOVE }, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth()) {
                         Text("Quitar del dispositivo", maxLines = 1)
                     }
-                    // Mismo criterio acá: por defecto el foco cae en la opción segura, no en la que
-                    // arranca el camino hacia borrar.
+                    // Same criterion here: by default focus lands on the safe option, not the one
+                    // that starts the path toward deleting.
                     Button(onClick = onDismiss, colors = arkivTvButtonColors(), border = arkivTvButtonBorder(), modifier = Modifier.fillMaxWidth().focusRequester(focus)) {
                         Text("Volver", maxLines = 1)
                     }
