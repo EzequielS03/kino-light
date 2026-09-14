@@ -10,14 +10,14 @@ import org.junit.Test
 /**
  * La consulta que expone las recomendaciones vigentes de la cuenta (fila "Para ti" del inicio):
  * ordenadas por `orden` -- lo que decidió `ForYouGenerator`, en el aparato -- y sin lo que ya quedó
- * marcado como tombstone (`deleted`). Ver [RecomendacionDao.observeVigentes].
+ * marcado como tombstone (`deleted`). Ver [RecomendacionDao.observeActive].
  *
  * Se ejecuta contra SQLite de verdad -- mismo criterio que [SyncTriggersTest] -- porque es SQL puro
  * y este módulo no tiene infraestructura de Room (ni Robolectric) en los tests unitarios de la JVM.
  * El `CREATE TABLE` de acá tiene que quedarse en sincro con `MIGRATION_24_25` de [ArkivDatabase] --
  * eso no hay forma de comprobarlo automáticamente -- pero el SQL en sí NO se copia a mano: usa
- * [QUERY_RECOMENDACIONES_VIGENTES], la misma constante que el `@Query` real de
- * [RecomendacionDao.observeVigentes]. Antes este test tenía su propia copia del string, y ese fue
+ * [QUERY_ACTIVE_RECOMENDACIONES], la misma constante que el `@Query` real de
+ * [RecomendacionDao.observeActive]. Antes este test tenía su propia copia del string, y ese fue
  * justo el hueco que encontró la revisión: quitarle el `WHERE deleted = 0` a la consulta real no
  * hacía fallar nada acá, porque corrían dos SQL distintos que por las dudas decían lo mismo.
  */
@@ -50,10 +50,10 @@ class RecomendacionQueryTest {
         }
     }
 
-    /** LA consulta de [RecomendacionDao.observeVigentes] -- no una copia, la misma constante. */
+    /** LA consulta de [RecomendacionDao.observeActive] -- no una copia, la misma constante. */
     private fun vigentes(): List<String> =
         db.createStatement().use { st ->
-            st.executeQuery(QUERY_RECOMENDACIONES_VIGENTES).use { rs ->
+            st.executeQuery(QUERY_ACTIVE_RECOMENDACIONES).use { rs ->
                 val out = mutableListOf<String>()
                 while (rs.next()) out.add(rs.getString("id"))
                 out
@@ -74,7 +74,7 @@ class RecomendacionQueryTest {
     }
 
     @Test fun una_borrada_mas_nueva_que_gano_el_lww_deja_de_aparecer() {
-        // Simulates what RecomendacionDao.retirarVigentes does on a fresh generation: the row was
+        // Simulates what RecomendacionDao.retireActive does on a fresh generation: the row was
         // already live locally, and the update leaves it with deleted=1 and a newer updatedAt
         // because the new generation buried it.
         insertar("rec1", orden = 0)

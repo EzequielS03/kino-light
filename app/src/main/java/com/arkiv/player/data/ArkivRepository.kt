@@ -229,7 +229,7 @@ class ArkivRepository(
     /**
      * "Continuar viendo", con el frame capturado de cada capítulo si ya está en disco.
      *
-     * El `combine` con `episodeFrameDao.observeTodos()` NO aporta datos —se descarta el segundo
+     * El `combine` con `episodeFrameDao.observeAll()` NO aporta datos —se descarta el segundo
      * valor— sino INVALIDACIÓN: la consulta de `playback` no toca `episode_frame`, así que sin esto
      * Room no reemitía nada cuando [com.arkiv.player.thumbnails.FrameCapturer] publicaba un JPEG y
      * la tarjeta se quedaba con el still de TMDB.
@@ -237,7 +237,7 @@ class ArkivRepository(
     fun observeContinueWatching(): Flow<List<ContinueRow>> =
         combine(
             playbackDao.observeProgressWithNext(),
-            episodeFrameDao.observeTodos(),
+            episodeFrameDao.observeAll(),
         ) { rows, _ -> rows }.map { rows ->
             // Qué capítulo va por cada serie lo decide PorDondeVas, que es la parte pura y testeada
             // (una tarjeta por ítem, ordenadas por lo último que reprodujiste). Acá solo se traduce

@@ -30,7 +30,7 @@ class FrameDestroyerTest {
 
         destroyer.destroy("ep-1")
 
-        val row = dao.getIncluyendoBorradas("ep-1")
+        val row = dao.getIncludingDeleted("ep-1")
         assertTrue("the row must still exist (tombstone, not DELETE)", row != null)
         assertEquals(1, row!!.deleted)
         assertEquals(999L, row.updatedAt)
@@ -43,7 +43,7 @@ class FrameDestroyerTest {
 
         destroyer.destroy("ep-without-frame")
 
-        val row = dao.getIncluyendoBorradas("ep-without-frame")
+        val row = dao.getIncludingDeleted("ep-without-frame")
         assertEquals(1, row?.deleted)
         assertEquals(5L, row?.updatedAt)
     }
@@ -74,7 +74,7 @@ class FrameDestroyerTest {
         val destroyer = FrameDestroyer(dao = dao, now = { currentTime })
 
         destroyer.destroy("ep-1")
-        assertEquals(100L, dao.getIncluyendoBorradas("ep-1")?.updatedAt)
+        assertEquals(100L, dao.getIncludingDeleted("ep-1")?.updatedAt)
 
         currentTime = 999L // if destroy() read the clock again, updatedAt would change
         destroyer.destroy("ep-1")
@@ -82,7 +82,7 @@ class FrameDestroyerTest {
         assertEquals(
             "the tombstone was already sealed: the second call must not touch updatedAt",
             100L,
-            dao.getIncluyendoBorradas("ep-1")?.updatedAt,
+            dao.getIncludingDeleted("ep-1")?.updatedAt,
         )
     }
 
@@ -102,7 +102,7 @@ class FrameDestroyerTest {
             "the orphan file is deleted regardless, even though the row was already a tombstone",
             store.pathIfExists("ep-1"),
         )
-        assertEquals("and the row's updatedAt is untouched", 50L, dao.getIncluyendoBorradas("ep-1")?.updatedAt)
+        assertEquals("and the row's updatedAt is untouched", 50L, dao.getIncludingDeleted("ep-1")?.updatedAt)
     }
 
     @Test

@@ -487,7 +487,7 @@ class AppGraph(context: Context) {
                 }.toSet()
             },
             verify = { candidatos, vistos -> verificacion.verify(candidatos, vistos) },
-            save = { database.recomendacionDao().reemplazar(it, System.currentTimeMillis()) },
+            save = { database.recomendacionDao().replace(it, System.currentTimeMillis()) },
             readMarks = { settings.paraTiUltimoIntentoMs to settings.paraTiUltimoFueFalloDelModelo },
             writeMarks = { t, f -> settings.marcarIntentoDeParaTi(t, f) },
         )

@@ -30,21 +30,21 @@ class FrameDestroyer(
      * `FrameStore.delete` (uses `File.delete()`, doesn't throw if there's no file) was always
      * safe to call redundantly, and still runs on every call. The ROW is not: writing the tombstone
      * on every call would stamp `updatedAt` with the local clock on every tick, and this row lives
-     * in `episode_frame`, the table that triggers [EpisodeFrameDao.observeTodos] -the only Flow
+     * in `episode_frame`, the table that triggers [EpisodeFrameDao.observeAll] -the only Flow
      * that notices a new frame for "Continue watching" (see its own KDoc)-, so rewriting it every
      * ~5 sustained seconds for the rest of the chapter would needlessly invalidate that home row --
      * none of this is an edge case, it's the most common path (see below). (Until Task 5 this would
      * also have re-queued the row for the push to PocketBase; that push -and PocketBase itself-
      * were removed entirely in that pruning, so it no longer applies, but the reason not to
      * over-write still stands because of the Flow invalidation.) That's why the row is read first
-     * ([EpisodeFrameDao.getIncluyendoBorradas], which also sees tombstones), and if it's ALREADY a
+     * ([EpisodeFrameDao.getIncludingDeleted], which also sees tombstones), and if it's ALREADY a
      * tombstone (`deleted == 1`) it's left alone: the seal (`upsert` with a fresh `updatedAt`)
      * happens exactly ONCE, the one that makes the live-to-deleted transition.
      *
      * The file really is deleted, but the ROW doesn't disappear: a tombstone is left (`deleted = 1`,
      * fresh `updatedAt`) instead of a `DELETE` -until Task 5 that was so the deletion would travel
      * through sync; without cloud sync there's nobody left to tell, but the tombstone is kept
-     * anyway because it's still the signal [EpisodeFrameDao.getIncluyendoBorradas] uses to avoid
+     * anyway because it's still the signal [EpisodeFrameDao.getIncludingDeleted] uses to avoid
      * over-writing (see above)-. `positionMs`/`capturedAt` stay at 0 and `remoteUrl` at null on
      * purpose: once the frame is deleted those fields mean nothing (nobody reads them off a row
      * with `deleted = 1`), and keeping the previous values would require reading the row before
@@ -55,7 +55,7 @@ class FrameDestroyer(
         // orphaned JPEG left over (e.g. a capture that ran right before the tombstone arrived via
         // sync from another device).
         store?.delete(episodeId)
-        val current = dao.getIncluyendoBorradas(episodeId)
+        val current = dao.getIncludingDeleted(episodeId)
         if (current?.deleted == 1) return // already sealed: don't rewrite updatedAt again
         dao.upsert(
             EpisodeFrameEntity(
@@ -77,7 +77,7 @@ class FrameDestroyer(
      * documents the only physical deletion -without a tombstone- that exists in this class, in case
      * a full wipe is ever needed again.
      *
-     * Unlike [destroy], this one IS a physical `DELETE` (`dao.borrarTodo`) and does NOT leave
+     * Unlike [destroy], this one IS a physical `DELETE` (`dao.deleteAll`) and does NOT leave
      * tombstones: without cloud sync on this branch (see the class's own KDoc) there's nobody left
      * to notify of the deletion, so there's no need to leave a trace.
      *
@@ -86,6 +86,6 @@ class FrameDestroyer(
      */
     suspend fun destroyAll() {
         store?.deleteAll()
-        dao.borrarTodo()
+        dao.deleteAll()
     }
 }

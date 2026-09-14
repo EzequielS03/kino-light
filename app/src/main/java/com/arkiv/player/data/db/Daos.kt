@@ -114,7 +114,7 @@ data class UltimaReproduccionRow(
 data class LibraryRow(
     val identifier: String,
     val title: String,
-    /** Sinopsis del ítem; null en los que se agregaron sin metadata (web, magnet suelto). */
+    /** The item's synopsis; null on the ones added with no metadata (web, standalone magnet). */
     val description: String?,
     val thumbnailUrl: String,
     val episodeCount: Int,
@@ -122,30 +122,29 @@ data class LibraryRow(
     val addedAt: Long,
     val categoryOverride: String?,
     val source: String,
-    /** Cuántos episodios se le mostraron al usuario la última vez. Null = nunca. Ver `NewEpisodeCounter`. */
+    /** How many episodes were shown to the user last time. Null = never. See `NewEpisodeCounter`. */
     val episodiosVistosEnLista: Int? = null,
     /**
      * The work this item IS, according to TMDB. Filled in when it's added from search, or by
      * [com.arkiv.player.data.gateway.repararIdentidadDeMagis]'s title canonization for Magis items
      * that came in without it (0 is treated the same as absent).
      *
-     * Existe acá porque es la llave que le falta a la biblioteca para agrupar: un capítulo suelto
-     * guardado con el título del capítulo ("T1 - E7: Construido por los hombres") no le pega a
-     * ninguna búsqueda de TMDB, así que `artwork` nunca le resuelve nada. Ver [LibraryGrouping].
+     * Exists here because it's the key the library is missing to group by: a standalone chapter
+     * saved with the chapter's own title ("T1 - E7: Construido por los hombres") doesn't match
+     * any TMDB search, so `artwork` never resolves anything for it. See [LibraryGrouping].
      */
     val tmdbId: Int? = null,
     /**
-     * "tv" o "movie" según la obra que este ítem ES, verificado por el gateway contra TMDB.
-     * Vacío cuando nadie lo sabe: mejor un hueco que un tipo inventado.
+     * "tv" or "movie" per the work this item IS, verified by the gateway against TMDB. Empty when
+     * nobody knows: better a gap than a made-up type.
      *
-     * NO es [isMovie] ni lo reemplaza: `isMovie` sigue decidiendo qué pasa al tocar la tarjeta
-     * (una película reproduce directo, una serie abre la lista). Esto solo le dice a
-     * [LibraryGrouping] si el `tmdbId` es de una serie, porque agrupar por el id de una película
-     * junta obras distintas.
+     * NOT [isMovie] and doesn't replace it: `isMovie` still decides what happens on tapping the
+     * card (a movie plays directly, a series opens the list). This only tells [LibraryGrouping]
+     * whether the `tmdbId` is a series', because grouping by a movie's id merges different works.
      */
     val tipo: String? = null,
 ) {
-    /** Override manual si existe; si no, detección automática (1 video = película). */
+    /** Manual override if it exists; otherwise automatic detection (1 video = movie). */
     val isMovie: Boolean get() = when (categoryOverride) {
         "movie" -> true
         "series" -> false
@@ -153,7 +152,7 @@ data class LibraryRow(
     }
 }
 
-/** Una reproducción con su capítulo y su ítem, para el historial de "Para ti". Solo lectura. */
+/** A playback with its chapter and its item, for the "Para ti" history. Read-only. */
 data class FilaDeHistorial(
     val episodeId: String,
     val positionMs: Long,
@@ -420,7 +419,7 @@ interface PlaybackDao {
     suspend fun recentHistory(limit: Int): List<FilaDeHistorial>
 }
 
-/** Descarga combinada con datos del episodio para mostrar en pantalla. */
+/** A download combined with the episode's data, to show on screen. */
 data class DownloadRow(
     val episodeId: String,
     val itemId: String,
@@ -568,10 +567,10 @@ interface DownloadDao {
     suspend fun updateState(episodeId: String, state: String, error: String?)
 
     /**
-     * Progreso SIN tocar `state`. Antes esta consulta también escribía el estado, y como el callback
-     * de progreso llega varias veces por segundo, la fase de staging (web) nunca podía quedarse en
-     * `staging`: el primer tick la devolvía a `downloading`. El estado lo maneja quien conoce la fase
-     * (el worker y la estrategia), no el contador de bytes.
+     * Progress WITHOUT touching `state`. This query used to also write the state, and since the
+     * progress callback arrives several times a second, the (web) staging phase could never stay
+     * `staging`: the first tick returned it to `downloading`. The state is handled by whoever
+     * knows the phase (the worker and the strategy), not the byte counter.
      */
     @Query(
         "UPDATE downloads SET progress = :progress, bytesDone = :bytesDone, bytes = :bytes " +
@@ -579,23 +578,23 @@ interface DownloadDao {
     )
     suspend fun updateProgress(episodeId: String, progress: Float, bytesDone: Long, bytes: Long)
 
-    /** Motivo del último tropiezo sin cambiar el estado (fila que va a reintentarse sola). */
+    /** Reason for the last stumble without changing the state (a row that's going to retry on its own). */
     @Query("UPDATE downloads SET error = :error WHERE episodeId = :episodeId")
     suspend fun setError(episodeId: String, error: String?)
 
     /**
-     * Corrige la `source` (o sea la estrategia) de una fila ya guardada. Hace falta para las filas
-     * que se encolaron con la estrategia equivocada: "Reintentar" conserva la fila tal cual, así que
-     * sin esto volverían a fallar igual para siempre. Ver `FuenteDeDescarga`.
+     * Fixes an already-saved row's `source` (i.e. its strategy). Needed for rows that got queued
+     * with the wrong strategy: "Reintentar" keeps the row as-is, so without this they'd keep
+     * failing the same way forever. See `DownloadSource`.
      */
     @Query("UPDATE downloads SET source = :source WHERE episodeId = :episodeId")
     suspend fun updateSource(episodeId: String, source: String)
 
     /**
-     * Escribe la ruta DESNUDA en `filePath` (no un `file://` en `localUri`): `localUri` es el formato
-     * histórico que dejaba el `DownloadManager` del sistema y queda solo para las filas viejas. Quien
-     * resuelve "¿dónde está el archivo?" para las dos columnas —y verifica que exista— es
-     * `LocalLibrary.fileFor`, que es el ÚNICO lector de esto.
+     * Writes the BARE path to `filePath` (not a `file://` in `localUri`): `localUri` is the
+     * historical format the system's `DownloadManager` used to leave and stays only for old rows.
+     * Whoever resolves "where's the file?" for the two columns —and checks that it exists— is
+     * `LocalLibrary.fileFor`, the ONLY reader of this.
      */
     @Query(
         "UPDATE downloads SET state = 'completed', progress = 1.0, filePath = :filePath, error = NULL " +
@@ -610,11 +609,11 @@ interface DownloadDao {
     suspend fun delete(episodeId: String)
 
     /**
-     * Origen de todo lo que YA está descargado en el dispositivo, para no bajar dos veces el mismo
-     * capítulo cuando la serie quedó guardada bajo dos ítems distintos (ver
-     * [com.arkiv.player.data.local.DuplicateDownloadPolicy], que es quien decide). El
-     * `torrentFileIndex` sale de `episodes` porque el episodeId solo lleva el infohash, no el
-     * archivo elegido dentro del torrent.
+     * Origin of everything ALREADY downloaded on the device, so as not to download the same
+     * chapter twice when the series ended up saved under two different items (see
+     * [com.arkiv.player.data.local.DuplicateDownloadPolicy], which is the one that decides). The
+     * `torrentFileIndex` comes from `episodes` because the episodeId only carries the infohash,
+     * not the file chosen within the torrent.
      */
     @Query(
         """
@@ -627,14 +626,15 @@ interface DownloadDao {
     suspend fun completedOrigins(): List<com.arkiv.player.data.local.EpisodeOrigin>
 
     /**
-     * Archivos que siguen referenciados por OTRAS filas. Pasa cuando el worker adopta el archivo de
-     * un gemelo en vez de re-descargarlo: borrar ese archivo al quitar cualquiera de las dos filas
-     * dejaría a la otra diciendo "Listo" sobre algo que ya no está (ver
+     * Files still referenced by OTHER rows. Happens when the worker adopts a twin's file instead
+     * of re-downloading it: deleting that file when removing either of the two rows would leave
+     * the other saying "Listo" over something that's no longer there (see
      * `DuplicateDownloadPolicy.deletablePaths`).
      *
-     * Mira solo `filePath` y no el `localUri` histórico: quien adopta un archivo siempre pasa por
-     * `markCompleted`, que escribe `filePath`. Un `localUri` solo puede ser el lado ADOPTADO, y ese
-     * lado ya queda protegido porque el adoptante copió esa misma ruta a su `filePath`.
+     * Only looks at `filePath` and not the historical `localUri`: whoever adopts a file always
+     * goes through `markCompleted`, which writes `filePath`. A `localUri` can only be the ADOPTED
+     * side, and that side is already protected because the adopter copied that same path to its
+     * `filePath`.
      */
     @Query("SELECT filePath FROM downloads WHERE filePath IS NOT NULL AND episodeId != :exceptEpisodeId")
     suspend fun filePathsReferencedByOthers(exceptEpisodeId: String): List<String>
@@ -715,7 +715,7 @@ interface RecentTitleDao {
     @Query("DELETE FROM recent_titles")
     suspend fun clear()
 
-    /** Borra lo que pase del tope. Cada fila arrastra una URL de póster: conviene podar. */
+    /** Deletes whatever's past the cap. Each row drags along a poster URL: worth pruning. */
     @Query("DELETE FROM recent_titles WHERE id NOT IN (SELECT id FROM recent_titles ORDER BY atMs DESC LIMIT :keep)")
     suspend fun trim(keep: Int)
 }
@@ -737,12 +737,12 @@ interface EpisodeFrameDao {
      * "there's no frame".
      */
     @Query("SELECT * FROM episode_frame WHERE episodeId = :episodeId")
-    suspend fun getIncluyendoBorradas(episodeId: String): EpisodeFrameEntity?
+    suspend fun getIncludingDeleted(episodeId: String): EpisodeFrameEntity?
 
     /**
-     * Filas (sin borrar) de los capítulos de un ítem, para el detalle de una serie. Misma forma
-     * que [EpisodeStillDao.observeForItem]: el repositorio la usa solo como DISPARADOR del Flow
-     * (ver `ArkivRepository.observeEpisodeFrames`), no como fuente de la ruta.
+     * Rows (not deleted) of an item's chapters, for a series' detail. Same shape as
+     * [EpisodeStillDao.observeForItem]: the repository only uses it as the Flow's TRIGGER (see
+     * `ArkivRepository.observeEpisodeFrames`), not as the path's source.
      */
     @Query("SELECT * FROM episode_frame WHERE deleted = 0 AND episodeId IN (SELECT id FROM episodes WHERE itemId = :itemId)")
     fun observeForItem(itemId: String): Flow<List<EpisodeFrameEntity>>
@@ -761,26 +761,26 @@ interface EpisodeFrameDao {
      * same shape as [observeForItem] and doesn't hide the real cost.
      */
     @Query("SELECT * FROM episode_frame WHERE deleted = 0")
-    fun observeTodos(): Flow<List<EpisodeFrameEntity>>
+    fun observeAll(): Flow<List<EpisodeFrameEntity>>
 
     /**
-     * Se lleva TODAS las filas de una sola vez, para el wipe de logout: ahí no hay una lista de
-     * capítulos que recorrer (los `items`/`episodes` se borran en el mismo barrido) y borrar de a
-     * uno exigiría leer antes lo que se va a borrar.
+     * Takes ALL rows in one go, for the logout wipe: there's no chapter list to walk there (the
+     * `items`/`episodes` get deleted in the same sweep) and deleting one by one would require
+     * reading first what's about to be deleted.
      */
     @Query("DELETE FROM episode_frame")
-    suspend fun borrarTodo()
+    suspend fun deleteAll()
 }
 
 /**
- * Única fuente de verdad de la consulta "vigentes" de [RecomendacionDao.observeVigentes]: la usa el
- * `@Query` real de abajo Y `RecomendacionQueryTest` (que la corre contra SQLite de verdad por JDBC,
- * ver su KDoc). Un `@Query` de Room solo acepta constantes de compilación, así que un `const val`
- * es lo mínimo que permite que las dos partes lean el MISMO string en vez de mantener dos copias a
- * mano que se puedan desincronizar en silencio -- que es exactamente lo que pasaba antes: el test
- * tenía su propia copia del SQL, y quitar el `WHERE deleted = 0` de acá no lo hacía fallar.
+ * Single source of truth of [RecomendacionDao.observeActive]'s "active" query: it's used by the
+ * real `@Query` below AND by `RecomendacionQueryTest` (which runs it against real SQLite over
+ * JDBC, see its KDoc). A Room `@Query` only accepts compile-time constants, so a `const val` is
+ * the minimum that lets both parts read the SAME string instead of keeping two hand-maintained
+ * copies that can silently drift apart -- which is exactly what used to happen: the test had its
+ * own copy of the SQL, and removing the `WHERE deleted = 0` here didn't make it fail.
  */
-internal const val QUERY_RECOMENDACIONES_VIGENTES =
+internal const val QUERY_ACTIVE_RECOMENDACIONES =
     "SELECT * FROM recomendaciones WHERE deleted = 0 ORDER BY orden ASC"
 
 @Dao
@@ -789,30 +789,31 @@ interface RecomendacionDao {
     suspend fun upsert(r: RecomendacionEntity)
 
     /**
-     * Por `id` (la clave local, ver [RecomendacionEntity]). Sin filtro de `deleted`: la consulta
-     * también devuelve lo que [reemplazar] ya retiró con tombstone.
+     * By `id` (the local key, see [RecomendacionEntity]). No `deleted` filter: the query also
+     * returns what [replace] already retired with a tombstone.
      */
     @Query("SELECT * FROM recomendaciones WHERE id = :id")
     suspend fun get(id: String): RecomendacionEntity?
 
     /**
-     * Las recomendaciones vigentes, en el orden que armó
-     * [com.arkiv.player.data.recomendaciones.ForYouGenerator], sin lo que ya se marcó como
-     * tombstone. Es la fuente de la fila "Para ti" del inicio.
+     * The active recommendations, in the order
+     * [com.arkiv.player.data.recomendaciones.ForYouGenerator] built, without what's already
+     * marked as a tombstone. It's the source of the home's "Para ti" row.
      */
-    @Query(QUERY_RECOMENDACIONES_VIGENTES)
-    fun observeVigentes(): Flow<List<RecomendacionEntity>>
+    @Query(QUERY_ACTIVE_RECOMENDACIONES)
+    fun observeActive(): Flow<List<RecomendacionEntity>>
 
-    @Query("UPDATE recomendaciones SET deleted = 1, updatedAt = :ahora WHERE deleted = 0")
-    suspend fun retirarVigentes(ahora: Long)
+    @Query("UPDATE recomendaciones SET deleted = 1, updatedAt = :now WHERE deleted = 0")
+    suspend fun retireActive(now: Long)
 
     /**
-     * Cambia la fila entera de una vez: nunca queda a medias entre la tanda vieja y la nueva. Se
-     * retiran con tombstone y no se borran, igual que el resto de las tablas con `deleted`.
+     * Changes the whole row set in one go: it's never left halfway between the old batch and the
+     * new one. They're retired with a tombstone and not deleted, same as the rest of the tables
+     * with `deleted`.
      */
     @Transaction
-    suspend fun reemplazar(nuevas: List<RecomendacionEntity>, ahora: Long) {
-        retirarVigentes(ahora)
-        nuevas.forEach { upsert(it) }
+    suspend fun replace(new: List<RecomendacionEntity>, now: Long) {
+        retireActive(now)
+        new.forEach { upsert(it) }
     }
 }

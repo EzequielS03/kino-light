@@ -19,13 +19,13 @@ class FakeEpisodeFrameDao : EpisodeFrameDao {
     override suspend fun get(episodeId: String): EpisodeFrameEntity? =
         rows[episodeId]?.takeIf { it.deleted == 0 }
 
-    override suspend fun getIncluyendoBorradas(episodeId: String): EpisodeFrameEntity? = rows[episodeId]
+    override suspend fun getIncludingDeleted(episodeId: String): EpisodeFrameEntity? = rows[episodeId]
 
     override fun observeForItem(itemId: String) = MutableStateFlow(emptyList<EpisodeFrameEntity>())
 
-    override fun observeTodos() = MutableStateFlow(emptyList<EpisodeFrameEntity>())
+    override fun observeAll() = MutableStateFlow(emptyList<EpisodeFrameEntity>())
 
-    override suspend fun borrarTodo() {
+    override suspend fun deleteAll() {
         rows.clear()
     }
 }

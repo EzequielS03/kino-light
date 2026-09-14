@@ -276,7 +276,7 @@ fun TvHomeScreen(
     // playing -- no server of its own involved.
     val recomendacionDao = remember { graph.database.recomendacionDao() }
     val agregador = remember { graph.agregadorDeRecomendaciones }
-    val recomendaciones by recomendacionDao.observeVigentes().collectAsStateWithLifecycle(initialValue = emptyList())
+    val recomendaciones by recomendacionDao.observeActive().collectAsStateWithLifecycle(initialValue = emptyList())
 
     // Canales en vivo recientes -- mismo criterio que el home del celular (ver su KDoc en
     // HomeScreen.kt): se lee directo de Room, sin levantar LiveViewModel (que habla con el
