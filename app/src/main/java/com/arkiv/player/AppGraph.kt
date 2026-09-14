@@ -70,7 +70,7 @@ class AppGraph(context: Context) {
                 val caps = active?.let { cm.getNetworkCapabilities(it) }
                 _hasInternet.value = caps?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
                 cm.registerDefaultNetworkCallback(cb)
-            }.onFailure { android.util.Log.w("ArkivRed", "networkMonitor: ${it.message}") }
+            }.onFailure { android.util.Log.w("ArkivNetwork", "networkMonitor: ${it.message}") }
         }
     }
 

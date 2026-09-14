@@ -135,5 +135,5 @@ internal class ForYouGenerator(
         }
     }
 
-    private companion object { const val TAG = "ArkivParaTi" }
+    private companion object { const val TAG = "ArkivForYou" }
 }

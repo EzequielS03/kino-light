@@ -51,7 +51,7 @@ class ArkivApp : Application(), ImageLoaderFactory {
                 if (!graph.settings.recentsPurged) {
                     graph.database.liveRecentDao().deleteAll()
                     graph.settings.setRecentsPurged(true)
-                    android.util.Log.w("ArkivCuenta", "recent items purged (adult channel leak)")
+                    android.util.Log.w("ArkivAccount", "recent items purged (adult channel leak)")
                 }
             }.onFailure { report(it, "startup: purge recents") }
         }
@@ -100,7 +100,7 @@ class ArkivApp : Application(), ImageLoaderFactory {
      * Reporting doesn't change the isolation, it just leaves a record.
      */
     private fun report(error: Throwable, label: String) {
-        android.util.Log.w("ArkivArranque", "$label: ${error.message}", error)
+        android.util.Log.w("ArkivStartup", "$label: ${error.message}", error)
         com.arkiv.player.crash.Crash.report(error, label)
     }
 

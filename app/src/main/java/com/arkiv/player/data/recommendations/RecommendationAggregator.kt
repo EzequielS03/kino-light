@@ -147,6 +147,6 @@ class RecommendationAggregator(
     }
 
     private companion object {
-        const val TAG = "ArkivRecom"
+        const val TAG = "ArkivRecs"
     }
 }

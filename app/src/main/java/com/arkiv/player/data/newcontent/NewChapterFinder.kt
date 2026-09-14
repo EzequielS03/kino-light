@@ -184,6 +184,6 @@ class NewChapterFinder(
         .takeIf { it.isNotBlank() && itemId.startsWith("magis:") }
 
     private companion object {
-        const val TAG = "ArkivNuevos"
+        const val TAG = "ArkivNewContent"
     }
 }

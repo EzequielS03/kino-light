@@ -53,9 +53,9 @@ class NetworkWatchdog(
         runCatching {
             val cm = context.getSystemService(ConnectivityManager::class.java) ?: return
             cm.registerDefaultNetworkCallback(callback)
-            android.util.Log.w("ArkivRed", "network watchdog active")
+            android.util.Log.w("ArkivNetwork", "network watchdog active")
         }.onFailure {
-            android.util.Log.w("ArkivRed", "couldn't watch the network: ${it.message}")
+            android.util.Log.w("ArkivNetwork", "couldn't watch the network: ${it.message}")
         }
     }
 
