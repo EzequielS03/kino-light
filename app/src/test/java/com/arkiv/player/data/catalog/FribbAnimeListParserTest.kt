@@ -7,8 +7,8 @@ import org.junit.Test
 
 class FribbAnimeListParserTest {
 
-    // Formas reales del dataset: imdb_id como array, themoviedb_id como objeto {tv:..},
-    // season/episode_offset como objeto {tvdb:..}. Algunas entradas no traen season/offset.
+    // Real dataset shapes: imdb_id as an array, themoviedb_id as an object {tv:..},
+    // season/episode_offset as an object {tvdb:..}. Some entries don't carry season/offset.
     private val json = """
         [
           {"anilist_id":21,"mal_id":21,"tvdb_id":81797,"imdb_id":["tt0388629"],
@@ -21,24 +21,24 @@ class FribbAnimeListParserTest {
     """.trimIndent()
 
     @Test
-    fun `indexa por anilist_id y omite entradas sin anilist`() {
+    fun `indexes by anilist_id and skips entries with no anilist`() {
         val map = FribbAnimeListParser.parse(json)
-        assertEquals(3, map.size)          // la 4ª no tiene anilist_id
+        assertEquals(3, map.size)          // the 4th one has no anilist_id
         assertNull(map[999L])
     }
 
     @Test
-    fun `parsea cross-ids con imdb array y tmdb objeto tv`() {
+    fun `parses cross-ids with an imdb array and a tmdb tv object`() {
         val m = FribbAnimeListParser.parse(json)[21L]!!
         assertEquals(81797L, m.tvdbId)
         assertEquals("tt0388629", m.imdbId)
         assertEquals(37854, m.tmdbId)
         assertEquals(38636L, m.simklId)
-        assertNull(m.tvdbSeason)           // sin season
+        assertNull(m.tvdbSeason)           // no season
     }
 
     @Test
-    fun `parsea season tvdb y offset cuando existen`() {
+    fun `parses tvdb season and offset when present`() {
         val aot = FribbAnimeListParser.parse(json)[110277L]!!
         assertEquals(4, aot.tvdbSeason)
         assertNull(aot.episodeOffset)
@@ -48,7 +48,7 @@ class FribbAnimeListParserTest {
     }
 
     @Test
-    fun `json invalido devuelve mapa vacio`() {
-        assertTrue(FribbAnimeListParser.parse("no soy json").isEmpty())
+    fun `invalid json returns an empty map`() {
+        assertTrue(FribbAnimeListParser.parse("not json").isEmpty())
     }
 }

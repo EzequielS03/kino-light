@@ -9,7 +9,7 @@ class MagisRefTest {
 
     /** A REAL gateway ref (`base64url(json).hmac`), with an already-expired `exp` and signed with
      *  a key the app doesn't have: it's exactly what's saved in today's databases. */
-    private val refViejo =
+    private val oldRef =
         "eyJzIjoibWFnaXMiLCJwIjp7ImNvbnRlbnRfaWQiOiIxNDcwOTc0IiwicHJvZ3JhbV90eXBlIjoidGVsZXBsYXki" +
             "LCJlcGlzb2RlIjozfSwiZXhwIjoxNzU3MDAwMDAwfQ.lkewA6xe7e098nDA5WYNWA"
 
@@ -29,7 +29,7 @@ class MagisRefTest {
 
     @Test
     fun `an old gateway ref is understood even if expired and signed with another key`() {
-        val ref = MagisRef.decode(refViejo)!!
+        val ref = MagisRef.decode(oldRef)!!
 
         assertEquals("1470974", ref.contentId)
         assertEquals("teleplay", ref.programType)
@@ -39,9 +39,9 @@ class MagisRefTest {
 
     @Test
     fun `an old ref from another source isn't Magis's`() {
-        val deWeb = "eyJzIjoid2ViIiwicCI6eyJ1cmwiOiJ4In0sImV4cCI6MTc1NzAwMDAwMH0.hAsrHhTwBhEMO5hw9hZ_bA"
+        val fromWeb = "eyJzIjoid2ViIiwicCI6eyJ1cmwiOiJ4In0sImV4cCI6MTc1NzAwMDAwMH0.hAsrHhTwBhEMO5hw9hZ_bA"
 
-        assertNull(MagisRef.decode(deWeb))
+        assertNull(MagisRef.decode(fromWeb))
     }
 
     @Test

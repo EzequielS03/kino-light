@@ -21,18 +21,18 @@ import org.junit.Test
  */
 class TmdbSeasonEpisodesParseTest {
 
-    @Test fun sin_respuesta_devuelve_null_para_que_se_reintente() {
+    @Test fun `with no response it returns null so it gets retried`() {
         // `get()` returns null on timeout as much as on 429 or 5xx: all of them are "couldn't ask".
         assertNull(parseSeasonEpisodes(json = null, seasonNumber = 1))
     }
 
-    @Test fun una_respuesta_ilegible_tambien_cuenta_como_fallo() {
+    @Test fun `an unreadable response also counts as a failure`() {
         // A body that isn't JSON (a gateway error, a wifi's captive portal) isn't a real TMDB
         // response: better to retry than to seal the series to null.
         assertNull(parseSeasonEpisodes(json = "<html>502 Bad Gateway</html>", seasonNumber = 1))
     }
 
-    @Test fun una_temporada_sin_capitulos_devuelve_lista_vacia_no_null() {
+    @Test fun `a season with no chapters returns an empty list, not null`() {
         // This IS a response: the row gets written empty as a mark of "already asked". If null
         // came out here, it would re-ask on every detail-open, forever.
         assertEquals(emptyList<TmdbEpisode>(), parseSeasonEpisodes("""{"episodes":[]}""", 1))
@@ -40,7 +40,7 @@ class TmdbSeasonEpisodesParseTest {
         assertEquals(emptyList<TmdbEpisode>(), parseSeasonEpisodes("""{"id":1234}""", 1))
     }
 
-    @Test fun una_temporada_con_capitulos_se_parsea_completa() {
+    @Test fun `a season with chapters parses in full`() {
         val eps = parseSeasonEpisodes(
             """
             {"episodes":[
@@ -60,7 +60,7 @@ class TmdbSeasonEpisodesParseTest {
         assertEquals("https://image.tmdb.org/t/p/w300/abc.jpg", eps[0].stillUrl)
     }
 
-    @Test fun sin_still_la_url_queda_vacia_no_a_medio_armar() {
+    @Test fun `with no still, the URL stays empty instead of half-built`() {
         // A blank `stillUrl` is what `ensureEpisodeStills` reads as "TMDB has no image"; a
         // half-built URL would get saved as if there were one and leave the gap showing in the UI.
         val eps = parseSeasonEpisodes("""{"episodes":[{"episode_number":2}]}""", 3)

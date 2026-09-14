@@ -195,7 +195,7 @@ class MagisSourceTest {
         val events = magisSource(fake).search(GatewaySearchQuery(q = "Dune")).toList()
 
         val error = events.filterIsInstance<SearchEvent.SourceError>().single()
-        assertTrue("el mensaje debe decir el codigo: ${error.error}", error.error.contains("aaa1"))
+        assertTrue("the message should say the code: ${error.error}", error.error.contains("aaa1"))
         assertTrue(events.last() is SearchEvent.Done)
     }
 

@@ -50,7 +50,7 @@ class FirstFrameWaitTest {
     @Test
     fun `a previous frame wins, even if there is no video output right now`() {
         // Losing the output AFTER already having a frame is the other case, and it's covered by
-        // `esperandoVideo` in PlayerScreen (coming back from the background). This one stays out of it.
+        // `waitingForVideo` in PlayerScreen (coming back from the background). This one stays out of it.
         assertFalse(
             FirstFrameWait.shouldWait(
                 loadedMsAgo = 2_000, hadFrame = true,

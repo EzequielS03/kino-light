@@ -7,19 +7,19 @@ import org.junit.Test
 
 class LiveGuideListTest {
     private val progs = listOf(
-        LiveProgram("Anterior", 100, 200, ""),
-        LiveProgram("Ahora", 200, 300, ""),
-        LiveProgram("Después", 300, 400, ""),
+        LiveProgram("Previous", 100, 200, ""),
+        LiveProgram("Now", 200, 300, ""),
+        LiveProgram("Next", 300, 400, ""),
     )
 
     @Test
     fun `the current program is the one containing the instant`() {
-        assertEquals("Ahora", currentProgram(progs, 250)?.title)
+        assertEquals("Now", currentProgram(progs, 250)?.title)
     }
 
     @Test
     fun `the end boundary already belongs to the next one`() {
-        assertEquals("Después", currentProgram(progs, 300)?.title)
+        assertEquals("Next", currentProgram(progs, 300)?.title)
     }
 
     @Test

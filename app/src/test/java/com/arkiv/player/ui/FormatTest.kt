@@ -4,85 +4,85 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class PlainSynopsisTest {
-    @Test fun `quita tags html de anilist`() {
+    @Test fun `strips anilist's html tags`() {
         assertEquals(
             "Un profesor de química. Nota: spoiler",
             plainSynopsis("Un profesor de química.<br><br><i>Nota:</i> spoiler"),
         )
     }
 
-    @Test fun `decodifica entidades basicas`() {
+    @Test fun `decodes basic entities`() {
         assertEquals(
             "Tom & Jerry \"el mejor\" y algo más",
             plainSynopsis("Tom &amp; Jerry &quot;el mejor&quot;&nbsp;y algo más"),
         )
     }
 
-    @Test fun `no decodifica dos veces una entidad escapada`() {
+    @Test fun `doesn't decode an escaped entity twice`() {
         // "&amp;lt;" is a literal "&lt;" written on purpose: it must stay "&lt;", not become "<".
         assertEquals("&lt;b&gt;", plainSynopsis("&amp;lt;b&amp;gt;"))
     }
 
-    @Test fun `colapsa saltos de linea y espacios multiples`() {
+    @Test fun `collapses line breaks and multiple spaces`() {
         assertEquals("Una línea y otra", plainSynopsis("Una línea\n\n   y    otra"))
     }
 
-    @Test fun `solo markup queda vacio`() {
+    @Test fun `markup-only ends up empty`() {
         assertEquals("", plainSynopsis("<p></p><br>"))
     }
 
-    @Test fun `null y blanco quedan vacios`() {
+    @Test fun `null and blank end up empty`() {
         assertEquals("", plainSynopsis(null))
         assertEquals("", plainSynopsis("   "))
     }
 
-    @Test fun `texto ya limpio es idempotente`() {
-        val limpio = "Un profesor de química con cáncer terminal."
-        assertEquals(limpio, plainSynopsis(limpio))
-        assertEquals(limpio, plainSynopsis(plainSynopsis(limpio)))
+    @Test fun `already-clean text is idempotent`() {
+        val clean = "Un profesor de química con cáncer terminal."
+        assertEquals(clean, plainSynopsis(clean))
+        assertEquals(clean, plainSynopsis(plainSynopsis(clean)))
     }
 }
 
 class HeroFallbackTest {
-    @Test fun `serie con nombre de capitulo pierde el titulo`() {
+    @Test fun `a series with a chapter name drops the title`() {
         assertEquals(
             "S01E03 · Glorious Purpose",
             heroFallback("Loki", "Loki · S01E03 · Glorious Purpose"),
         )
     }
 
-    @Test fun `serie sin nombre de capitulo`() {
+    @Test fun `a series with no chapter name`() {
         assertEquals("S01E03", heroFallback("Loki", "Loki · S01E03"))
     }
 
-    @Test fun `pelicula con el titulo repetido queda vacia`() {
+    @Test fun `a movie with the title repeated ends up empty`() {
         assertEquals("", heroFallback("Dune", "Dune"))
     }
 
-    @Test fun `la comparacion ignora mayusculas`() {
+    @Test fun `the comparison ignores case`() {
         assertEquals("", heroFallback("Dune", "dune"))
         assertEquals("S01E03", heroFallback("Loki", "loki · S01E03"))
     }
 
-    @Test fun `si el titulo cambio despues el displayName queda intacto`() {
+    @Test fun `if the title changed afterward the displayName stays intact`() {
         // The label was formatted with a different showTitle: there's no prefix to strip.
         assertEquals("Loki · S01E03", heroFallback("Loki 2021", "Loki · S01E03"))
     }
 
-    @Test fun `tolera espacios de borde en el titulo`() {
+    @Test fun `tolerates edge spaces in the title`() {
         assertEquals("S01E03", heroFallback("  Loki  ", "Loki · S01E03"))
     }
 }
 
 class HeroSubtitleTest {
-    @Test fun `una sinopsis de verdad se usa tal cual`() {
+    @Test fun `a real synopsis is used as-is`() {
         assertEquals(
             "Un profesor de química con cáncer terminal.",
             heroSubtitle("Breaking Bad", "Un profesor de química con cáncer terminal.", "5 episodios"),
         )
     }
 
-    @Test fun `la descripcion que es el titulo repetido cae al respaldo`() {
+    @Test fun `a description that's the title repeated falls back`() {
         // Real archive.org case: whoever uploads the file puts the title as the description.
         assertEquals(
             "1 h 36 min",
@@ -90,22 +90,22 @@ class HeroSubtitleTest {
         )
     }
 
-    @Test fun `sin descripcion cae al respaldo`() {
+    @Test fun `with no description it falls back`() {
         assertEquals("12 episodios", heroSubtitle("Loki", null, "12 episodios"))
         assertEquals("12 episodios", heroSubtitle("Loki", "   ", "12 episodios"))
     }
 
-    @Test fun `descripcion que solo era markup cae al respaldo`() {
+    @Test fun `a description that was only markup falls back`() {
         assertEquals("12 episodios", heroSubtitle("Loki", "<p></p>", "12 episodios"))
     }
 
-    @Test fun `una sinopsis que empieza con el titulo no se descarta`() {
+    @Test fun `a synopsis that starts with the title isn't discarded`() {
         // Starts with the name but keeps going: it's a legitimate synopsis, not a duplication.
-        val sinopsis = "Avatar Aang, el último Maestro Aire del mundo, se entera de un antiguo poder."
-        assertEquals(sinopsis, heroSubtitle("Avatar: Aang", sinopsis, "20 episodios"))
+        val synopsis = "Avatar Aang, el último Maestro Aire del mundo, se entera de un antiguo poder."
+        assertEquals(synopsis, heroSubtitle("Avatar: Aang", synopsis, "20 episodios"))
     }
 
-    @Test fun `limpia el html antes de comparar con el titulo`() {
+    @Test fun `cleans the html before comparing against the title`() {
         assertEquals("1 h 36 min", heroSubtitle("Dune", "<p>Dune</p>", "1 h 36 min"))
     }
 }

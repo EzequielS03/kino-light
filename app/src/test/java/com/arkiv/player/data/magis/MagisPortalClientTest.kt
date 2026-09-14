@@ -100,7 +100,7 @@ class MagisPortalClientTest {
 
         val r = client.call("v8/active", emptyMap(), baseFields = false)
 
-        assertTrue("esperaba Ok y fue $r", r is MagisResult.Ok<*>)
+        assertTrue("expected Ok but was $r", r is MagisResult.Ok<*>)
         assertEquals(1, server.requestCount)
     }
 
@@ -114,6 +114,6 @@ class MagisPortalClientTest {
 
         val r = client.call("v8/active", emptyMap(), baseFields = false)
 
-        assertTrue("esperaba RedError y fue $r", r is MagisResult.RedError)
+        assertTrue("expected RedError but was $r", r is MagisResult.RedError)
     }
 }

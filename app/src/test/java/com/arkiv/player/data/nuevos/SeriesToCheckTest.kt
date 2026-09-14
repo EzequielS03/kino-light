@@ -50,7 +50,7 @@ class SeriesToCheckTest {
 
     @Test fun `a movie never qualifies`() {
         // A single episode = movie. There's no "new chapter" to look for.
-        val chosen = SeriesToCheck.choose(listOf(series("peli", episodeCount = 1, watchedAgo = DAY)), NOW)
+        val chosen = SeriesToCheck.choose(listOf(series("movie", episodeCount = 1, watchedAgo = DAY)), NOW)
         assertTrue(chosen.isEmpty())
     }
 
@@ -91,13 +91,13 @@ class SeriesToCheckTest {
     @Test fun `the most recently watched one wins`() {
         val chosen = SeriesToCheck.choose(
             listOf(
-                series("vieja", watchedAgo = 20 * DAY),
-                series("hoy", watchedAgo = 1),
-                series("media", watchedAgo = 5 * DAY),
+                series("old", watchedAgo = 20 * DAY),
+                series("today", watchedAgo = 1),
+                series("middle", watchedAgo = 5 * DAY),
             ),
             NOW,
         )
-        assertEquals(listOf("hoy", "media", "vieja"), chosen.map { it.itemId })
+        assertEquals(listOf("today", "middle", "old"), chosen.map { it.itemId })
     }
 
     @Test fun `the cap cuts off and keeps the freshest ones`() {

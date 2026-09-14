@@ -46,7 +46,7 @@ class MagisResolveTest {
 
         val r = resolve.resolveVod("M1")
 
-        val p = r.getOrNull() ?: error("esperaba Ok y fue $r")
+        val p = r.getOrNull() ?: error("expected Ok but got $r")
         assertEquals("https://cdn.example.com/vod/M1_media.mp4", p.url)
         assertEquals("LIC123", p.headers["Content-License"])
         assertEquals("Ranger/4.9.4-17294ac0", p.headers["User-Agent"])
@@ -211,7 +211,7 @@ class MagisResolveTest {
 
             val p = MagisResolve(fake, testSession(fake)).resolveVod("M1").getOrNull()!!
 
-            assertEquals("duracion $raw", expected, p.durationMs)
+            assertEquals("duration $raw", expected, p.durationMs)
         }
     }
 
@@ -265,7 +265,7 @@ class MagisResolveTest {
     fun `the slb gets requested again when the session's token changes`() = runTest {
         val fake = FakePortalClient()
         val store = FakeCredentialStore()
-        store.saveSession(StoredSession("u", "t-viejo", "", "sn"))
+        store.saveSession(StoredSession("u", "t-old", "", "sn"))
         val session = MagisSession(fake, store)
         fake.queueResponse("v10/startPlayVOD", MagisResult.Ok(moviePlay(contentId = "A")))
         fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(realisticSlb()))
@@ -274,7 +274,7 @@ class MagisResolveTest {
         val resolve = MagisResolve(fake, session)
 
         resolve.resolveVod("A")
-        store.saveSession(StoredSession("u", "t-nuevo", "", "sn"))
+        store.saveSession(StoredSession("u", "t-new", "", "sn"))
         resolve.resolveVod("B")
 
         assertEquals(2, fake.timesCalled("v14/getSlbInfo"))
@@ -326,7 +326,7 @@ class MagisResolveTest {
 
         val r = MagisResolve(fake, testSession(fake)).resolveVod("M1")
 
-        assertTrue("esperaba RedError y fue $r", r is MagisResult.RedError)
+        assertTrue("expected RedError but got $r", r is MagisResult.RedError)
         assertEquals(0, fake.timesCalled("v14/getSlbInfo"))
     }
 

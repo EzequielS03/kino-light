@@ -71,8 +71,8 @@ class DituEpisodesTest {
     @Test fun `a chapter with no assetId doesn't get in`() = runTest {
         val fake = FakeDituClient()
         fake.respond("CONTENT/DETAIL/BUNDLE/99", bundleWith(
-            ep("e1", 1, 1, "Sin asset", asset = null),
-            ep("e2", 2, 1, "Con asset"),
+            ep("e1", 1, 1, "No asset", asset = null),
+            ep("e2", 2, 1, "With asset"),
         ))
 
         assertEquals(listOf("e2"), DituEpisodes(fake).forRef(DituRef("99", "BUNDLE")).episodes.map { it.contentId })

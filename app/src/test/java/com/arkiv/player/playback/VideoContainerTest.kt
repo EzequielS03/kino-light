@@ -212,15 +212,15 @@ class VideoContainerTest {
      *
      * `LocalFilePaths.fileNameFor` used to pull it with a bare `substringAfterLast('.')` on
      * whatever it was given, and the NUC download hands it a page URL: from
-     * `https://sitio.com/peli` that cut returns `"com/peli"`. It didn't break —it's on no list,
+     * `https://site.com/movie` that cut returns `"com/movie"`. It didn't break —it's on no list,
      * so it fell back to mp4— but it could never get it right either.
      */
     @Test fun `the normalized extension serves to name the file`() {
-        assertEquals("mkv", VideoContainer.videoExtension("https://sitio.com/x/y.mkv?t=1"))
+        assertEquals("mkv", VideoContainer.videoExtension("https://site.com/x/y.mkv?t=1"))
         assertEquals("m2ts", VideoContainer.videoExtension("BluRay/00001.m2ts"))
-        assertEquals("mp4", VideoContainer.videoExtension("PELI.MP4"))
-        assertNull(VideoContainer.videoExtension("https://sitio.com/pelicula"))
-        assertNull(VideoContainer.videoExtension("https://sitio.com/peli.html"))
+        assertEquals("mp4", VideoContainer.videoExtension("MOVIE.MP4"))
+        assertNull(VideoContainer.videoExtension("https://site.com/movie"))
+        assertNull(VideoContainer.videoExtension("https://site.com/movie.html"))
     }
 
     // ---- From disk ----

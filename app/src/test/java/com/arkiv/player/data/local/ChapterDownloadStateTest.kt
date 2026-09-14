@@ -6,7 +6,7 @@ import org.junit.Test
 
 class ChapterDownloadStateTest {
 
-    private fun fila(
+    private fun row(
         state: String,
         progress: Float = 0f,
         bytes: Long = 0,
@@ -34,59 +34,59 @@ class ChapterDownloadStateTest {
 
     @Test
     fun `queued waits its turn`() {
-        assertEquals(DownloadDisplayState.Queued, ChapterDownloadState.of(fila(LocalDownloadState.QUEUED)))
+        assertEquals(DownloadDisplayState.Queued, ChapterDownloadState.of(row(LocalDownloadState.QUEUED)))
     }
 
     @Test
     fun `downloading with known size reports the fraction`() {
-        val estado = ChapterDownloadState.of(
-            fila(LocalDownloadState.DOWNLOADING, progress = 0.42f, bytes = 1_000L),
+        val state = ChapterDownloadState.of(
+            row(LocalDownloadState.DOWNLOADING, progress = 0.42f, bytes = 1_000L),
         )
-        assertEquals(DownloadDisplayState.Downloading(0.42f), estado)
+        assertEquals(DownloadDisplayState.Downloading(0.42f), state)
     }
 
     @Test
     fun `downloading with no known size does not make up a percentage`() {
-        val estado = ChapterDownloadState.of(fila(LocalDownloadState.DOWNLOADING, bytes = 0))
-        assertEquals(DownloadDisplayState.Downloading(null), estado)
+        val state = ChapterDownloadState.of(row(LocalDownloadState.DOWNLOADING, bytes = 0))
+        assertEquals(DownloadDisplayState.Downloading(null), state)
     }
 
     @Test
     fun `the server's staging goes with no percentage`() {
         assertEquals(
             DownloadDisplayState.Downloading(null),
-            ChapterDownloadState.of(fila(LocalDownloadState.STAGING, progress = 0.5f, bytes = 10)),
+            ChapterDownloadState.of(row(LocalDownloadState.STAGING, progress = 0.5f, bytes = 10)),
         )
     }
 
     @Test
     fun `completed is done`() {
-        assertEquals(DownloadDisplayState.Done, ChapterDownloadState.of(fila(LocalDownloadState.COMPLETED)))
+        assertEquals(DownloadDisplayState.Done, ChapterDownloadState.of(row(LocalDownloadState.COMPLETED)))
     }
 
     @Test
     fun `a completed row with a reason is still done`() {
         // The "error" of a completed row is the reason nothing had to be downloaded
         // (DuplicateDownloadPolicy.ADOPTED_REASON), not a failure.
-        val estado = ChapterDownloadState.of(
-            fila(LocalDownloadState.COMPLETED, error = DuplicateDownloadPolicy.ADOPTED_REASON),
+        val state = ChapterDownloadState.of(
+            row(LocalDownloadState.COMPLETED, error = DuplicateDownloadPolicy.ADOPTED_REASON),
         )
-        assertEquals(DownloadDisplayState.Done, estado)
+        assertEquals(DownloadDisplayState.Done, state)
     }
 
     @Test
     fun `failed keeps the reason`() {
-        val estado = ChapterDownloadState.of(
-            fila(LocalDownloadState.FAILED, error = "Este episodio no tiene un archivo descargable"),
+        val state = ChapterDownloadState.of(
+            row(LocalDownloadState.FAILED, error = "Este episodio no tiene un archivo descargable"),
         )
-        assertEquals(DownloadDisplayState.Failed("Este episodio no tiene un archivo descargable"), estado)
+        assertEquals(DownloadDisplayState.Failed("Este episodio no tiene un archivo descargable"), state)
     }
 
     @Test
     fun `a heavy torrent asks for confirmation and does not show as if it were downloading`() {
         assertEquals(
             DownloadDisplayState.NeedsConfirmation,
-            ChapterDownloadState.of(fila(LocalDownloadState.NEEDS_CONFIRMATION, bytes = 9_000_000_000L)),
+            ChapterDownloadState.of(row(LocalDownloadState.NEEDS_CONFIRMATION, bytes = 9_000_000_000L)),
         )
     }
 }

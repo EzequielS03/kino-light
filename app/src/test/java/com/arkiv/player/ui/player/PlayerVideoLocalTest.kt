@@ -39,7 +39,7 @@ class PlayerVideoLocalTest {
         assertEquals(2_000L, v.msWithSurface(nowMs = 22_000L))
     }
 
-    /** `esperandoVideo`: after re-attaching, only a frame on the NEW surface ends the wait. */
+    /** `waitingForVideo`: after re-attaching, only a frame on the NEW surface ends the wait. */
     @Test fun `painted since attach needs a frame after the attach`() {
         val v = LocalVideoState()
         v.onLoad(nowMs = 0L, prefersSoftware = false)

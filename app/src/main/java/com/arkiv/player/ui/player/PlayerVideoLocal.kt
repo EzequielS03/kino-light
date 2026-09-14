@@ -14,8 +14,8 @@ import androidx.compose.runtime.setValue
  * The in-screen players (Magis, live, Caracol) own their `TextureView` and report their own first
  * frame; the local one paints on a `TextureView` this screen owns and binds to the service's player,
  * so the screen has to keep this itself. Three consumers read it: the first-frame spinner
- * (`sinPrimeraImagen`), the "lost the picture coming back from the background" spinner
- * (`esperandoVideo`), and the decoder watchdog ([com.arkiv.player.playback.DecoderWatchdog]).
+ * (`noFirstFrame`), the "lost the picture coming back from the background" spinner
+ * (`waitingForVideo`), and the decoder watchdog ([com.arkiv.player.playback.DecoderWatchdog]).
  *
  * Times are `SystemClock.elapsedRealtime()` values passed in, so this stays testable on the JVM.
  */

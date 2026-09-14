@@ -32,7 +32,7 @@ class RecommendationSavingTest {
         titulo = "My Hero Academia",
         posterUrl = "https://image.tmdb.org/t/p/w500/mho.jpg",
         porque = "porque terminaste Dragon Ball",
-        ref = "ref-de-la-temporada",
+        ref = "season-ref",
         orden = 0,
         generadoAt = 1_000L,
     )

@@ -4,47 +4,48 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * Desde dónde reanudar un episodio con lo que quedó guardado.
+ * Where to resume an episode from, based on what was saved.
  *
- * Se saca del ViewModel y se fija acá porque es la regla que decide si al abrir algo aparecés donde
- * lo dejaste o de vuelta en el minuto cero, y hasta ahora vivía enredada con una consulta al motor
- * de torrents que la volvía imposible de probar.
+ * Pulled out of the ViewModel and pinned down here because it's the rule that decides whether
+ * opening something drops you where you left off or back at minute zero, and until now it lived
+ * tangled up with a query to the torrent engine that made it impossible to test.
  */
 class ResumePolicyTest {
 
     @Test
-    fun `se reanuda donde quedo`() {
+    fun `resumes where it left off`() {
         assertEquals(600_000, ResumePolicy.startPosition(savedPositionMs = 600_000, savedDurationMs = 5_400_000))
     }
 
     @Test
-    fun `los primeros diez segundos no cuentan`() {
-        // Abrir algo, arrepentirse y salir no debería dejar una marca que después haya que saltear.
+    fun `the first ten seconds don't count`() {
+        // Opening something, changing your mind and leaving shouldn't leave a mark you'd later
+        // have to skip past.
         assertEquals(0, ResumePolicy.startPosition(savedPositionMs = 9_000, savedDurationMs = 5_400_000))
     }
 
     @Test
-    fun `exactamente diez segundos tampoco`() {
+    fun `exactly ten seconds doesn't either`() {
         assertEquals(0, ResumePolicy.startPosition(savedPositionMs = 10_000, savedDurationMs = 5_400_000))
     }
 
     @Test
-    fun `si ya casi terminaba, se empieza de nuevo`() {
-        // Al 90% se considera visto: reanudar ahí te dejaría en los créditos.
+    fun `if it was already almost finished, it starts over`() {
+        // At 90% it counts as watched: resuming there would leave you at the credits.
         assertEquals(0, ResumePolicy.startPosition(savedPositionMs = 4_900_000, savedDurationMs = 5_400_000))
     }
 
     @Test
-    fun `sin duracion guardada igual se reanuda`() {
-        // No saber cuánto dura no es motivo para perder la posición.
+    fun `with no saved duration it still resumes`() {
+        // Not knowing how long it is isn't a reason to lose the position.
         assertEquals(600_000, ResumePolicy.startPosition(savedPositionMs = 600_000, savedDurationMs = 0))
     }
 
     @Test
-    fun `un torrent se reanuda aunque esa zona no este descargada`() {
-        // El comportamiento que se cambió: antes, si la zona no estaba bajada se devolvía 0 y el
-        // torrent SIEMPRE arrancaba de cero. Ahora se respeta y el motor prioriza esas piezas al
-        // pedirse el rango. La regla no depende del estado de la descarga.
+    fun `a torrent resumes even if that zone isn't downloaded`() {
+        // The behavior that changed: before, if the zone wasn't downloaded it returned 0 and the
+        // torrent ALWAYS started from zero. Now it's respected and the engine prioritizes those
+        // pieces when the range is requested. The rule doesn't depend on the download's state.
         assertEquals(3_000_000, ResumePolicy.startPosition(savedPositionMs = 3_000_000, savedDurationMs = 5_400_000))
     }
 }

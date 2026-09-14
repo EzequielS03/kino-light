@@ -49,7 +49,7 @@ class DituRefTest {
         val json = """{"s":"ditu","p":{"content_id":"777","content_type":"BUNDLE"}}"""
         val data = java.util.Base64.getUrlEncoder().withoutPadding()
             .encodeToString(json.toByteArray(Charsets.UTF_8))
-        val read = DituRef.decode("$data.firmaquenadievalida")
+        val read = DituRef.decode("$data.signaturenobodyvalidates")
         assertEquals(DituRef("777", "BUNDLE"), read)
     }
 
@@ -58,7 +58,7 @@ class DituRefTest {
         val json = """{"s":"magis","p":{"content_id":"C42","program_type":"movie"}}"""
         val data = java.util.Base64.getUrlEncoder().withoutPadding()
             .encodeToString(json.toByteArray(Charsets.UTF_8))
-        assertNull(DituRef.decode("$data.firma"))
+        assertNull(DituRef.decode("$data.signature"))
     }
 
     /** With no `content_type` the gateway used to send an implicit VOD. */
@@ -66,6 +66,6 @@ class DituRefTest {
         val json = """{"s":"ditu","p":{"content_id":"5"}}"""
         val data = java.util.Base64.getUrlEncoder().withoutPadding()
             .encodeToString(json.toByteArray(Charsets.UTF_8))
-        assertEquals(DituRef("5", "VOD"), DituRef.decode("$data.firma"))
+        assertEquals(DituRef("5", "VOD"), DituRef.decode("$data.signature"))
     }
 }

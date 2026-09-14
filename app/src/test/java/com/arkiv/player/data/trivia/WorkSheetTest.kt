@@ -13,7 +13,7 @@ import org.junit.Test
  */
 class WorkSheetTest {
 
-    private val peliculaJson = """
+    private val movieJson = """
         {
           "title": "Coco",
           "release_date": "2017-10-27",
@@ -39,7 +39,7 @@ class WorkSheetTest {
         }
     """.trimIndent()
 
-    private val serieJson = """
+    private val seriesJson = """
         {
           "name": "Naruto",
           "first_air_date": "2002-10-03",
@@ -59,7 +59,7 @@ class WorkSheetTest {
         }
     """.trimIndent()
 
-    private val capituloJson = """
+    private val chapterJson = """
         {
           "name": "¡Soy Konohamaru!",
           "air_date": "2002-10-10",
@@ -82,7 +82,7 @@ class WorkSheetTest {
     """.trimIndent()
 
     @Test fun `a movie sheet pulls director, writers, cast, production companies, date and runtime`() {
-        val f = movieSheet(peliculaJson)!!
+        val f = movieSheet(movieJson)!!
         assertEquals("movie", f.kind)
         assertEquals("Coco", f.name)
         assertEquals("2017-10-27", f.releaseDate)
@@ -99,7 +99,7 @@ class WorkSheetTest {
     }
 
     @Test fun `a series sheet pulls creators, network, first air date and cast`() {
-        val f = seriesSheet(serieJson)!!
+        val f = seriesSheet(seriesJson)!!
         assertEquals("tv", f.kind)
         assertEquals("Naruto", f.name)
         assertEquals("2002-10-03", f.releaseDate)
@@ -112,7 +112,7 @@ class WorkSheetTest {
     }
 
     @Test fun `the chapter pulls name, date, director, writer and guest stars`() {
-        val c = chapterSheet(capituloJson)!!
+        val c = chapterSheet(chapterJson)!!
         assertEquals(1, c.season)
         assertEquals(2, c.episode)
         assertEquals("¡Soy Konohamaru!", c.name)
@@ -134,12 +134,12 @@ class WorkSheetTest {
     }
 
     @Test fun `no overview field ever reaches lines`() {
-        val pelicula = movieSheet(peliculaJson)!!.lines()
-        val serie = seriesSheet(serieJson)!!.lines()
-        val serieConCapitulo = seriesSheet(serieJson)!!.copy(chapter = chapterSheet(capituloJson))
-        assertFalse(pelicula.contains("PALABRAUNICATRAMAPELICULA"))
-        assertFalse(serie.contains("PALABRAUNICATRAMASERIE"))
-        assertFalse(serieConCapitulo.lines().contains("PALABRAUNICATRAMACAPITULO"))
+        val movie = movieSheet(movieJson)!!.lines()
+        val series = seriesSheet(seriesJson)!!.lines()
+        val seriesWithChapter = seriesSheet(seriesJson)!!.copy(chapter = chapterSheet(chapterJson))
+        assertFalse(movie.contains("PALABRAUNICATRAMAPELICULA"))
+        assertFalse(series.contains("PALABRAUNICATRAMASERIE"))
+        assertFalse(seriesWithChapter.lines().contains("PALABRAUNICATRAMACAPITULO"))
     }
 
     @Test fun `broken json gives null`() {
@@ -233,8 +233,8 @@ class WorkSheetTest {
     }
 
     @Test fun `lines builds the series and chapter as in the brief's example`() {
-        val ficha = seriesSheet(serieJson)!!.copy(chapter = chapterSheet(capituloJson))
-        val r = ficha.lines()
+        val sheet = seriesSheet(seriesJson)!!.copy(chapter = chapterSheet(chapterJson))
+        val r = sheet.lines()
         assertTrue(r.contains("Serie: Naruto (primera emisión 2002-10-03; creada por Masashi Kishimoto; canal TV Tokyo; reparto:"))
         assertTrue(
             r.contains(

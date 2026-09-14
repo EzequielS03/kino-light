@@ -6,9 +6,9 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class TmdbSearchMultiTest {
-    private val api = TmdbApi(apiKey = "llave-de-test")
+    private val api = TmdbApi(apiKey = "test-key")
 
-    @Test fun `mapea movie con titulo y year`() {
+    @Test fun `maps a movie with title and year`() {
         val o = JSONObject("""{"media_type":"movie","id":1,"title":"Superman","release_date":"2025-07-11","poster_path":"/p.jpg"}""")
         val item = api.parseMultiItem(o)!!
         assertEquals(1, item.id)
@@ -18,7 +18,7 @@ class TmdbSearchMultiTest {
         assertEquals(false, item.isSeries)
     }
 
-    @Test fun `mapea tv usando name y first_air_date`() {
+    @Test fun `maps a tv show using name and first_air_date`() {
         val o = JSONObject("""{"media_type":"tv","id":2,"name":"Superman & Lois","first_air_date":"2021-02-23"}""")
         val item = api.parseMultiItem(o)!!
         assertEquals("tv", item.type)
@@ -27,8 +27,8 @@ class TmdbSearchMultiTest {
         assertEquals(true, item.isSeries)
     }
 
-    @Test fun `descarta person y media_type desconocido`() {
+    @Test fun `discards person and unknown media_type`() {
         assertNull(api.parseMultiItem(JSONObject("""{"media_type":"person","id":3,"name":"Actor X"}""")))
-        assertNull(api.parseMultiItem(JSONObject("""{"media_type":"collection","id":4,"name":"Colección"}""")))
+        assertNull(api.parseMultiItem(JSONObject("""{"media_type":"collection","id":4,"name":"Collection"}""")))
     }
 }

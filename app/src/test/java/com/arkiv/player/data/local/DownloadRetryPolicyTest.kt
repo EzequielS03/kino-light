@@ -11,7 +11,7 @@ class DownloadRetryPolicyTest {
 
     @Test
     fun `a network cutoff is transient`() {
-        assertTrue(DownloadRetryPolicy.isTransient(UnknownHostException("sin DNS")))
+        assertTrue(DownloadRetryPolicy.isTransient(UnknownHostException("no DNS")))
         assertTrue(DownloadRetryPolicy.isTransient(SocketTimeoutException("timeout")))
         assertTrue(DownloadRetryPolicy.isTransient(IOException("connection reset")))
     }

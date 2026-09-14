@@ -11,15 +11,15 @@ import org.junit.Test
 
 class ForYouGeneratorTest {
 
-    private val HORA = 60 * 60 * 1000L
+    private val HOUR = 60 * 60 * 1000L
 
     @Test fun `the gate opens the first time`() {
         assertTrue(ForYouGate.isDue(lastAttemptMs = 0, lastWasModelFailure = false, nowMs = 1))
     }
 
     @Test fun `the gate waits 24 hours`() {
-        assertFalse(ForYouGate.isDue(1_000, false, 1_000 + 23 * HORA))
-        assertTrue(ForYouGate.isDue(1_000, false, 1_000 + 24 * HORA))
+        assertFalse(ForYouGate.isDue(1_000, false, 1_000 + 23 * HOUR))
+        assertTrue(ForYouGate.isDue(1_000, false, 1_000 + 24 * HOUR))
     }
 
     /** A down model doesn't spend the whole window: it's retried after 15 minutes. */
@@ -72,7 +72,7 @@ class ForYouGeneratorTest {
         save = { saved.last = it },
         readMarks = { (marks["t"] as? Long ?: 0L) to (marks["f"] as? Boolean ?: false) },
         writeMarks = { t, f -> marks["t"] = t; marks["f"] = f },
-        nowMs = { 10 * HORA },
+        nowMs = { 10 * HOUR },
     )
 
     private val goodAnswer = AiResponse.Text(
@@ -87,7 +87,7 @@ class ForYouGeneratorTest {
         assertEquals(0, r.orden)
         assertEquals("porque viste Encanto", r.porque)
         assertEquals("magis1:movie:0:C0", r.ref)
-        assertEquals(10 * HORA, r.generadoAt)
+        assertEquals(10 * HOUR, r.generadoAt)
     }
 
     @Test fun `the same work twice only counts once`() = runTest {
@@ -138,7 +138,7 @@ class ForYouGeneratorTest {
 
     @Test fun `with the gate closed it does nothing`() = runTest {
         var asks = 0
-        val marks = mutableMapOf<String, Any>("t" to 10 * HORA - 1, "f" to false)
+        val marks = mutableMapOf<String, Any>("t" to 10 * HOUR - 1, "f" to false)
         generator(ia = { asks++; goodAnswer }, marks = marks).generateIfDue()
         assertEquals(0, asks)
     }
@@ -146,7 +146,7 @@ class ForYouGeneratorTest {
     @Test fun `a success marks the attempt with no failure`() = runTest {
         val marks = mutableMapOf<String, Any>()
         generator(ia = { goodAnswer }, marks = marks).generateIfDue()
-        assertEquals(10 * HORA, marks["t"])
+        assertEquals(10 * HOUR, marks["t"])
         assertEquals(false, marks["f"])
     }
 }

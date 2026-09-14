@@ -14,7 +14,7 @@ import org.junit.Test
 class CanonicalSeriesIdTest {
 
     @Test
-    fun `imdb manda sobre tmdb y sobre anilist`() {
+    fun `imdb wins over tmdb and over anilist`() {
         assertEquals(
             "tt30217403",
             SeriesItemIds.canonicalSeriesId(imdbId = "tt30217403", tmdbId = 240411, anilistId = 171018),
@@ -22,7 +22,7 @@ class CanonicalSeriesIdTest {
     }
 
     @Test
-    fun `sin imdb cae a tmdb`() {
+    fun `with no imdb it falls back to tmdb`() {
         assertEquals(
             "tmdb240411",
             SeriesItemIds.canonicalSeriesId(imdbId = "", tmdbId = 240411, anilistId = 171018),
@@ -35,7 +35,7 @@ class CanonicalSeriesIdTest {
 
     /** With no mapping, NOTHING gets invented: the anilist id stays, i.e. what the app did until now. */
     @Test
-    fun `sin imdb ni tmdb cae a anilist`() {
+    fun `with no imdb or tmdb it falls back to anilist`() {
         assertEquals(
             "anilist171018",
             SeriesItemIds.canonicalSeriesId(imdbId = null, tmdbId = null, anilistId = 171018),
@@ -44,7 +44,7 @@ class CanonicalSeriesIdTest {
 
     /** The non-anime path comes through here with no anilistId; having nothing to return isn't a case. */
     @Test
-    fun `el camino no-anime da exactamente lo de antes`() {
+    fun `the non-anime path gives exactly what it gave before`() {
         assertEquals("tt0388629", SeriesItemIds.canonicalSeriesId("tt0388629", 37854))
         assertEquals("tmdb37854", SeriesItemIds.canonicalSeriesId("", 37854))
     }
@@ -59,7 +59,7 @@ class CanonicalSeriesIdTest {
      * passed by hand precisely because of that.)
      */
     @Test
-    fun `un imdb con forma rara del camino de TMDB se respeta tal cual`() {
+    fun `an oddly-shaped imdb id from the TMDB path is respected as-is`() {
         assertEquals("null", SeriesItemIds.canonicalSeriesId(imdbId = "null", tmdbId = 240411))
         assertEquals("unknown", SeriesItemIds.canonicalSeriesId(imdbId = "unknown", tmdbId = 240411))
     }
@@ -72,7 +72,7 @@ class CanonicalSeriesIdTest {
      * duplication bug.
      */
     @Test
-    fun `normaliza el imdb del dataset de anime`() {
+    fun `normalizes the imdb id from the anime dataset`() {
         assertEquals("tt30217403", SeriesItemIds.normalizeImdbId("tt30217403"))
         assertEquals("tt30217403", SeriesItemIds.normalizeImdbId("  tt30217403 "))
         assertEquals("tt30217403", SeriesItemIds.normalizeImdbId("tt30217403,tt9999999"))
@@ -85,7 +85,7 @@ class CanonicalSeriesIdTest {
 
     /** A junk imdb id from the DATASET is discarded and anime falls back to tmdb, what TMDB gives. */
     @Test
-    fun `un imdb basura del dataset no se usa y se cae a tmdb`() {
+    fun `a junk imdb id from the dataset isn't used and falls back to tmdb`() {
         assertEquals(
             "tmdb240411",
             SeriesItemIds.canonicalSeriesId(
@@ -102,13 +102,13 @@ class CanonicalSeriesIdTest {
      * both at null: kept on purpose so what's already saved doesn't change which id it lives under.
      */
     @Test
-    fun `sin mapeo disponible usa el fallback de anilist`() = runBlocking {
+    fun `with no mapping available it uses anilist's fallback`() = runBlocking {
         assertEquals("anilist171018", SeriesItemIds.animeSeriesId(mappings = null, anilistId = 171018))
         assertEquals("anilistnull", SeriesItemIds.animeSeriesId(mappings = null, anilistId = null))
     }
 
     @Test
-    fun `traduce el identifier local al seriesId desnudo`() {
+    fun `translates the local identifier into the bare seriesId`() {
         assertEquals("tt30217403", SeriesItemIds.seriesIdOrNull("web:series:tt30217403"))
         assertEquals("tt30217403", SeriesItemIds.seriesIdOrNull("torrent:series:tt30217403"))
         assertNull(SeriesItemIds.seriesIdOrNull("dragon-ball-gt"))

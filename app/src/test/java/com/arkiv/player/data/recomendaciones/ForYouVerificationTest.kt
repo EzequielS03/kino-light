@@ -14,14 +14,14 @@ class ForYouVerificationTest {
     private fun tmdb(id: Int, kind: String, title: String, year: String = "2017") =
         TmdbItem(id = id, type = kind, title = title, originalTitle = title, posterUrl = "p$id", year = year)
 
-    private fun resultado(titulo: String, ref: String = "magis1:movie:0:$titulo") =
-        GatewayResult(source = "magis", title = titulo, ref = ref)
+    private fun result(title: String, ref: String = "magis1:movie:0:$title") =
+        GatewayResult(source = "magis", title = title, ref = ref)
 
     private val coco = Candidate("Coco", "2017", "movie", "porque viste Encanto")
 
     private fun verification(
         inTmdb: (String, String) -> TmdbItem? = { t, title -> tmdb(1, t, title) },
-        inSources: (String) -> List<GatewayResult> = { listOf(resultado(it)) },
+        inSources: (String) -> List<GatewayResult> = { listOf(result(it)) },
         referee: Referee = Referee { _, _, _, _ -> listOf(0) },
     ) = ForYouVerification(
         tmdb = TmdbSearcher { kind, title -> inTmdb(kind, title) },
@@ -82,7 +82,7 @@ class ForYouVerificationTest {
 
     @Test fun `the referee picks which result is the work`() = runTest {
         val v = verification(
-            inSources = { listOf(resultado("Coco podcast", "ref-podcast"), resultado("Coco", "ref-bueno")) },
+            inSources = { listOf(result("Coco podcast", "ref-podcast"), result("Coco", "ref-bueno")) },
             referee = Referee { _, _, _, _ -> listOf(1) },
         ).verify(listOf(coco), emptySet()).single()
         assertEquals("ref-bueno", v.ref)
@@ -92,7 +92,7 @@ class ForYouVerificationTest {
      *  the first index the model happened to write (the JSON doesn't force ascending order). */
     @Test fun `with several approved the first of the results list wins`() = runTest {
         val v = verification(
-            inSources = { listOf(resultado("A", "ref-a"), resultado("B", "ref-b"), resultado("C", "ref-c")) },
+            inSources = { listOf(result("A", "ref-a"), result("B", "ref-b"), result("C", "ref-c")) },
             referee = Referee { _, _, _, _ -> listOf(2, 0) },
         ).verify(listOf(coco), emptySet()).single()
         assertEquals("ref-a", v.ref)
@@ -105,7 +105,7 @@ class ForYouVerificationTest {
     /** Referee down = first result, as the gateway did. */
     @Test fun `if the referee does not answer the first one is taken`() = runTest {
         val v = verification(
-            inSources = { listOf(resultado("A", "ref-a"), resultado("B", "ref-b")) },
+            inSources = { listOf(result("A", "ref-a"), result("B", "ref-b")) },
             referee = Referee { _, _, _, _ -> null },
         ).verify(listOf(coco), emptySet()).single()
         assertEquals("ref-a", v.ref)
@@ -120,8 +120,8 @@ class ForYouVerificationTest {
         val v = verification(
             inSources = {
                 listOf(
-                    resultado("Coco serie", "ref-tv").copy(kind = "tv"),
-                    resultado("Coco pelicula", "ref-movie").copy(kind = "movie"),
+                    result("Coco serie", "ref-tv").copy(kind = "tv"),
+                    result("Coco pelicula", "ref-movie").copy(kind = "movie"),
                 )
             },
             referee = Referee { _, _, _, _ -> null },
@@ -144,15 +144,15 @@ class ForYouVerificationTest {
 
     @Test fun `the referee reads the numbers and discards ones that do not exist`() = runTest {
         val a = AiReferee { AiResponse.Text("[0, 5, true, 1]", "m") }
-        assertEquals(listOf(0, 1), a.which("Coco", "2017", "movie", listOf(resultado("x"), resultado("y"))))
+        assertEquals(listOf(0, 1), a.which("Coco", "2017", "movie", listOf(result("x"), result("y"))))
     }
 
     @Test fun `a referee that does not answer is null`() = runTest {
-        assertNull(AiReferee { AiResponse.Unable }.which("Coco", "", "movie", listOf(resultado("x"))))
+        assertNull(AiReferee { AiResponse.Unable }.which("Coco", "", "movie", listOf(result("x"))))
     }
 
     @Test fun `an unreadable referee is null`() = runTest {
-        assertNull(AiReferee { AiResponse.Text("no sé", "m") }.which("Coco", "", "movie", listOf(resultado("x"))))
+        assertNull(AiReferee { AiResponse.Text("no sé", "m") }.which("Coco", "", "movie", listOf(result("x"))))
     }
 
     @Test fun `the referee sends the gateway's prompt with the numbered list`() = runTest {

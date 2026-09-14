@@ -4,7 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class TmdbApiUrlTest {
-    @Test fun `paths de categorias por tipo`() {
+    @Test fun `category paths by type`() {
         assertEquals("/movie/popular", tmdbCategoryPath("movie", TmdbCategory.POPULAR))
         assertEquals("/movie/top_rated", tmdbCategoryPath("movie", TmdbCategory.TOP_RATED))
         assertEquals("/movie/now_playing", tmdbCategoryPath("movie", TmdbCategory.NOW_PLAYING))

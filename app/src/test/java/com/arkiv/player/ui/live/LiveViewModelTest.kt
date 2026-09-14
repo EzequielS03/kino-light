@@ -136,8 +136,8 @@ private class FakeCacheDao : LiveChannelCacheDao {
     private val store = mutableMapOf<Int, List<LiveChannelCacheEntity>>()
 
     /** Direct test setup, without going through save()/replace(). */
-    fun preload(category: Int, filas: List<LiveChannelCacheEntity>) {
-        store[category] = filas
+    fun preload(category: Int, rows: List<LiveChannelCacheEntity>) {
+        store[category] = rows
     }
 
     override suspend fun byCategory(category: Int): List<LiveChannelCacheEntity> = store[category].orEmpty()

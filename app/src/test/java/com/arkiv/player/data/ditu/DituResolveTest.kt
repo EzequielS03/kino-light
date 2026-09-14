@@ -15,7 +15,7 @@ class DituResolveTest {
         {"resultObj":{"containers":[{"assets":[{"assetType":"MASTER","assetId":7}]}]}}
         """)
         fake.respond("CONTENT/USERDATA/VOD/42", """{"resultObj":{"containers":[{"entitlement":{}}]}}""")
-        fake.respond("CONTENT/VIDEOURL/VOD/42/7", """{"resultObj":{"src":"https://cdn/pelicula.mpd"}}""")
+        fake.respond("CONTENT/VIDEOURL/VOD/42/7", """{"resultObj":{"src":"https://cdn/movie.mpd"}}""")
         fake.token = "tok999"
         return fake
     }
@@ -29,7 +29,7 @@ class DituResolveTest {
             listOf("CONTENT/DETAIL/VOD/42", "CONTENT/USERDATA/VOD/42", "CONTENT/VIDEOURL/VOD/42/7"),
             fake.calls.map { it.first },
         )
-        assertEquals("https://cdn/pelicula.mpd", play.url)
+        assertEquals("https://cdn/movie.mpd", play.url)
         assertEquals("application/dash+xml", play.mime)
         assertEquals("ditu", play.kind)
     }
@@ -88,7 +88,7 @@ class DituResolveTest {
         val fake = FakeDituClient()
         fake.respond("CONTENT/DETAIL/BUNDLE/99", """
         {"resultObj":{"containers":[{"containers":[
-          {"id":"sinasset","metadata":{}},
+          {"id":"noasset","metadata":{}},
           {"id":"e2","metadata":{},"assets":[{"assetType":"MASTER","assetId":5}]}
         ]}]}}
         """)
@@ -112,12 +112,12 @@ class DituResolveTest {
         ]}]}}
         """)
         fake.respond("CONTENT/USERDATA/VOD/ep1", """{"resultObj":{"containers":[{"entitlement":{}}]}}""")
-        fake.respond("CONTENT/VIDEOURL/VOD/ep1/11", """{"resultObj":{"src":"https://cdn/grupo.mpd"}}""")
-        fake.token = "tokgrupo"
+        fake.respond("CONTENT/VIDEOURL/VOD/ep1/11", """{"resultObj":{"src":"https://cdn/group.mpd"}}""")
+        fake.token = "tokgroup"
 
         val play = DituResolve(fake).vod(DituRef("999", "GROUP_OF_BUNDLES"))
 
-        assertEquals("https://cdn/grupo.mpd", play.url)
+        assertEquals("https://cdn/group.mpd", play.url)
         // Verify the child bundles' list was requested with the right parameters
         val trayCalls = fake.calls.filter { it.first == "TRAY/SEARCH/VOD" }
         assertTrue(trayCalls.isNotEmpty())
@@ -145,11 +145,11 @@ class DituResolveTest {
         ]}]}}
         """)
         fake.respond("CONTENT/USERDATA/VOD/ep2", """{"resultObj":{"containers":[{"entitlement":{}}]}}""")
-        fake.respond("CONTENT/VIDEOURL/VOD/ep2/22", """{"resultObj":{"src":"https://cdn/segundo.mpd"}}""")
+        fake.respond("CONTENT/VIDEOURL/VOD/ep2/22", """{"resultObj":{"src":"https://cdn/second.mpd"}}""")
 
         val play = DituResolve(fake).vod(DituRef("999", "GROUP_OF_BUNDLES"))
 
-        assertEquals("https://cdn/segundo.mpd", play.url)
+        assertEquals("https://cdn/second.mpd", play.url)
     }
 
     // --- live ---------------------------------------------------------------
@@ -158,14 +158,14 @@ class DituResolveTest {
     @Test fun `a live channel resolves in two steps`() = runTest {
         val fake = FakeDituClient()
         fake.respond("CONTENT/USERDATA/LIVE/7", """{"resultObj":{"containers":[{"entitlement":{}}]}}""")
-        fake.respond("CONTENT/VIDEOURL/LIVE/7/22", """{"resultObj":{"src":"https://cdn/vivo.mpd"}}""")
-        fake.token = "tokvivo"
+        fake.respond("CONTENT/VIDEOURL/LIVE/7/22", """{"resultObj":{"src":"https://cdn/live.mpd"}}""")
+        fake.token = "toklive"
 
         val play = DituResolve(fake).live(DituChannel(7, "Caracol", "l.png", 22))
 
         assertEquals(listOf("CONTENT/USERDATA/LIVE/7", "CONTENT/VIDEOURL/LIVE/7/22"), fake.calls.map { it.first })
-        assertEquals("https://cdn/vivo.mpd", play.url)
-        assertEquals(mapOf("Cookie" to "playback_token=tokvivo"), play.drmLicenseHeaders)
+        assertEquals("https://cdn/live.mpd", play.url)
+        assertEquals(mapOf("Cookie" to "playback_token=toklive"), play.drmLicenseHeaders)
     }
 
     @Test fun `a blocked channel says why`() = runTest {

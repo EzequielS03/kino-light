@@ -9,9 +9,9 @@ import org.junit.Test
 class GatewayMapperTest {
 
     @Test
-    fun `magis se mapea a su propio tipo`() {
-        // Sin esta rama el mapper devolvia null y los resultados de Magis nunca llegaban a la
-        // pantalla, aunque el gateway los estuviera entregando.
+    fun `magis maps to its own type`() {
+        // Without this branch the mapper used to return null and Magis results never made it to
+        // the screen, even though the gateway was delivering them.
         val ps = GatewayResult(
             source = "magis", title = "Duna", ref = "r", year = "2021",
             extra = mapOf("content_id" to "abc", "program_type" to "movie"),
@@ -23,9 +23,9 @@ class GatewayMapperTest {
     }
 
     @Test
-    fun `ditu se mapea a su propio tipo`() {
-        // Sin esta rama los resultados de Caracol se descartaban aquí: la fuente compuesta los
-        // entregaba y nunca llegaban a la pantalla.
+    fun `ditu maps to its own type`() {
+        // Without this branch Caracol's results used to get discarded here: the composite source
+        // delivered them and they never made it to the screen.
         val ps = GatewayResult(
             source = "ditu", title = "Rigo", ref = "ditu1:BUNDLE:9", kind = "series",
             extra = mapOf("poster" to "p.jpg", "content_type" to "BUNDLE"),
@@ -38,36 +38,36 @@ class GatewayMapperTest {
     }
 
     @Test
-    fun `las fuentes conocidas se mapean- ninguna cae en null`() {
-        // Guarda contra el bug real: la fuente compuesta entrega estas dos y el mapper tiene que
-        // conocerlas todas. "archive" NO está en esta lista a propósito: se borró en la poda de
-        // light-magis (ver el test de abajo).
-        for (fuente in listOf("magis", "ditu")) {
-            val r = GatewayResult(source = fuente, title = "x", ref = "r")
-            assertTrue("la fuente '$fuente' no se mapea", r.toPlaySource() != null)
+    fun `the known sources all map -- none falls through to null`() {
+        // Guards against the real bug: the composite source delivers these two and the mapper has
+        // to know both of them. "archive" is NOT in this list on purpose: it was deleted in the
+        // light-magis pruning (see the test below).
+        for (source in listOf("magis", "ditu")) {
+            val r = GatewayResult(source = source, title = "x", ref = "r")
+            assertTrue("source '$source' doesn't map", r.toPlaySource() != null)
         }
     }
 
     @Test
-    fun `archive torrent y web se ignoran a proposito- se borraron de esta rama`() {
-        // Este APK ya no sabe qué hacer con ellas y las descarta igual que cualquier fuente futura
-        // desconocida. archive.org se borró en la poda de light-magis; torrent/web ya se habían
-        // borrado en la Tarea 2.
+    fun `archive, torrent and web are ignored on purpose -- deleted from this branch`() {
+        // This APK no longer knows what to do with them and discards them just like any other
+        // future unknown source. archive.org was deleted in the light-magis pruning; torrent/web
+        // had already been deleted in Task 2.
         assertNull(GatewayResult(source = "archive", title = "x", ref = "r").toPlaySource())
         assertNull(GatewayResult(source = "torrent", title = "x", ref = "r").toPlaySource())
         assertNull(GatewayResult(source = "web", title = "x", ref = "r").toPlaySource())
     }
 
     @Test
-    fun `una fuente desconocida se descarta sin romper`() {
-        // Si el servidor agrega una fuente que este APK no conoce, se ignora en vez de fallar.
+    fun `an unknown source is discarded without blowing up`() {
+        // If the server adds a source this APK doesn't know about, it's ignored instead of failing.
         assertNull(GatewayResult(source = "fuente_nueva", title = "x", ref = "r").toPlaySource())
     }
 
     @Test
-    fun `el ref sobrevive al mapeo`() {
-        // Sin esto no se puede resolver despues: /v1/resolve solo entiende el ref. Magis mapea el
-        // GatewayResult entero, así que esto es sobre todo una guarda de regresión.
+    fun `the ref survives the mapping`() {
+        // Without this there's nothing to resolve against later: /v1/resolve only understands the
+        // ref. Magis maps the whole GatewayResult, so this is mostly a regression guard.
         assertEquals(
             "r",
             (GatewayResult(source = "magis", title = "x", ref = "r").toPlaySource()

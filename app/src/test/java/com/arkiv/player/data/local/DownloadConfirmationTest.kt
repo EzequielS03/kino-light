@@ -49,25 +49,25 @@ class DownloadConfirmationTest {
 
     @Test
     fun `cancel warns that what downloaded is not lost`() {
-        val texto = DownloadConfirmation.text(DownloadAction.CANCEL, "E1")
-        assertTrue(texto.body.contains("E1"))
-        assertTrue(texto.body.contains("reintentar"))
+        val text = DownloadConfirmation.text(DownloadAction.CANCEL, "E1")
+        assertTrue(text.body.contains("E1"))
+        assertTrue(text.body.contains("reintentar"))
         // The dismiss button can NOT be called "Cancelar" in this dialog: next to
         // "Cancelar la descarga" it wouldn't be clear which is which.
-        assertEquals("Seguir bajando", texto.dismiss)
+        assertEquals("Seguir bajando", text.dismiss)
     }
 
     @Test
     fun `delete clarifies the chapter stays in the library`() {
-        val texto = DownloadConfirmation.text(DownloadAction.DELETE, "E1")
-        assertTrue(texto.body.contains("biblioteca"))
-        assertEquals("Borrar", texto.confirm)
+        val text = DownloadConfirmation.text(DownloadAction.DELETE, "E1")
+        assertTrue(text.body.contains("biblioteca"))
+        assertEquals("Borrar", text.confirm)
     }
 
     @Test
     fun `with no chapter name the text still makes sense`() {
-        val texto = DownloadConfirmation.text(DownloadAction.REMOVE_FROM_QUEUE, null)
-        assertTrue(texto.body.isNotBlank())
-        assertTrue(texto.body.contains("«").not())
+        val text = DownloadConfirmation.text(DownloadAction.REMOVE_FROM_QUEUE, null)
+        assertTrue(text.body.isNotBlank())
+        assertTrue(text.body.contains("«").not())
     }
 }

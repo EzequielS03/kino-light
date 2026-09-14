@@ -183,7 +183,7 @@ class MagisLiveCatalogTest {
     fun `a portal error doesn't get cached as an empty catalog`() = runTest {
         val fake = FakePortalClient()
         // Just one: a RedError doesn't trigger a retry (the portal said nothing, it's down).
-        fake.queueResponse("getNextColumns", MagisResult.RedError(java.io.IOException("sin red")))
+        fake.queueResponse("getNextColumns", MagisResult.RedError(java.io.IOException("no network")))
         val catalog = liveCatalog(fake)
 
         assertTrue(catalog.categories().isEmpty())
@@ -247,9 +247,9 @@ class MagisLiveCatalogTest {
     fun `a root that doesn't exist isn't requested from the portal`() = runTest {
         val fake = FakePortalClient()
 
-        val e = runCatching { liveCatalog(fake).tree("lo-que-sea") }.exceptionOrNull()
+        val e = runCatching { liveCatalog(fake).tree("whatever") }.exceptionOrNull()
 
-        assertTrue("esperaba un error de argumento y fue $e", e is IllegalArgumentException)
+        assertTrue("expected an argument error and got $e", e is IllegalArgumentException)
         assertTrue(fake.calls.isEmpty())
     }
 
@@ -260,11 +260,11 @@ class MagisLiveCatalogTest {
         val catalog = liveCatalog(fake)
 
         val e = runCatching { catalog.tree("adultos") }.exceptionOrNull()
-        assertTrue("esperaba que se niegue y fue $e", e is IllegalArgumentException)
+        assertTrue("expected it to be refused and got $e", e is IllegalArgumentException)
         assertTrue(fake.calls.isEmpty())
 
         val sections = catalog.tree("adultos", includeAdults = true)
-        assertTrue("los items tienen que quedar marcados", sections.first().items.all { it.adult })
+        assertTrue("the items have to end up marked", sections.first().items.all { it.adult })
         assertTrue(sections.all { it.adult })
     }
 

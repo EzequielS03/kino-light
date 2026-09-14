@@ -64,24 +64,24 @@ class MagisCatalogTest {
     fun `with no active session, activates one before asking for the catalog`() = runTest {
         val fake = FakePortalClient()
         fake.queueResponse("v3/snToken", portalOk("snToken" to "TOK123"))
-        fake.queueResponse("v8/active", portalOk("userId" to "u-nuevo", "userToken" to "t-nuevo"))
+        fake.queueResponse("v8/active", portalOk("userId" to "u-new", "userToken" to "t-new"))
         val catalog = MagisCatalog(fake, MagisSession(fake, FakeCredentialStore()))
 
         catalog.search("batman")
 
         assertEquals(listOf("v3/snToken", "v8/active", "v3/searchByName"), fake.calls.map { it.first })
-        assertEquals("u-nuevo" to "t-nuevo", fake.sessions.last())
+        assertEquals("u-new" to "t-new", fake.sessions.last())
     }
 
     @Test
     fun `if it can't activate, it doesn't ask for the catalog`() = runTest {
         val fake = FakePortalClient()
-        fake.queueResponse("v3/snToken", MagisResult.RedError(java.io.IOException("sin red")))
+        fake.queueResponse("v3/snToken", MagisResult.RedError(java.io.IOException("no network")))
         val catalog = MagisCatalog(fake, MagisSession(fake, FakeCredentialStore()))
 
         val r = catalog.search("batman")
 
-        assertTrue("esperaba RedError y fue $r", r is MagisResult.RedError)
+        assertTrue("expected RedError but was $r", r is MagisResult.RedError)
         assertEquals(0, fake.timesCalled("v3/searchByName"))
     }
 
@@ -89,18 +89,18 @@ class MagisCatalogTest {
     fun `the retry after reauthenticating travels with the NEW token`() = runTest {
         val fake = FakePortalClient()
         fake.queueResponse("v3/searchByName", MagisResult.PortalError("aaa100028", "未登录！"))
-        fake.queueResponse("v8/active", portalOk("userId" to "u-fresco", "userToken" to "t-fresco"))
-        fake.queueResponse("v3/searchByName", portalOk("resultado" to "ok"))
+        fake.queueResponse("v8/active", portalOk("userId" to "u-fresh", "userToken" to "t-fresh"))
+        fake.queueResponse("v3/searchByName", portalOk("result" to "ok"))
         val catalog = MagisCatalog(fake, testSession(fake))
 
         val r = catalog.search("batman")
 
-        assertEquals("ok", r.getOrNull()?.getString("resultado"))
+        assertEquals("ok", r.getOrNull()?.getString("result"))
         assertEquals(2, fake.timesCalled("v3/searchByName"))
         val searchSessions = fake.calls.withIndex()
             .filter { it.value.first == "v3/searchByName" }
             .map { fake.sessions[it.index] }
         assertEquals("u-test" to "t-test", searchSessions[0])
-        assertEquals("u-fresco" to "t-fresco", searchSessions[1])
+        assertEquals("u-fresh" to "t-fresh", searchSessions[1])
     }
 }

@@ -4,37 +4,38 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * El título que se le manda a TMDB para resolver el arte. El bug real: "Naruto — Pack" no matcheaba
- * nada (la raya larga `—` no se normalizaba y "Pack" no es parte del título), así que esos ítems
- * quedaban sin `tmdbId` y no se agrupaban con el resto de la serie.
+ * The title sent to TMDB to resolve the artwork. The real bug: "Naruto — Pack" didn't match
+ * anything (the em dash `—` wasn't normalized and "Pack" isn't part of the title), so those items
+ * ended up with no `tmdbId` and didn't get grouped with the rest of the series.
  */
 class CleanTitleForSearchTest {
 
     @Test
-    fun `quita el sufijo de pack con raya larga`() {
+    fun `strips the pack suffix with an em dash`() {
         assertEquals("Naruto", cleanTitleForSearch("Naruto — Pack"))
         assertEquals("Los Simpson", cleanTitleForSearch("Los Simpson — Pack"))
     }
 
     @Test
-    fun `no toca un titulo que ya esta limpio`() {
+    fun `doesn't touch a title that's already clean`() {
         assertEquals("Naruto", cleanTitleForSearch("Naruto"))
         assertEquals("DAN DA DAN", cleanTitleForSearch("DAN DA DAN"))
     }
 
-    /** La raya larga en medio del título no es un sufijo de pack: no se corta la parte de atrás. */
+    /** An em dash in the middle of the title isn't a pack suffix: the back part doesn't get cut. */
     @Test
-    fun `una raya larga que no es sufijo de pack se conserva como separador`() {
+    fun `an em dash that isn't a pack suffix is kept as a separator`() {
         assertEquals("Naruto Shippuden", cleanTitleForSearch("Naruto — Shippuden"))
     }
 
     /**
-     * Pin adicional (no pedido por el plan, agregado en el self-review): "Pack" sin una raya
-     * delante NO es el sufijo que agrega la app, así que no debe recortarse. Sin este caso, una
-     * regex que quite "Pack" al final sin exigir la raya pasaría igual los tres tests de arriba.
+     * Extra pin (not requested by the plan, added during self-review): "Pack" with no dash in
+     * front of it is NOT the suffix the app adds, so it must not get trimmed. Without this case, a
+     * regex that strips "Pack" from the end without requiring the dash would still pass the three
+     * tests above.
      */
     @Test
-    fun `pack sin raya delante no se recorta`() {
+    fun `"pack" with no dash before it isn't trimmed`() {
         assertEquals("Naruto Pack", cleanTitleForSearch("Naruto Pack"))
     }
 }

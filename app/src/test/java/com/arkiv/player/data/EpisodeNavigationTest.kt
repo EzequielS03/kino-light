@@ -6,7 +6,7 @@ import org.junit.Test
 
 class EpisodeNavigationTest {
 
-    private val serie = listOf(
+    private val series = listOf(
         NavEpisode("t1e1", "Temporada 1"),
         NavEpisode("t1e2", "Temporada 1"),
         NavEpisode("t1e3", "Temporada 1"),
@@ -14,35 +14,35 @@ class EpisodeNavigationTest {
     )
 
     @Test
-    fun `next devuelve el siguiente de la misma seccion`() {
-        assertEquals("t1e2", EpisodeNavigation.nextId(serie, "t1e1"))
+    fun `next returns the next one in the same section`() {
+        assertEquals("t1e2", EpisodeNavigation.nextId(series, "t1e1"))
     }
 
     @Test
-    fun `next no cruza de seccion`() {
-        assertNull(EpisodeNavigation.nextId(serie, "t1e3"))
+    fun `next doesn't cross into another section`() {
+        assertNull(EpisodeNavigation.nextId(series, "t1e3"))
     }
 
     @Test
-    fun `prev devuelve el anterior de la misma seccion`() {
-        assertEquals("t1e2", EpisodeNavigation.prevId(serie, "t1e3"))
+    fun `prev returns the previous one in the same section`() {
+        assertEquals("t1e2", EpisodeNavigation.prevId(series, "t1e3"))
     }
 
     @Test
-    fun `prev no cruza de seccion`() {
-        assertNull(EpisodeNavigation.prevId(serie, "t2e1"))
+    fun `prev doesn't cross into another section`() {
+        assertNull(EpisodeNavigation.prevId(series, "t2e1"))
     }
 
     @Test
-    fun `episodio desconocido devuelve null`() {
-        assertNull(EpisodeNavigation.nextId(serie, "nope"))
-        assertNull(EpisodeNavigation.prevId(serie, "nope"))
+    fun `an unknown episode returns null`() {
+        assertNull(EpisodeNavigation.nextId(series, "nope"))
+        assertNull(EpisodeNavigation.prevId(series, "nope"))
     }
 
     @Test
-    fun `pelicula de un solo episodio no tiene vecinos`() {
-        val peli = listOf(NavEpisode("solo", ""))
-        assertNull(EpisodeNavigation.nextId(peli, "solo"))
-        assertNull(EpisodeNavigation.prevId(peli, "solo"))
+    fun `a single-episode movie has no neighbors`() {
+        val movie = listOf(NavEpisode("solo", ""))
+        assertNull(EpisodeNavigation.nextId(movie, "solo"))
+        assertNull(EpisodeNavigation.prevId(movie, "solo"))
     }
 }

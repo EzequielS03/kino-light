@@ -80,7 +80,7 @@ class MagisSessionTest {
 
         val r = session.ensureAnonymous()
 
-        assertTrue("esperaba Ok y fue $r", r is MagisResult.Ok<*>)
+        assertTrue("expected Ok, got $r", r is MagisResult.Ok<*>)
         assertEquals(1, fake.timesCalled("v3/snToken"))
         assertEquals("efd725bf38485c1d776b0ee7b8247c96", store.readSession()?.sn)
         assertEquals("t4", store.readSession()?.userToken)
@@ -89,14 +89,14 @@ class MagisSessionTest {
     @Test
     fun `if the portal is down while activating, it doesn't mint a new device`() = runTest {
         val fake = FakePortalClient()
-        fake.queueResponse("v8/active", MagisResult.RedError(java.io.IOException("sin red")))
+        fake.queueResponse("v8/active", MagisResult.RedError(java.io.IOException("no network")))
         val store = FakeCredentialStore()
         store.saveSession(StoredSession("u5", "", "", sn = "sn-bueno"))
         val session = MagisSession(fake, store)
 
         val r = session.ensureAnonymous()
 
-        assertTrue("esperaba RedError y fue $r", r is MagisResult.RedError)
+        assertTrue("expected RedError, got $r", r is MagisResult.RedError)
         assertEquals(0, fake.timesCalled("v3/snToken"))
         assertEquals("sn-bueno", store.readSession()?.sn)
     }
@@ -127,7 +127,7 @@ class MagisSessionTest {
         assertEquals("persona@ejemplo.com" to "MiClaveMagis123", store.readAccount())
         assertEquals("t6", store.readSession()?.userToken)
         assertEquals("j6", store.readSession()?.jwtToken)
-        // El device es del aparato, no de la cuenta: el login no lo pisa.
+        // The device belongs to the hardware, not the account: login doesn't overwrite it.
         assertEquals("sn-mio", store.readSession()?.sn)
         assertTrue(session.hasAccountLinked)
     }
@@ -137,14 +137,14 @@ class MagisSessionTest {
         val fake = FakePortalClient()
         fake.queueResponse("v8/login", portalOk("userId" to "u7", "userToken" to "t7"))
         val session = testSessionWithAccount(fake)
-        var intentos = 0
+        var attempts = 0
 
         val r = session.withValidSession {
-            intentos++
-            if (intentos == 1) MagisResult.PortalError("aaa100028", "未登录！") else portalOk("ok" to "si")
+            attempts++
+            if (attempts == 1) MagisResult.PortalError("aaa100028", "未登录！") else portalOk("ok" to "si")
         }
 
-        assertEquals(2, intentos)
+        assertEquals(2, attempts)
         assertEquals(1, fake.timesCalled("v8/login"))
         assertEquals("si", r.getOrNull()?.getString("ok"))
         assertEquals("t7", session.userToken)
@@ -155,18 +155,18 @@ class MagisSessionTest {
         val fake = FakePortalClient()
         fake.queueResponse("v8/active", portalOk("userId" to "u8", "userToken" to "t8"))
         val session = testSession(fake)
-        var intentos = 0
+        var attempts = 0
 
         val r = session.withValidSession {
-            intentos++
-            if (intentos == 1) {
+            attempts++
+            if (attempts == 1) {
                 MagisResult.PortalError("aaa999999", "您的账号已经在其他设备登录")
             } else {
                 portalOk("ok" to "si")
             }
         }
 
-        assertEquals(2, intentos)
+        assertEquals(2, attempts)
         assertEquals(1, fake.timesCalled("v8/active"))
         assertEquals("si", r.getOrNull()?.getString("ok"))
     }
@@ -176,14 +176,14 @@ class MagisSessionTest {
         val fake = FakePortalClient()
         fake.queueResponse("v8/active", portalOk("userId" to "u9", "userToken" to "t9"))
         val session = testSession(fake)
-        var intentos = 0
+        var attempts = 0
 
         val r = session.withValidSession {
-            intentos++
+            attempts++
             MagisResult.PortalError("aaa100028", "未登erró")
         }
 
-        assertEquals(2, intentos)
+        assertEquals(2, attempts)
         assertTrue(r is MagisResult.PortalError)
     }
 
@@ -191,14 +191,14 @@ class MagisSessionTest {
     fun `withValidSession doesn't reauthenticate if the portal is down`() = runTest {
         val fake = FakePortalClient()
         val session = testSession(fake)
-        var intentos = 0
+        var attempts = 0
 
         val r = session.withValidSession {
-            intentos++
-            MagisResult.RedError(java.io.IOException("sin red"))
+            attempts++
+            MagisResult.RedError(java.io.IOException("no network"))
         }
 
-        assertEquals(1, intentos)
+        assertEquals(1, attempts)
         assertEquals(0, fake.calls.size)
         assertTrue(r is MagisResult.RedError)
     }
@@ -226,11 +226,11 @@ class MagisSessionTest {
         MagisSession(fake, FakeCredentialStore()).ensureAnonymous()
         MagisSession(fake, FakeCredentialStore()).ensureAnonymous()
 
-        val huellas = fake.calls.filter { it.first == "v3/snToken" }.map { it.second }
-        assertEquals(2, huellas.size)
-        assertNotNull(huellas[0]["androidId"])
-        assertTrue("el androidId no puede repetirse entre aparatos", huellas[0]["androidId"] != huellas[1]["androidId"])
-        assertTrue(huellas[0]["wifiMac"] != huellas[1]["wifiMac"])
+        val fingerprints = fake.calls.filter { it.first == "v3/snToken" }.map { it.second }
+        assertEquals(2, fingerprints.size)
+        assertNotNull(fingerprints[0]["androidId"])
+        assertTrue("androidId must not repeat across devices", fingerprints[0]["androidId"] != fingerprints[1]["androidId"])
+        assertTrue(fingerprints[0]["wifiMac"] != fingerprints[1]["wifiMac"])
     }
 
     @Test
@@ -241,7 +241,7 @@ class MagisSessionTest {
 
         val r = MagisSession(fake, store).ensureAnonymous()
 
-        assertTrue("esperaba error y fue $r", r !is MagisResult.Ok<*>)
+        assertTrue("expected an error, got $r", r !is MagisResult.Ok<*>)
         assertNull(store.readSession())
         assertEquals(0, fake.timesCalled("v8/active"))
     }
@@ -267,7 +267,7 @@ class MagisSessionTest {
 
         val r = MagisSession(fake, store).ensureAnonymous()
 
-        assertTrue("esperaba error y fue $r", r !is MagisResult.Ok<*>)
+        assertTrue("expected an error, got $r", r !is MagisResult.Ok<*>)
         assertEquals("", store.readSession()?.userToken.orEmpty())
     }
 

@@ -15,32 +15,32 @@ import org.junit.Test
 class EpisodeNumberingTest {
 
     @Test
-    fun `saca la temporada de la seccion`() {
+    fun `pulls the season out of the section`() {
         assertEquals(1, EpisodeNumbering.seasonOf("Temporada 1"))
         assertEquals(12, EpisodeNumbering.seasonOf("Temporada 12"))
     }
 
     @Test
-    fun `sin numero en la seccion no hay temporada`() {
+    fun `with no number in the section there's no season`() {
         assertNull(EpisodeNumbering.seasonOf(""))
         assertNull(EpisodeNumbering.seasonOf("Extras"))
     }
 
     @Test
-    fun `saca el capitulo del displayName de una serie web`() {
+    fun `pulls the chapter out of a web series' displayName`() {
         // addWebSeriesEpisode's format: "T<season> · E<chapter>  <name>".
         assertEquals(1, EpisodeNumbering.episodeOf("T1 · E1"))
         assertEquals(7, EpisodeNumbering.episodeOf("T2 · E7  El regreso"))
     }
 
     @Test
-    fun `el nombre del capitulo no le gana al numero real`() {
+    fun `the chapter's name doesn't beat the real number`() {
         // find() returns the FIRST match, so an "E9" inside the title doesn't clobber E3.
         assertEquals(3, EpisodeNumbering.episodeOf("T1 · E3  Fuga del bloque E9"))
     }
 
     @Test
-    fun `sin marca de capitulo no hay numero`() {
+    fun `with no chapter marker there's no number`() {
         assertNull(EpisodeNumbering.episodeOf("Pelicula completa"))
     }
 }

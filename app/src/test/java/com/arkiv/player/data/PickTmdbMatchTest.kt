@@ -37,7 +37,7 @@ class PickTmdbMatchTest {
     )
 
     @Test
-    fun `elige la coincidencia exacta aunque TMDB la mande al fondo`() {
+    fun `picks the exact match even if TMDB sends it to the bottom`() {
         assertEquals(12609, pickTmdbMatch("Dragon Ball", dragonBall)?.item?.id)
     }
 
@@ -46,7 +46,7 @@ class PickTmdbMatchTest {
      * wins": with the 1986 one first, searching "Dragon Ball Z" still has to return Z.
      */
     @Test
-    fun `la coincidencia exacta gana tambien cuando el titulo corto va primero`() {
+    fun `the exact match also wins when the short title comes first`() {
         assertEquals(12971, pickTmdbMatch("Dragon Ball Z", dragonBall.reversed())?.item?.id)
     }
 
@@ -55,7 +55,7 @@ class PickTmdbMatchTest {
      * the library has "Dragon Ball Kai" and TMDB calls it "Dragon Ball Z Kai".
      */
     @Test
-    fun `sin coincidencia exacta cae al primer resultado`() {
+    fun `with no exact match it falls back to the first result`() {
         val kai = listOf(tv(61709, "Dragon Ball Z Kai", "ドラゴンボール改「カイ」", "2009"))
         assertEquals(61709, pickTmdbMatch("Dragon Ball Kai", kai)?.item?.id)
     }
@@ -67,7 +67,7 @@ class PickTmdbMatchTest {
      * the order was deliberately altered).
      */
     @Test
-    fun `tambien matchea contra el titulo original`() {
+    fun `also matches against the original title`() {
         val simpsons = listOf(
             tv(304530, "Fortnite x Los Simpson", "Fortnite x The Simpsons", "2025"),
             tv(456, "Los Simpson", "The Simpsons", "1989"),
@@ -77,7 +77,7 @@ class PickTmdbMatchTest {
 
     /** Normalization: accents, capitalization and punctuation must not break the exact match. */
     @Test
-    fun `la coincidencia exacta ignora tildes mayusculas y puntuacion`() {
+    fun `the exact match ignores accents, capitalization and punctuation`() {
         val list = listOf(
             tv(1, "Otra Cosa", "Something Else", "2020"),
             tv(2, "El Señor de los Cielos", "El Señor de los Cielos", "2013"),
@@ -91,22 +91,22 @@ class PickTmdbMatchTest {
      * anything there: it falls back to the first one.
      */
     @Test
-    fun `un titulo sin caracteres latinos no inventa coincidencia exacta`() {
+    fun `a title with no latin characters doesn't make up an exact match`() {
         assertEquals(12971, pickTmdbMatch("ドラゴンボール", dragonBall)?.item?.id)
     }
 
     @Test
-    fun `sin resultados no hay match`() {
+    fun `with no results there's no match`() {
         assertNull(pickTmdbMatch("Lo Que Sea", emptyList()))
     }
 
     @Test
-    fun `un match por titulo igual se marca exacto`() {
+    fun `a match by equal title is marked exact`() {
         assertTrue(pickTmdbMatch("Dragon Ball", dragonBall)!!.exact)
     }
 
     @Test
-    fun `un match por descarte NO se marca exacto`() {
+    fun `a match by elimination is NOT marked exact`() {
         // This is the one that matters. The first result is good enough to pull a
         // decent backdrop for "Dragon Ball Kai", but it's NOT identity: `ensureArtwork`
         // used to save that id and `LibraryGrouping` groups by it, so a title TMDB
@@ -119,7 +119,7 @@ class PickTmdbMatchTest {
     }
 
     @Test
-    fun `sin query util el primer resultado tampoco es exacto`() {
+    fun `with no usable query the first result isn't exact either`() {
         // Blank query after cleaning: something is returned for the art, but there's
         // NOTHING to claim it's the same work.
         val m = pickTmdbMatch("", dragonBall)
