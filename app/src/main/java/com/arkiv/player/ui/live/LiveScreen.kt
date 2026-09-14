@@ -70,7 +70,7 @@ import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import kotlinx.coroutines.launch
 
-/** Vistas que no vienen del gateway: se arman con datos locales (Room), no con [LiveViewModel.elegirCategoria]. */
+/** Vistas que no vienen del gateway: se arman con datos locales (Room), no con [LiveViewModel.chooseCategory]. */
 private enum class VistaLocal { NINGUNA, RECIENTES }
 
 /**
@@ -110,49 +110,49 @@ fun LiveScreen(
                     graph.database.liveChannelCacheDao(),
                     // Se lee en CADA carga, no una vez: destrabar 18+ desde Ajustes tiene
                     // que verse al volver a entrar, sin reiniciar la app.
-                    adultosDesbloqueado = { graph.settings.adultosDesbloqueado.value },
+                    adultsUnlocked = { graph.settings.adultosDesbloqueado.value },
                 )
             }
         },
     )
-    val estado by vm.estado.collectAsStateWithLifecycle()
+    val estado by vm.state.collectAsStateWithLifecycle()
     var vista by remember { mutableStateOf(VistaLocal.NINGUNA) }
     // rememberSaveable: el brief pide que el modo sobreviva a la rotación (cambio de configuración
     // recompone toda la pantalla desde cero, y con `remember` volvería siempre a la grilla).
     var modoGuia by rememberSaveable { mutableStateOf(false) }
 
-    // Recientes: no pasa por LiveViewModel.elegirCategoria (no es una categoría del portal), se lee
+    // Recientes: no pasa por LiveViewModel.chooseCategory (no es una categoría del portal), se lee
     // directo de Room. Sin numero/logo propios (Tarea 10 no los guarda para "recientes"), así que se
-    // enriquecen con lo que ya esté cargado en `estado.canales`, si el canal aparece ahí.
+    // enriquecen con lo que ya esté cargado en `estado.channels`, si el canal aparece ahí.
     val recentDao = remember { graph.database.liveRecentDao() }
     val recientesCrudo by recentDao.flowRecent().collectAsStateWithLifecycle(initialValue = emptyList())
-    val recientes = remember(recientesCrudo, estado.canales) {
+    val recientes = remember(recientesCrudo, estado.channels) {
         recientesCrudo.map { r ->
-            estado.canales.find { it.code == r.code }?.copy(nombre = r.nombre)
+            estado.channels.find { it.code == r.code }?.copy(nombre = r.nombre)
                 ?: LiveChannel(r.code, r.nombre, 0, null)
         }
     }
     LaunchedEffect(recientes) {
-        if (recientes.isNotEmpty()) vm.pedirEpgDe(recientes.map { it.code })
+        if (recientes.isNotEmpty()) vm.requestEpg(recientes.map { it.code })
     }
 
     // Precalentar los favoritos (acotado): son los canales con más chance de abrirse a continuación,
     // y resolver cuesta ~3s (ver LiveController) -- que ya estén resueltos para cuando exista el
     // reproductor en vivo (Tarea 14) es gratis y best-effort (preheat() nunca lanza).
-    LaunchedEffect(estado.favoritos) {
-        estado.favoritos.take(5).forEach { code -> launch { graph.liveController.preheat(code) } }
+    LaunchedEffect(estado.favorites) {
+        estado.favorites.take(5).forEach { code -> launch { graph.liveController.preheat(code) } }
     }
 
     // La lista "con la que se entró" (categoría/favoritos, o recientes) -- Tarea 14: es la que el
     // zapping del reproductor recorre, no el catálogo completo. Se fija en LiveZappingSource ANTES
     // de abrir: una lista de LiveChannel no cruza bien la ruta de navegación (un String), ver el
     // KDoc de LiveZappingSource (LiveZapping.kt).
-    val listaActiva = if (vista == VistaLocal.RECIENTES) filtrar(recientes, estado.busqueda) else estado.visibles
+    val listaActiva = if (vista == VistaLocal.RECIENTES) filterChannels(recientes, estado.search) else estado.visible
     fun abrir(canal: LiveChannel) {
         LiveZappingSource.list = listaActiva
         onAbrirCanal(canal.code)
     }
-    fun favorito(canal: LiveChannel) = vm.alternarFavorito(canal)
+    fun favorito(canal: LiveChannel) = vm.toggleFavorite(canal)
 
     Column(modifier = Modifier.fillMaxSize().padding(top = contentPadding.calculateTopPadding())) {
         Row(
@@ -160,13 +160,13 @@ fun LiveScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             OutlinedTextField(
-                value = estado.busqueda,
-                onValueChange = vm::buscar,
+                value = estado.search,
+                onValueChange = vm::search,
                 placeholder = { Text("Buscar por nombre o número…") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 trailingIcon = {
-                    if (estado.busqueda.isNotEmpty()) {
-                        IconButton(onClick = { vm.buscar("") }) {
+                    if (estado.search.isNotEmpty()) {
+                        IconButton(onClick = { vm.search("") }) {
                             Icon(Icons.Default.Close, contentDescription = "Limpiar")
                         }
                     }
@@ -191,8 +191,8 @@ fun LiveScreen(
                 CategoriaChip(
                     label = "Favoritos",
                     icon = Icons.Default.Star,
-                    selected = vista == VistaLocal.NINGUNA && estado.categoriaActiva == CATEGORIA_FAVORITOS,
-                    onClick = { vista = VistaLocal.NINGUNA; vm.elegirCategoria(CATEGORIA_FAVORITOS) },
+                    selected = vista == VistaLocal.NINGUNA && estado.activeCategory == CATEGORY_FAVORITES,
+                    onClick = { vista = VistaLocal.NINGUNA; vm.chooseCategory(CATEGORY_FAVORITES) },
                 )
             }
             item {
@@ -203,19 +203,19 @@ fun LiveScreen(
                     onClick = { vista = VistaLocal.RECIENTES },
                 )
             }
-            items(estado.categorias, key = { it.id }) { cat ->
+            items(estado.categories, key = { it.id }) { cat ->
                 CategoriaChip(
                     label = cat.nombre,
                     icon = null,
-                    selected = vista == VistaLocal.NINGUNA && estado.categoriaActiva == cat.id,
-                    onClick = { vista = VistaLocal.NINGUNA; vm.elegirCategoria(cat.id) },
+                    selected = vista == VistaLocal.NINGUNA && estado.activeCategory == cat.id,
+                    onClick = { vista = VistaLocal.NINGUNA; vm.chooseCategory(cat.id) },
                 )
             }
         }
 
         // Aviso fino de refresco: la grilla ya tiene algo pintado (caché o carga previa), así que
         // un spinner a pantalla completa sería peor que no decir nada -- solo una barrita arriba.
-        if (estado.cargando && (vista == VistaLocal.NINGUNA && estado.canales.isNotEmpty())) {
+        if (estado.loading && (vista == VistaLocal.NINGUNA && estado.channels.isNotEmpty())) {
             LinearProgressIndicator(color = ArkivRed, modifier = Modifier.fillMaxWidth())
         }
 
@@ -226,7 +226,7 @@ fun LiveScreen(
 
         when {
             vista == VistaLocal.RECIENTES -> {
-                val visibles = filtrar(recientes, estado.busqueda)
+                val visibles = filterChannels(recientes, estado.search)
                 if (visibles.isEmpty()) {
                     EmptyState(
                         "Sin canales recientes",
@@ -234,28 +234,28 @@ fun LiveScreen(
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else if (modoGuia) {
-                    LiveGuideList(visibles, estado.programacion, ::abrir, vm::pedirEpgDe, gridPadding)
+                    LiveGuideList(visibles, estado.programming, ::abrir, vm::requestEpg, gridPadding)
                 } else {
-                    ChannelGrid(visibles, estado.ahora, estado.favoritos, gridPadding, ::abrir, ::favorito)
+                    ChannelGrid(visibles, estado.current, estado.favorites, gridPadding, ::abrir, ::favorito)
                 }
             }
-            estado.error != null && estado.canales.isEmpty() -> {
-                ErrorConReintento(estado.error!!) { vm.elegirCategoria(estado.categoriaActiva) }
+            estado.error != null && estado.channels.isEmpty() -> {
+                ErrorConReintento(estado.error!!) { vm.chooseCategory(estado.activeCategory) }
             }
-            estado.cargando && estado.canales.isEmpty() -> {
+            estado.loading && estado.channels.isEmpty() -> {
                 PlaceholderGrid(gridPadding)
             }
-            estado.visibles.isEmpty() -> {
+            estado.visible.isEmpty() -> {
                 val (title, subtitle) = when {
-                    estado.busqueda.isNotBlank() -> "Sin resultados" to "Probá con otro nombre o número de canal."
-                    estado.categoriaActiva == CATEGORIA_FAVORITOS -> "Sin favoritos todavía" to
+                    estado.search.isNotBlank() -> "Sin resultados" to "Probá con otro nombre o número de canal."
+                    estado.activeCategory == CATEGORY_FAVORITES -> "Sin favoritos todavía" to
                         "Mantené pulsado un canal para agregarlo."
                     else -> "Sin canales" to "No encontramos canales en esta categoría."
                 }
                 EmptyState(title, subtitle, modifier = Modifier.fillMaxSize())
             }
-            modoGuia -> LiveGuideList(estado.visibles, estado.programacion, ::abrir, vm::pedirEpgDe, gridPadding)
-            else -> ChannelGrid(estado.visibles, estado.ahora, estado.favoritos, gridPadding, ::abrir, ::favorito)
+            modoGuia -> LiveGuideList(estado.visible, estado.programming, ::abrir, vm::requestEpg, gridPadding)
+            else -> ChannelGrid(estado.visible, estado.current, estado.favorites, gridPadding, ::abrir, ::favorito)
         }
     }
 }
@@ -424,7 +424,7 @@ private fun ChannelCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(progresoDePrograma(ahoraPrograma))
+                        .fillMaxWidth(programProgress(ahoraPrograma))
                         .fillMaxSize()
                         .background(ArkivRed),
                 )

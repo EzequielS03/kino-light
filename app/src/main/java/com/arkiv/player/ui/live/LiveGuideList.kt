@@ -89,7 +89,7 @@ private fun timeOf(epochSeconds: Long): String =
  *
  * [onRequestEpg] fires with the codes that enter the `LazyColumn`'s visible window -detected by
  * [rememberLazyListState]'s index, not by recomposition- and filtered against [programming]:
- * the ones that already have their day loaded aren't requested again. [LiveViewModel.pedirEpgDe]
+ * the ones that already have their day loaded aren't requested again. [LiveViewModel.requestEpg]
  * already guards itself against duplicates (see its KDoc), but filtering here also avoids
  * sending the full list of visible channels on every scroll -- only the difference.
  */
@@ -105,7 +105,7 @@ fun LiveGuideList(
 
     // rememberUpdatedState for programming/onRequestEpg (not as the LaunchedEffect's key): the
     // effect launches ONCE per `channels` identity and lives listening to scroll that whole
-    // time. If `programming` were the key, every EPG batch that arrives (see pedirEpgDe) would
+    // time. If `programming` were the key, every EPG batch that arrives (see requestEpg) would
     // restart the collection -- here it only needs to see the freshest map at the moment the
     // visible index changes, not relaunch every time that map grows.
     val latestProgramming by rememberUpdatedState(programming)

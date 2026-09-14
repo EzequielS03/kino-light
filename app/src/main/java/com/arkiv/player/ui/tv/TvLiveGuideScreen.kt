@@ -57,10 +57,10 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.arkiv.player.data.gateway.LiveChannel
-import com.arkiv.player.ui.live.CATEGORIA_FAVORITOS
+import com.arkiv.player.ui.live.CATEGORY_FAVORITES
 import com.arkiv.player.ui.live.LiveViewModel
 import com.arkiv.player.ui.live.LiveZappingSource
-import com.arkiv.player.ui.live.filtrar
+import com.arkiv.player.ui.live.filterChannels
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivBlack
 import com.arkiv.player.ui.theme.ArkivRed
@@ -114,7 +114,7 @@ private enum class TvVistaLocal { NINGUNA, RECIENTES }
  * sobre una fila llama a `onVerCanal` directo -- funciona haya o no programación, porque ya no
  * depende de que exista programación.
  *
- * Buscador: reusa `TvKeyboard` (mismo patrón visual y de foco que `TvSearchScreen`) y `filtrar`
+ * Buscador: reusa `TvKeyboard` (mismo patrón visual y de foco que `TvSearchScreen`) y `filterChannels`
  * (`LiveViewModel.kt`, ya filtra por nombre sin tildes/mayúsculas y por número exacto -- la misma
  * función que usa la guía del celular). A diferencia de `TvSearchScreen` (que busca en TMDB por
  * red y por eso espera al botón "Buscar"), acá el filtro es sobre la lista de canales YA cargada
@@ -132,34 +132,34 @@ fun TvLiveGuideScreen(onVerCanal: (LiveChannel) -> Unit, onVolver: () -> Unit) {
                     graph.database.liveChannelCacheDao(),
                     // Se lee en CADA carga, no una vez: destrabar 18+ desde Ajustes tiene
                     // que verse al volver a entrar, sin reiniciar la app.
-                    adultosDesbloqueado = { graph.settings.adultosDesbloqueado.value },
+                    adultsUnlocked = { graph.settings.adultosDesbloqueado.value },
                 )
             }
         },
     )
-    val estado by vm.estado.collectAsStateWithLifecycle()
+    val estado by vm.state.collectAsStateWithLifecycle()
 
     var vista by remember { mutableStateOf(TvVistaLocal.NINGUNA) }
 
     BackHandler { onVolver() }
 
     // Recientes: igual que LiveScreen (mobile) -- se lee directo de Room, sin numero/logo propios,
-    // enriquecido con lo que ya esté cargado en estado.canales si el canal aparece ahí.
+    // enriquecido con lo que ya esté cargado en estado.channels si el canal aparece ahí.
     val recentDao = remember { graph.database.liveRecentDao() }
     val recientesCrudo by recentDao.flowRecent().collectAsStateWithLifecycle(initialValue = emptyList())
-    val recientes = remember(recientesCrudo, estado.canales) {
+    val recientes = remember(recientesCrudo, estado.channels) {
         recientesCrudo.map { r ->
-            estado.canales.find { it.code == r.code }?.copy(nombre = r.nombre)
+            estado.channels.find { it.code == r.code }?.copy(nombre = r.nombre)
                 ?: LiveChannel(r.code, r.nombre, 0, null)
         }
     }
 
-    val canalesBase = if (vista == TvVistaLocal.RECIENTES) recientes else estado.canales
+    val canalesBase = if (vista == TvVistaLocal.RECIENTES) recientes else estado.channels
 
     // El buscador filtra por encima de la categoría/vista activa, igual que LiveScreen (mobile):
     // buscar no reemplaza la categoría elegida, la acota.
     var busqueda by remember { mutableStateOf("") }
-    val canales = remember(canalesBase, busqueda) { filtrar(canalesBase, busqueda) }
+    val canales = remember(canalesBase, busqueda) { filterChannels(canalesBase, busqueda) }
 
     // Ver el canal ahora: fija en LiveZappingSource la lista FILTRADA (con la que el usuario está
     // mirando ahora mismo) ANTES de delegar a `onVerCanal` -- es la que el zapping del reproductor
@@ -231,8 +231,8 @@ fun TvLiveGuideScreen(onVerCanal: (LiveChannel) -> Unit, onVolver: () -> Unit) {
                         TvCategoriaChip(
                             label = "Favoritos",
                             icon = Icons.Default.Star,
-                            selected = vista == TvVistaLocal.NINGUNA && estado.categoriaActiva == CATEGORIA_FAVORITOS,
-                            onClick = { vista = TvVistaLocal.NINGUNA; vm.elegirCategoria(CATEGORIA_FAVORITOS) },
+                            selected = vista == TvVistaLocal.NINGUNA && estado.activeCategory == CATEGORY_FAVORITES,
+                            onClick = { vista = TvVistaLocal.NINGUNA; vm.chooseCategory(CATEGORY_FAVORITES) },
                             modifier = Modifier.focusRequester(chipsFocus),
                         )
                     }
@@ -244,12 +244,12 @@ fun TvLiveGuideScreen(onVerCanal: (LiveChannel) -> Unit, onVolver: () -> Unit) {
                             onClick = { vista = TvVistaLocal.RECIENTES },
                         )
                     }
-                    items(estado.categorias, key = { it.id }) { cat ->
+                    items(estado.categories, key = { it.id }) { cat ->
                         TvCategoriaChip(
                             label = cat.nombre,
                             icon = null,
-                            selected = vista == TvVistaLocal.NINGUNA && estado.categoriaActiva == cat.id,
-                            onClick = { vista = TvVistaLocal.NINGUNA; vm.elegirCategoria(cat.id) },
+                            selected = vista == TvVistaLocal.NINGUNA && estado.activeCategory == cat.id,
+                            onClick = { vista = TvVistaLocal.NINGUNA; vm.chooseCategory(cat.id) },
                         )
                     }
                 }
@@ -259,9 +259,9 @@ fun TvLiveGuideScreen(onVerCanal: (LiveChannel) -> Unit, onVolver: () -> Unit) {
                 when {
                     vista == TvVistaLocal.RECIENTES && canalesBase.isEmpty() ->
                         TvGuiaMensaje("Sin canales recientes", "Los canales que abras van a aparecer acá.")
-                    estado.error != null && estado.canales.isEmpty() ->
-                        TvGuiaMensaje(estado.error!!, "Presioná OK para reintentar.") { vm.elegirCategoria(estado.categoriaActiva) }
-                    estado.cargando && estado.canales.isEmpty() ->
+                    estado.error != null && estado.channels.isEmpty() ->
+                        TvGuiaMensaje(estado.error!!, "Presioná OK para reintentar.") { vm.chooseCategory(estado.activeCategory) }
+                    estado.loading && estado.channels.isEmpty() ->
                         TvGuiaMensaje("Cargando canales…", null)
                     busqueda.isNotBlank() && canales.isEmpty() ->
                         TvGuiaMensaje("Sin resultados", "Probá con otro nombre o número de canal.")

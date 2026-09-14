@@ -41,11 +41,11 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.arkiv.player.data.gateway.LiveChannel
-import com.arkiv.player.ui.live.CATEGORIA_FAVORITOS
+import com.arkiv.player.ui.live.CATEGORY_FAVORITES
 import com.arkiv.player.ui.live.DrawerFocus
 import com.arkiv.player.ui.live.DrawerIndex
 import com.arkiv.player.ui.live.LiveViewModel
-import com.arkiv.player.ui.live.filtrar
+import com.arkiv.player.ui.live.filterChannels
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurface
@@ -90,14 +90,14 @@ fun TvCajonDeCanales(
                     graph.database.liveChannelCacheDao(),
                     // Se lee en CADA carga, no una vez: destrabar 18+ desde Ajustes tiene
                     // que verse al volver a entrar, sin reiniciar la app.
-                    adultosDesbloqueado = { graph.settings.adultosDesbloqueado.value },
+                    adultsUnlocked = { graph.settings.adultosDesbloqueado.value },
                 )
             }
         },
     )
-    val estado by vm.estado.collectAsStateWithLifecycle()
+    val estado by vm.state.collectAsStateWithLifecycle()
     var busqueda by remember { mutableStateOf("") }
-    val canales = remember(estado.canales, busqueda) { filtrar(estado.canales, busqueda) }
+    val canales = remember(estado.channels, busqueda) { filterChannels(estado.channels, busqueda) }
 
     val focoCategorias = remember { FocusRequester() }
     val focoCanales = remember { FocusRequester() }
@@ -169,15 +169,15 @@ fun TvCajonDeCanales(
                     item {
                         CajonItem(
                             etiqueta = "Favoritos",
-                            seleccionado = estado.categoriaActiva == CATEGORIA_FAVORITOS,
-                            onClick = { vm.elegirCategoria(CATEGORIA_FAVORITOS) },
+                            seleccionado = estado.activeCategory == CATEGORY_FAVORITES,
+                            onClick = { vm.chooseCategory(CATEGORY_FAVORITES) },
                         )
                     }
-                    items(estado.categorias, key = { it.id }) { cat ->
+                    items(estado.categories, key = { it.id }) { cat ->
                         CajonItem(
                             etiqueta = cat.nombre,
-                            seleccionado = estado.categoriaActiva == cat.id,
-                            onClick = { vm.elegirCategoria(cat.id) },
+                            seleccionado = estado.activeCategory == cat.id,
+                            onClick = { vm.chooseCategory(cat.id) },
                         )
                     }
                 }
@@ -186,9 +186,9 @@ fun TvCajonDeCanales(
 
         Column(Modifier.weight(1f).fillMaxHeight()) {
             when {
-                estado.error != null && estado.canales.isEmpty() ->
+                estado.error != null && estado.channels.isEmpty() ->
                     CajonMensaje(estado.error!!)
-                estado.cargando && estado.canales.isEmpty() ->
+                estado.loading && estado.channels.isEmpty() ->
                     CajonMensaje("Cargando canales…")
                 canales.isEmpty() && busqueda.isNotBlank() ->
                     CajonMensaje("Sin resultados para “$busqueda”")
