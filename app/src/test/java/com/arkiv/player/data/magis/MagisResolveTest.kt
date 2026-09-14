@@ -10,12 +10,13 @@ import org.junit.Test
 class MagisResolveTest {
 
     /**
-     * La forma REAL de `getSlbInfo` (capturada contra el portal, ver `tests/test_magis_live.py` de
-     * arkiv-api): `main_addr` cuelga del objeto `cdn`, hermano de `url_list` -- NO de cada entrada
-     * de `url_list`. Y `url_list[].url` no es una url: es un querystring suelto, sin esquema ni `?`.
+     * `getSlbInfo`'s REAL shape (captured against the portal, see arkiv-api's
+     * `tests/test_magis_live.py`): `main_addr` hangs off the `cdn` object, a sibling of `url_list`
+     * -- NOT of each `url_list` entry. And `url_list[].url` isn't a url: it's a loose querystring,
+     * with no scheme or `?`.
      */
-    private fun slbRealista(
-        auth: String = "cdn_type=1&sign_type=cfl&token=ABC&expired=$LEJANO",
+    private fun realisticSlb(
+        auth: String = "cdn_type=1&sign_type=cfl&token=ABC&expired=$FAR_AWAY",
         tag: String = "free",
         mainAddr: String = "https://cdn.example.com",
         invalidTime: String = "14400",
@@ -25,7 +26,7 @@ class MagisResolveTest {
         ]}""",
     )
 
-    private fun playDeUnaPelicula(
+    private fun moviePlay(
         contentId: String = "M1",
         videoFormat: String = "mp4",
         encodeFormat: String = "h264",
@@ -37,63 +38,63 @@ class MagisResolveTest {
     )
 
     @Test
-    fun `arma la url y headers finales para una pelicula`() = runTest {
+    fun `builds the final url and headers for a movie`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v10/startPlayVOD", MagisResult.Ok(playDeUnaPelicula()))
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slbRealista(mainAddr = "cdn.example.com")))
-        val resolve = MagisResolve(fake, sesionDeTest(fake), appId = "app.id", apkVersion = "49902")
+        fake.queueResponse("v10/startPlayVOD", MagisResult.Ok(moviePlay()))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(realisticSlb(mainAddr = "cdn.example.com")))
+        val resolve = MagisResolve(fake, testSession(fake), appId = "app.id", apkVersion = "49902")
 
         val r = resolve.resolveVod("M1")
 
-        val p = r.dato() ?: error("esperaba Ok y fue $r")
+        val p = r.getOrNull() ?: error("esperaba Ok y fue $r")
         assertEquals("https://cdn.example.com/vod/M1_media.mp4", p.url)
         assertEquals("LIC123", p.headers["Content-License"])
         assertEquals("Ranger/4.9.4-17294ac0", p.headers["User-Agent"])
         assertEquals("app.id", p.headers["App"])
         assertEquals("49902", p.headers["App-Version"])
-        assertEquals("cdn_type=1&sign_type=cfl&token=ABC&expired=$LEJANO", p.headers["Content-Auth"])
+        assertEquals("cdn_type=1&sign_type=cfl&token=ABC&expired=$FAR_AWAY", p.headers["Content-Auth"])
         assertEquals("video/mp4", p.mime)
         assertEquals("mp4", p.container)
         assertEquals("h264", p.videoCodec)
     }
 
     @Test
-    fun `main_addr con esquema y barra final no duplica nada`() = runTest {
+    fun `main_addr with a scheme and trailing slash doesn't duplicate anything`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v10/startPlayVOD", MagisResult.Ok(playDeUnaPelicula()))
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slbRealista(mainAddr = "https://cdn.example.com/")))
-        val resolve = MagisResolve(fake, sesionDeTest(fake))
+        fake.queueResponse("v10/startPlayVOD", MagisResult.Ok(moviePlay()))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(realisticSlb(mainAddr = "https://cdn.example.com/")))
+        val resolve = MagisResolve(fake, testSession(fake))
 
-        val p = resolve.resolveVod("M1").dato()!!
+        val p = resolve.resolveVod("M1").getOrNull()!!
 
         assertEquals("https://cdn.example.com/vod/M1_media.mp4", p.url)
     }
 
     @Test
-    fun `un main_addr con path y http se respeta tal cual`() = runTest {
+    fun `a main_addr with a path and http is respected as-is`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v10/startPlayVOD", MagisResult.Ok(playDeUnaPelicula()))
-        fake.encolarRespuesta(
+        fake.queueResponse("v10/startPlayVOD", MagisResult.Ok(moviePlay()))
+        fake.queueResponse(
             "v14/getSlbInfo",
-            MagisResult.Ok(slbRealista(mainAddr = "http://niguof.vynbszicd.com/v3/youshi/")),
+            MagisResult.Ok(realisticSlb(mainAddr = "http://niguof.vynbszicd.com/v3/youshi/")),
         )
 
-        val p = MagisResolve(fake, sesionDeTest(fake)).resolveVod("M1").dato()!!
+        val p = MagisResolve(fake, testSession(fake)).resolveVod("M1").getOrNull()!!
 
         assertEquals("http://niguof.vynbszicd.com/v3/youshi/vod/M1_media.mp4", p.url)
     }
 
     @Test
-    fun `un ts se sirve como ts y se declara como mp2t`() = runTest {
+    fun `a ts is served as ts and declared as mp2t`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta(
+        fake.queueResponse(
             "v10/startPlayVOD",
-            MagisResult.Ok(playDeUnaPelicula(contentId = "T9", videoFormat = "ts")),
+            MagisResult.Ok(moviePlay(contentId = "T9", videoFormat = "ts")),
         )
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slbRealista()))
-        val resolve = MagisResolve(fake, sesionDeTest(fake))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(realisticSlb()))
+        val resolve = MagisResolve(fake, testSession(fake))
 
-        val p = resolve.resolveVod("T9").dato()!!
+        val p = resolve.resolveVod("T9").getOrNull()!!
 
         assertEquals("https://cdn.example.com/vod/T9_media.ts", p.url)
         assertEquals("video/mp2t", p.mime)
@@ -101,7 +102,7 @@ class MagisResolveTest {
     }
 
     @Test
-    fun `entre h265-mp4 y h264-ts gana el h264 aunque no sea mp4`() = runTest {
+    fun `between h265-mp4 and h264-ts, h264 wins even though it's not mp4`() = runTest {
         val play = JSONObject(
             """{"episodeList":[{"totalMovieList":[{"movieList":[
                 {"contentId":"HEVC","videoFormat":"mp4","encodeFormat":"h265","licenseList":[{"license":"L-HEVC"}]},
@@ -109,11 +110,11 @@ class MagisResolveTest {
             ]}]}]}""",
         )
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v10/startPlayVOD", MagisResult.Ok(play))
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slbRealista()))
-        val resolve = MagisResolve(fake, sesionDeTest(fake))
+        fake.queueResponse("v10/startPlayVOD", MagisResult.Ok(play))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(realisticSlb()))
+        val resolve = MagisResolve(fake, testSession(fake))
 
-        val p = resolve.resolveVod("X").dato()!!
+        val p = resolve.resolveVod("X").getOrNull()!!
 
         assertEquals("https://cdn.example.com/vod/AVC_media.ts", p.url)
         assertEquals("h264", p.videoCodec)
@@ -121,7 +122,7 @@ class MagisResolveTest {
     }
 
     @Test
-    fun `entre dos h264 gana la que el portal ofrecio primero`() = runTest {
+    fun `between two h264s, whichever the portal offered first wins`() = runTest {
         val play = JSONObject(
             """{"episodeList":[{"totalMovieList":[{"movieList":[
                 {"contentId":"PRIMERA","videoFormat":"ts","encodeFormat":"h264","licenseList":[{"license":"L1"}]},
@@ -129,19 +130,19 @@ class MagisResolveTest {
             ]}]}]}""",
         )
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v10/startPlayVOD", MagisResult.Ok(play))
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slbRealista()))
+        fake.queueResponse("v10/startPlayVOD", MagisResult.Ok(play))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(realisticSlb()))
 
-        val p = MagisResolve(fake, sesionDeTest(fake)).resolveVod("X").dato()!!
+        val p = MagisResolve(fake, testSession(fake)).resolveVod("X").getOrNull()!!
 
         assertEquals("https://cdn.example.com/vod/PRIMERA_media.ts", p.url)
     }
 
     @Test
-    fun `sign_type parecido no cuenta como cfl`() = runTest {
+    fun `a similar-looking sign_type doesn't count as cfl`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v10/startPlayVOD", MagisResult.Ok(playDeUnaPelicula()))
-        fake.encolarRespuesta(
+        fake.queueResponse("v10/startPlayVOD", MagisResult.Ok(moviePlay()))
+        fake.queueResponse(
             "v14/getSlbInfo",
             MagisResult.Ok(
                 JSONObject(
@@ -152,24 +153,24 @@ class MagisResolveTest {
             ),
         )
 
-        val r = MagisResolve(fake, sesionDeTest(fake)).resolveVod("M1")
+        val r = MagisResolve(fake, testSession(fake)).resolveVod("M1")
 
-        assertEquals("sin_cdn_vod", (r as MagisResult.PortalError).codigo)
+        assertEquals("sin_cdn_vod", (r as MagisResult.PortalError).code)
     }
 
     @Test
-    fun `un CDN que no es del tier libre no sirve`() = runTest {
+    fun `a CDN that's not from the free tier doesn't work`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v10/startPlayVOD", MagisResult.Ok(playDeUnaPelicula()))
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slbRealista(tag = "pay")))
+        fake.queueResponse("v10/startPlayVOD", MagisResult.Ok(moviePlay()))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(realisticSlb(tag = "pay")))
 
-        val r = MagisResolve(fake, sesionDeTest(fake)).resolveVod("M1")
+        val r = MagisResolve(fake, testSession(fake)).resolveVod("M1")
 
-        assertEquals("sin_cdn_vod", (r as MagisResult.PortalError).codigo)
+        assertEquals("sin_cdn_vod", (r as MagisResult.PortalError).code)
     }
 
     @Test
-    fun `los subtitulos del portal viajan, y los idiomas sin archivo se descartan`() = runTest {
+    fun `the portal's subtitles travel, and languages with no file get discarded`() = runTest {
         val play = JSONObject(
             """{"episodeList":[{"totalMovieList":[{"movieList":[
                 {"contentId":"M1","videoFormat":"mp4","encodeFormat":"h264","licenseList":[{"license":"L"}]}
@@ -180,157 +181,157 @@ class MagisResolveTest {
             ]}]}""",
         )
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v10/startPlayVOD", MagisResult.Ok(play))
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slbRealista()))
+        fake.queueResponse("v10/startPlayVOD", MagisResult.Ok(play))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(realisticSlb()))
 
-        val p = MagisResolve(fake, sesionDeTest(fake)).resolveVod("M1").dato()!!
+        val p = MagisResolve(fake, testSession(fake)).resolveVod("M1").getOrNull()!!
 
-        assertEquals(listOf(MagisSubtitulo("es", "https://s/es.srt", "srt")), p.subtitulos)
+        assertEquals(listOf(MagisSubtitle("es", "https://s/es.srt", "srt")), p.subtitles)
     }
 
     @Test
-    fun `la duracion se entiende en sus tres formas y lo raro vale cero`() = runTest {
-        val casos = mapOf(
+    fun `the duration is understood in its three forms and anything odd is worth zero`() = runTest {
+        val cases = mapOf(
             """"01:02:03"""" to 3723_000L,
             """"02:03"""" to 123_000L,
             """"7010"""" to 7_010_000L,
             "7010" to 7_010_000L,
             """"un rato"""" to 0L,
         )
-        for ((crudo, esperado) in casos) {
+        for ((raw, expected) in cases) {
             val play = JSONObject(
                 """{"episodeList":[{"totalMovieList":[{"movieList":[
-                    {"contentId":"M1","videoFormat":"mp4","encodeFormat":"h264","duration":$crudo,
+                    {"contentId":"M1","videoFormat":"mp4","encodeFormat":"h264","duration":$raw,
                      "licenseList":[{"license":"L"}]}
                 ]}]}]}""",
             )
             val fake = FakePortalClient()
-            fake.encolarRespuesta("v10/startPlayVOD", MagisResult.Ok(play))
-            fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slbRealista()))
+            fake.queueResponse("v10/startPlayVOD", MagisResult.Ok(play))
+            fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(realisticSlb()))
 
-            val p = MagisResolve(fake, sesionDeTest(fake)).resolveVod("M1").dato()!!
+            val p = MagisResolve(fake, testSession(fake)).resolveVod("M1").getOrNull()!!
 
-            assertEquals("duracion $crudo", esperado, p.durationMs)
+            assertEquals("duracion $raw", expected, p.durationMs)
         }
     }
 
     @Test
-    fun `el capitulo de una serie viaja con su seriesContentId`() = runTest {
+    fun `a series' chapter travels with its seriesContentId`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v10/startPlayVOD", MagisResult.Ok(playDeUnaPelicula(contentId = "EP1")))
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slbRealista()))
+        fake.queueResponse("v10/startPlayVOD", MagisResult.Ok(moviePlay(contentId = "EP1")))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(realisticSlb()))
 
-        MagisResolve(fake, sesionDeTest(fake)).resolveVod("EP1", seriesContentId = "SERIE7")
+        MagisResolve(fake, testSession(fake)).resolveVod("EP1", seriesContentId = "SERIE7")
 
-        val (_, bean) = fake.llamadas.first { it.first == "v10/startPlayVOD" }
+        val (_, bean) = fake.calls.first { it.first == "v10/startPlayVOD" }
         assertEquals("EP1", bean["contentId"])
         assertEquals("SERIE7", bean["seriesContentId"])
     }
 
     @Test
-    fun `getSlbInfo se pide una sola vez para dos titulos de la misma sesion`() = runTest {
+    fun `getSlbInfo is requested only once for two titles in the same session`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v10/startPlayVOD", MagisResult.Ok(playDeUnaPelicula(contentId = "A")))
-        fake.encolarRespuesta("v10/startPlayVOD", MagisResult.Ok(playDeUnaPelicula(contentId = "B")))
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slbRealista()))
-        val resolve = MagisResolve(fake, sesionDeTest(fake))
+        fake.queueResponse("v10/startPlayVOD", MagisResult.Ok(moviePlay(contentId = "A")))
+        fake.queueResponse("v10/startPlayVOD", MagisResult.Ok(moviePlay(contentId = "B")))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(realisticSlb()))
+        val resolve = MagisResolve(fake, testSession(fake))
 
         resolve.resolveVod("A")
-        val segunda = resolve.resolveVod("B")
+        val second = resolve.resolveVod("B")
 
-        assertEquals(1, fake.vecesLlamado("v14/getSlbInfo"))
-        assertEquals("https://cdn.example.com/vod/B_media.mp4", segunda.dato()?.url)
+        assertEquals(1, fake.timesCalled("v14/getSlbInfo"))
+        assertEquals("https://cdn.example.com/vod/B_media.mp4", second.getOrNull()?.url)
     }
 
     @Test
-    fun `un Content-Auth a punto de vencer no se cachea`() = runTest {
+    fun `a Content-Auth about to expire isn't cached`() = runTest {
         val fake = FakePortalClient()
-        val casiVencido = "sign_type=cfl&token=ABC&expired=${System.currentTimeMillis() / 1000 + 60}"
-        fake.encolarRespuesta("v10/startPlayVOD", MagisResult.Ok(playDeUnaPelicula(contentId = "A")))
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slbRealista(auth = casiVencido)))
-        fake.encolarRespuesta("v10/startPlayVOD", MagisResult.Ok(playDeUnaPelicula(contentId = "B")))
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slbRealista()))
-        val resolve = MagisResolve(fake, sesionDeTest(fake))
+        val almostExpired = "sign_type=cfl&token=ABC&expired=${System.currentTimeMillis() / 1000 + 60}"
+        fake.queueResponse("v10/startPlayVOD", MagisResult.Ok(moviePlay(contentId = "A")))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(realisticSlb(auth = almostExpired)))
+        fake.queueResponse("v10/startPlayVOD", MagisResult.Ok(moviePlay(contentId = "B")))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(realisticSlb()))
+        val resolve = MagisResolve(fake, testSession(fake))
 
-        val primera = resolve.resolveVod("A")
+        val first = resolve.resolveVod("A")
         resolve.resolveVod("B")
 
-        // Se sirve igual (es lo único que hay) pero no se guarda: la próxima vuelve a preguntar.
-        assertEquals(casiVencido, primera.dato()?.headers?.get("Content-Auth"))
-        assertEquals(2, fake.vecesLlamado("v14/getSlbInfo"))
+        // It's still served (it's all there is) but not saved: the next one asks again.
+        assertEquals(almostExpired, first.getOrNull()?.headers?.get("Content-Auth"))
+        assertEquals(2, fake.timesCalled("v14/getSlbInfo"))
     }
 
     @Test
-    fun `el slb se vuelve a pedir cuando cambia el token de la sesion`() = runTest {
+    fun `the slb gets requested again when the session's token changes`() = runTest {
         val fake = FakePortalClient()
         val store = FakeCredentialStore()
-        store.guardarSesion(SesionGuardada("u", "t-viejo", "", "sn"))
+        store.saveSession(StoredSession("u", "t-viejo", "", "sn"))
         val session = MagisSession(fake, store)
-        fake.encolarRespuesta("v10/startPlayVOD", MagisResult.Ok(playDeUnaPelicula(contentId = "A")))
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slbRealista()))
-        fake.encolarRespuesta("v10/startPlayVOD", MagisResult.Ok(playDeUnaPelicula(contentId = "B")))
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slbRealista()))
+        fake.queueResponse("v10/startPlayVOD", MagisResult.Ok(moviePlay(contentId = "A")))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(realisticSlb()))
+        fake.queueResponse("v10/startPlayVOD", MagisResult.Ok(moviePlay(contentId = "B")))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(realisticSlb()))
         val resolve = MagisResolve(fake, session)
 
         resolve.resolveVod("A")
-        store.guardarSesion(SesionGuardada("u", "t-nuevo", "", "sn"))
+        store.saveSession(StoredSession("u", "t-nuevo", "", "sn"))
         resolve.resolveVod("B")
 
-        assertEquals(2, fake.vecesLlamado("v14/getSlbInfo"))
+        assertEquals(2, fake.timesCalled("v14/getSlbInfo"))
     }
 
     @Test
-    fun `getSlbInfo manda liveCodeList como arreglo JSON de verdad`() = runTest {
+    fun `getSlbInfo sends liveCodeList as a real JSON array`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v10/startPlayVOD", MagisResult.Ok(playDeUnaPelicula()))
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slbRealista()))
+        fake.queueResponse("v10/startPlayVOD", MagisResult.Ok(moviePlay()))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(realisticSlb()))
 
-        MagisResolve(fake, sesionDeTest(fake)).resolveVod("M1")
+        MagisResolve(fake, testSession(fake)).resolveVod("M1")
 
-        val (_, bean) = fake.llamadas.first { it.first == "v14/getSlbInfo" }
-        val codigos = bean["liveCodeList"] as JSONArray
-        assertEquals("masnew_live", codigos.getString(0))
+        val (_, bean) = fake.calls.first { it.first == "v14/getSlbInfo" }
+        val codes = bean["liveCodeList"] as JSONArray
+        assertEquals("masnew_live", codes.getString(0))
     }
 
     @Test
-    fun `sin licenseList no se inventa una reproduccion`() = runTest {
+    fun `with no licenseList, playback isn't made up`() = runTest {
         val play = JSONObject(
             """{"episodeList":[{"totalMovieList":[{"movieList":[
                 {"contentId":"M1","videoFormat":"mp4","encodeFormat":"h264"}
             ]}]}]}""",
         )
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v10/startPlayVOD", MagisResult.Ok(play))
+        fake.queueResponse("v10/startPlayVOD", MagisResult.Ok(play))
 
-        val r = MagisResolve(fake, sesionDeTest(fake)).resolveVod("M1")
+        val r = MagisResolve(fake, testSession(fake)).resolveVod("M1")
 
-        assertEquals("sin_license", (r as MagisResult.PortalError).codigo)
-        assertEquals(0, fake.vecesLlamado("v14/getSlbInfo"))
+        assertEquals("sin_license", (r as MagisResult.PortalError).code)
+        assertEquals(0, fake.timesCalled("v14/getSlbInfo"))
     }
 
     @Test
-    fun `sin episodeList devuelve error y no revienta`() = runTest {
+    fun `with no episodeList it returns an error and doesn't crash`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v10/startPlayVOD", MagisResult.Ok(JSONObject("""{"returnCode":"0"}""")))
+        fake.queueResponse("v10/startPlayVOD", MagisResult.Ok(JSONObject("""{"returnCode":"0"}""")))
 
-        val r = MagisResolve(fake, sesionDeTest(fake)).resolveVod("M1")
+        val r = MagisResolve(fake, testSession(fake)).resolveVod("M1")
 
-        assertEquals("sin_media", (r as MagisResult.PortalError).codigo)
+        assertEquals("sin_media", (r as MagisResult.PortalError).code)
     }
 
     @Test
-    fun `si el portal esta caido al pedir la pista, no sigue`() = runTest {
+    fun `if the portal is down when asking for the track, it doesn't continue`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v10/startPlayVOD", MagisResult.RedError(java.io.IOException("sin red")))
+        fake.queueResponse("v10/startPlayVOD", MagisResult.RedError(java.io.IOException("sin red")))
 
-        val r = MagisResolve(fake, sesionDeTest(fake)).resolveVod("M1")
+        val r = MagisResolve(fake, testSession(fake)).resolveVod("M1")
 
         assertTrue("esperaba RedError y fue $r", r is MagisResult.RedError)
-        assertEquals(0, fake.vecesLlamado("v14/getSlbInfo"))
+        assertEquals(0, fake.timesCalled("v14/getSlbInfo"))
     }
 
     private companion object {
-        /** Año 2286: un `expired` que no se vence mientras corren los tests. */
-        const val LEJANO = "9999999999"
+        /** Year 2286: an `expired` that doesn't run out while the tests run. */
+        const val FAR_AWAY = "9999999999"
     }
 }

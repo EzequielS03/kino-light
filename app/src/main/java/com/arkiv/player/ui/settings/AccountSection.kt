@@ -15,30 +15,30 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.arkiv.player.data.magis.CuentaDeMagis
-import com.arkiv.player.data.magis.EstadoDeMagis
+import com.arkiv.player.data.magis.MagisAccount
+import com.arkiv.player.data.magis.MagisAccountState
 import com.arkiv.player.data.magis.MagisException
 import kotlinx.coroutines.launch
 
 /**
  * "Ajustes → Cuenta" del celular (Task 8, sub-proyecto 2B): el vínculo con Magis, sobre sus propios
  * pies. Ya no hay login/logout de Kino acá -esta pantalla dejó de tomar un `AccountManager`-; lo
- * único que queda es vincular o desvincular Magis directo contra [CuentaDeMagis], sin ninguna
+ * único que queda es vincular o desvincular Magis directo contra [MagisAccount], sin ninguna
  * cuenta de Kino de por medio. La Task 9 (sub-proyecto 2B) se llevó `AccountManager` y el login de
  * Kino enteros (`ui/entrada/`), así que este archivo perdió también `AnonimoSection` -su único
  * llamador era esa pantalla-; [PasswordField] sigue abajo porque [SinVincularSection] la sigue
  * usando para el formulario de Magis.
  */
 @Composable
-internal fun AccountSection(cuenta: CuentaDeMagis) {
-    val estado by cuenta.estado.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { cuenta.refrescar() }
+internal fun AccountSection(cuenta: MagisAccount) {
+    val estado by cuenta.state.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { cuenta.refresh() }
 
     Text("Cuenta", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp, bottom = 6.dp))
 
     when (val e = estado) {
-        is EstadoDeMagis.Vinculada -> VinculadaSection(cuenta, e)
-        EstadoDeMagis.Sin -> SinVincularSection(cuenta)
+        is MagisAccountState.Linked -> VinculadaSection(cuenta, e)
+        MagisAccountState.None -> SinVincularSection(cuenta)
     }
 }
 
@@ -72,7 +72,7 @@ private fun PasswordField(value: String, onValueChange: (String) -> Unit, label:
 }
 
 @Composable
-private fun VinculadaSection(cuenta: CuentaDeMagis, estado: EstadoDeMagis.Vinculada) {
+private fun VinculadaSection(cuenta: MagisAccount, estado: MagisAccountState.Linked) {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
 
@@ -83,12 +83,12 @@ private fun VinculadaSection(cuenta: CuentaDeMagis, estado: EstadoDeMagis.Vincul
         onClick = {
             scope.launch {
                 busy = true
-                // try/finally, no try/catch: desvincular() no lanza -MagisSession.logout() nunca
+                // try/finally, no try/catch: unlink() no lanza -MagisSession.logout() nunca
                 // tira, devuelve MagisResult-, pero sin el finally una excepción inesperada dejaba
                 // el botón clavado en "Desvinculando…" para siempre. Mismo patrón que la TV
                 // (TvSettingsCuenta.TvVinculadaSection).
                 try {
-                    cuenta.desvincular()
+                    cuenta.unlink()
                 } finally {
                     busy = false
                 }
@@ -101,7 +101,7 @@ private fun VinculadaSection(cuenta: CuentaDeMagis, estado: EstadoDeMagis.Vincul
 /** Sub-bloque para vincular una cuenta de Magis que ya exista -sin ninguna cuenta de Kino de la
  *  que sacar el email, así que arranca en blanco (antes venía precargado con el email de Kino). */
 @Composable
-private fun SinVincularSection(cuenta: CuentaDeMagis) {
+private fun SinVincularSection(cuenta: MagisAccount) {
     val scope = rememberCoroutineScope()
     var expanded by remember { mutableStateOf(false) }
     var email by remember { mutableStateOf("") }
@@ -140,7 +140,7 @@ private fun SinVincularSection(cuenta: CuentaDeMagis) {
                 scope.launch {
                     busy = true
                     try {
-                        cuenta.vincular(email.trim(), password)
+                        cuenta.link(email.trim(), password)
                         expanded = false
                     } catch (e: MagisException) {
                         error = e.message

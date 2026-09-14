@@ -12,8 +12,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import com.arkiv.player.data.magis.CuentaDeMagis
-import com.arkiv.player.data.magis.EstadoDeMagis
+import com.arkiv.player.data.magis.MagisAccount
+import com.arkiv.player.data.magis.MagisAccountState
 import kotlinx.coroutines.launch
 
 /**
@@ -25,20 +25,20 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-internal fun TvSettingsCuenta(cuenta: CuentaDeMagis, onVincularMagis: () -> Unit) {
-    val estado by cuenta.estado.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { cuenta.refrescar() }
+internal fun TvSettingsCuenta(cuenta: MagisAccount, onVincularMagis: () -> Unit) {
+    val estado by cuenta.state.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { cuenta.refresh() }
 
     Text("Cuenta", style = MaterialTheme.typography.titleMedium, color = Color.White)
     when (val e = estado) {
-        is EstadoDeMagis.Vinculada -> TvVinculadaSection(cuenta, e)
-        EstadoDeMagis.Sin -> TvActionOption(label = "Vincular Magis", onClick = onVincularMagis)
+        is MagisAccountState.Linked -> TvVinculadaSection(cuenta, e)
+        MagisAccountState.None -> TvActionOption(label = "Vincular Magis", onClick = onVincularMagis)
     }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvVinculadaSection(cuenta: CuentaDeMagis, estado: EstadoDeMagis.Vinculada) {
+private fun TvVinculadaSection(cuenta: MagisAccount, estado: MagisAccountState.Linked) {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
 
@@ -49,11 +49,11 @@ private fun TvVinculadaSection(cuenta: CuentaDeMagis, estado: EstadoDeMagis.Vinc
             if (!busy) {
                 scope.launch {
                     busy = true
-                    // try/finally, no try/catch: desvincular() no lanza -MagisSession.logout() nunca
+                    // try/finally, no try/catch: unlink() no lanza -MagisSession.logout() nunca
                     // tira, devuelve MagisResult-, así que un catch(MagisException) acá sería
                     // inalcanzable. Mismo patrón que el celu (AccountSection.VinculadaSection).
                     try {
-                        cuenta.desvincular()
+                        cuenta.unlink()
                     } finally {
                         busy = false
                     }

@@ -5,58 +5,58 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 
-internal data class MagisSubtitulo(val lang: String, val url: String, val formato: String)
+internal data class MagisSubtitle(val lang: String, val url: String, val format: String)
 
 /**
- * Lo que hace falta para reproducir un título de Magis. Es un espejo de `GatewayPlayable` a
- * propósito: quien cablea esto solo tiene que copiar campos, sin decidir nada.
+ * What's needed to play a Magis title. It's deliberately a mirror of `GatewayPlayable`: whoever
+ * wires this in only has to copy fields, without deciding anything.
  */
 internal data class MagisPlayable(
     val url: String,
     val headers: Map<String, String>,
     val mime: String,
-    /** El contenedor tal como lo NOMBRA el portal ("ts", "mp4"). No se deduce de la extensión de
-     *  [url]: esa la arma este código colapsando a `.mp4` todo lo que el portal no llame `ts`. */
+    /** The container as the portal NAMES it ("ts", "mp4"). Not inferred from [url]'s extension:
+     *  this code builds that by collapsing to `.mp4` everything the portal doesn't call `ts`. */
     val container: String,
     val videoCodec: String,
     val durationMs: Long,
-    val subtitulos: List<MagisSubtitulo>,
+    val subtitles: List<MagisSubtitle>,
 )
 
 /**
- * Resolución de VOD: del `contentId` a la URL del CDN con sus cabeceras. Puerto de
+ * VOD resolution: from the `contentId` to the CDN's URL with its headers. Port of
  * `MagisAdapter.resolve` (`adapters/magis/adapter.py`).
  *
- * Son dos llamadas al portal: `v10/startPlayVOD` (la pista y su licencia, por título) y
- * `v14/getSlbInfo` (el CDN y el `Content-Auth`, por SESIÓN — el mismo para todos los títulos, por
- * eso se cachea acá).
+ * It's two portal calls: `v10/startPlayVOD` (the track and its license, by title) and
+ * `v14/getSlbInfo` (the CDN and the `Content-Auth`, by SESSION — the same for every title, which
+ * is why it's cached here).
  */
 internal class MagisResolve(
     private val portal: MagisPortalClientLike,
     private val session: MagisSession,
     private val appId: String = BuildConfig.IPTV_APP_ID,
     private val apkVersion: String = BuildConfig.IPTV_APK_VERSION,
-    private val ahoraMs: () -> Long = { System.currentTimeMillis() },
+    private val nowMs: () -> Long = { System.currentTimeMillis() },
 ) {
 
-    private val candadoSlb = Mutex()
+    private val slbLock = Mutex()
     private var slb: JSONObject? = null
-    private var slbVenceMs = 0L
-    private var slbDeToken = ""
+    private var slbExpiresMs = 0L
+    private var slbTokenOwner = ""
 
     /**
-     * [contentId] tiene que ser el de la PISTA reproducible: el `contentId` de una serie no se
-     * reproduce (`play_vod` sobre él devuelve `节目不存在`), hay que pasarle el del capítulo y la
-     * serie en [seriesContentId].
+     * [contentId] has to be the PLAYABLE TRACK's: a series' `contentId` doesn't play
+     * (`play_vod` on it returns `节目不存在`), the chapter's and the series' have to be passed in
+     * [seriesContentId].
      */
     suspend fun resolveVod(
         contentId: String,
         seriesContentId: String? = null,
     ): MagisResult<MagisPlayable> {
-        val sesion = session.ensureSession()
-        if (sesion !is MagisResult.Ok) return sesion.comoError()
+        val sessionResult = session.ensureSession()
+        if (sessionResult !is MagisResult.Ok) return sessionResult.asError()
 
-        val play = session.conSesionValida {
+        val play = session.withValidSession {
             portal.call(
                 path = "v10/startPlayVOD",
                 bean = mapOf(
@@ -71,22 +71,22 @@ internal class MagisResolve(
                 userToken = session.userToken,
             )
         }
-        val playJson = play.dato() ?: return play.comoError()
+        val playJson = play.getOrNull() ?: return play.asError()
 
-        val media = mejorMedia(playJson)
+        val media = bestMedia(playJson)
             ?: return MagisResult.PortalError("sin_media", "magis devolvió sin media reproducible")
         val license = media.optJSONArray("licenseList")?.optJSONObject(0)?.optString("license")
             ?.takeIf { it.isNotBlank() }
             ?: return MagisResult.PortalError("sin_license", "magis devolvió sin licenseList")
 
-        val slbActual = slbDeSesion()
-        val slbJson = slbActual.dato() ?: return slbActual.comoError()
-        val cdn = cdnDeVod(slbJson)
+        val currentSlb = sessionSlb()
+        val slbJson = currentSlb.getOrNull() ?: return currentSlb.asError()
+        val cdn = vodCdn(slbJson)
             ?: return MagisResult.PortalError("sin_cdn_vod", "magis no expuso CDN de vod con token libre")
 
-        // `container` es lo que DICE el portal y viaja crudo hasta el demuxer; `ext` es la clave del
-        // objeto en el CDN, que solo existe en dos sabores. Pedir `.mp4` cuando el portal dijo otra
-        // cosa es lo único que se puede hacer, pero no convierte el archivo en un mp4.
+        // `container` is what the portal SAYS and travels raw to the demuxer; `ext` is the CDN
+        // object's key, which only exists in two flavors. Asking for `.mp4` when the portal said
+        // something else is the only thing that can be done, but it doesn't turn the file into an mp4.
         val container = media.optString("videoFormat").lowercase()
         val ext = if (container == "ts") "ts" else "mp4"
 
@@ -103,62 +103,62 @@ internal class MagisResolve(
                 mime = if (ext == "mp4") "video/mp4" else "video/mp2t",
                 container = container,
                 videoCodec = media.optString("encodeFormat").lowercase(),
-                durationMs = duracionMsDelPortal(media.opt("duration")),
-                subtitulos = subtitulos(playJson),
+                durationMs = portalDurationMs(media.opt("duration")),
+                subtitles = readSubtitles(playJson),
             ),
         )
     }
 
     /**
-     * La pista con más probabilidades de reproducirse en cualquier equipo: **h264 primero y recién
-     * después mp4**, en ese orden de precedencia y no las dos cosas a la vez. Exigir ambas y caer al
-     * primer candidato entregaba h265 en los títulos servidos solo en TS (que son casi todos), y un
-     * HEVC que el decodificador por hardware no arranca deja la pantalla en negro.
+     * The track most likely to play on any device: **h264 first and only then mp4**, in that
+     * precedence order and not both at once. Requiring both and falling to the first candidate
+     * delivered h265 on titles served only in TS (which is almost all of them), and an HEVC the
+     * hardware decoder won't start leaves the screen black.
      *
-     * Estable: entre dos igual de buenas gana la que el portal ofreció primero.
+     * Stable: between two equally good ones, whichever the portal offered first wins.
      */
-    private fun mejorMedia(play: JSONObject): JSONObject? {
-        val episodio = play.optJSONArray("episodeList")?.optJSONObject(0) ?: return null
-        val candidatos = mutableListOf<JSONObject>()
-        episodio.optJSONArray("totalMovieList")?.forEachObjeto { tm ->
-            tm.optJSONArray("movieList")?.forEachObjeto { candidatos.add(it) }
+    private fun bestMedia(play: JSONObject): JSONObject? {
+        val episode = play.optJSONArray("episodeList")?.optJSONObject(0) ?: return null
+        val candidates = mutableListOf<JSONObject>()
+        episode.optJSONArray("totalMovieList")?.forEachObject { tm ->
+            tm.optJSONArray("movieList")?.forEachObject { candidates.add(it) }
         }
-        return candidatos.minByOrNull { m ->
+        return candidates.minByOrNull { m ->
             val codec = if (m.optString("encodeFormat").lowercase() == "h264") 0 else 2
-            val contenedor = if (m.optString("videoFormat").lowercase() == "mp4") 0 else 1
-            codec + contenedor
+            val container = if (m.optString("videoFormat").lowercase() == "mp4") 0 else 1
+            codec + container
         }
     }
 
-    /** `subtitleList[].file[0].url`. El portal a veces lista un idioma que no subió: se descarta. */
-    private fun subtitulos(play: JSONObject): List<MagisSubtitulo> {
-        val episodio = play.optJSONArray("episodeList")?.optJSONObject(0) ?: return emptyList()
-        val salida = mutableListOf<MagisSubtitulo>()
-        episodio.optJSONArray("subtitleList")?.forEachObjeto { sub ->
-            val archivo = sub.optJSONArray("file")?.optJSONObject(0) ?: return@forEachObjeto
-            val url = archivo.optString("url").takeIf { it.isNotBlank() } ?: return@forEachObjeto
-            salida.add(
-                MagisSubtitulo(
+    /** `subtitleList[].file[0].url`. The portal sometimes lists a language that never got uploaded: discarded. */
+    private fun readSubtitles(play: JSONObject): List<MagisSubtitle> {
+        val episode = play.optJSONArray("episodeList")?.optJSONObject(0) ?: return emptyList()
+        val output = mutableListOf<MagisSubtitle>()
+        episode.optJSONArray("subtitleList")?.forEachObject { sub ->
+            val file = sub.optJSONArray("file")?.optJSONObject(0) ?: return@forEachObject
+            val url = file.optString("url").takeIf { it.isNotBlank() } ?: return@forEachObject
+            output.add(
+                MagisSubtitle(
                     lang = sub.optString("language"),
                     url = url,
-                    formato = archivo.optString("fileType").ifBlank { "srt" },
+                    format = file.optString("fileType").ifBlank { "srt" },
                 ),
             )
         }
-        return salida
+        return output
     }
 
     private data class CdnVod(val base: String, val auth: String)
 
-    /** El CDN de VOD y el `Content-Auth` del tier libre. */
-    private fun cdnDeVod(slb: JSONObject): CdnVod? {
-        slb.optJSONArray("cdn_list")?.forEachObjeto { cdn ->
-            if (cdn.optString("tag") != "vod") return@forEachObjeto
-            cdn.optJSONArray("url_list")?.forEachObjeto { u ->
+    /** The VOD CDN and the free tier's `Content-Auth`. */
+    private fun vodCdn(slb: JSONObject): CdnVod? {
+        slb.optJSONArray("cdn_list")?.forEachObject { cdn ->
+            if (cdn.optString("tag") != "vod") return@forEachObject
+            cdn.optJSONArray("url_list")?.forEachObject { u ->
                 val url = u.optString("url")
-                val sirve = esCfl(url) || u.optString("sign_type") == "cfl"
-                if (sirve && u.optString("tag") == "free") {
-                    return CdnVod(base = conEsquema(cdn.optString("main_addr")), auth = url)
+                val matches = isCfl(url) || u.optString("sign_type") == "cfl"
+                if (matches && u.optString("tag") == "free") {
+                    return CdnVod(base = withScheme(cdn.optString("main_addr")), auth = url)
                 }
             }
         }
@@ -166,74 +166,75 @@ internal class MagisResolve(
     }
 
     /**
-     * `getSlbInfo` de esta sesión, pedido UNA vez mientras siga sirviendo: no recibe el `contentId`
-     * porque el CDN y el `Content-Auth` son los mismos para todos los títulos. Pedirlo en cada
-     * resolución es un viaje al portal (con su ritmo mínimo) que el usuario paga mirando el spinner.
+     * This session's `getSlbInfo`, requested ONCE while it keeps working: it doesn't receive the
+     * `contentId` because the CDN and the `Content-Auth` are the same for every title. Requesting
+     * it on every resolution is a trip to the portal (with its rate limit) the user pays for by
+     * watching the spinner.
      */
-    private suspend fun slbDeSesion(): MagisResult<JSONObject> = candadoSlb.withLock {
-        val vigente = slb
-        if (vigente != null && ahoraMs() < slbVenceMs && slbDeToken == session.userToken) {
-            return@withLock MagisResult.Ok(vigente)
+    private suspend fun sessionSlb(): MagisResult<JSONObject> = slbLock.withLock {
+        val current = slb
+        if (current != null && nowMs() < slbExpiresMs && slbTokenOwner == session.userToken) {
+            return@withLock MagisResult.Ok(current)
         }
-        val r = session.conSesionValida {
+        val r = session.withValidSession {
             portal.call(
                 path = "v14/getSlbInfo",
-                bean = beanDeSlb(apkVersion),
+                bean = slbRequestParams(apkVersion),
                 userId = session.userId,
                 userToken = session.userToken,
             )
         }
-        val fresco = r.dato() ?: return@withLock r
-        val vida = vidaDelSlb(fresco)
-        if (vida > 0) {
-            slb = fresco
-            slbVenceMs = ahoraMs() + vida * 1000L
-            slbDeToken = session.userToken
+        val fresh = r.getOrNull() ?: return@withLock r
+        val ttl = slbLifetime(fresh)
+        if (ttl > 0) {
+            slb = fresh
+            slbExpiresMs = nowMs() + ttl * 1000L
+            slbTokenOwner = session.userToken
         } else {
-            // Un slb que ya no sirve NO se guarda: guardarlo dejaría la sesión rota y callada hasta
-            // que venciera. Se devuelve igual, que es lo único que hay.
+            // An slb that's no longer good does NOT get saved: saving it would leave the session
+            // broken and silent until it expired. It's returned anyway, since it's all there is.
             slb = null
         }
-        MagisResult.Ok(fresco)
+        MagisResult.Ok(fresh)
     }
 
     /**
-     * Segundos que se puede guardar este `getSlbInfo`. Manda el que venza antes: el `invalidTime`
-     * que declara el portal (medido: 14400 = 4 h) o el `expired=<unix>` que el propio `Content-Auth`
-     * lleva en su querystring. Un caché que viva más que el token entrega un auth muerto y el fallo
-     * pasa adentro del reproductor, sin error visible en ninguna parte.
+     * Seconds this `getSlbInfo` can be kept for. Whichever expires first wins: the `invalidTime`
+     * the portal declares (measured: 14400 = 4h) or the `expired=<unix>` the `Content-Auth` itself
+     * carries in its querystring. A cache that outlives the token hands out a dead auth and the
+     * failure happens inside the player, with no visible error anywhere.
      */
-    private fun vidaDelSlb(slb: JSONObject): Long {
-        val declarada = slb.optString("invalidTime").toLongOrNull()?.takeIf { it > 0 } ?: TTL_SLB_S
-        val auth = cdnDeVod(slb)?.auth ?: return 0
-        val expira = EXPIRED.find(auth)?.groupValues?.get(1)?.toLongOrNull()
-            ?: return declarada
-        return minOf(declarada, expira - ahoraMs() / 1000 - MARGEN_AUTH_S)
+    private fun slbLifetime(slb: JSONObject): Long {
+        val declared = slb.optString("invalidTime").toLongOrNull()?.takeIf { it > 0 } ?: TTL_SLB_S
+        val auth = vodCdn(slb)?.auth ?: return 0
+        val expiresAt = EXPIRED.find(auth)?.groupValues?.get(1)?.toLongOrNull()
+            ?: return declared
+        return minOf(declared, expiresAt - nowMs() / 1000 - AUTH_MARGIN_S)
     }
 
     private companion object {
         const val UA_CDN = "Ranger/4.9.4-17294ac0"
 
-        /** Conservador, para cuando el portal no declara `invalidTime`. */
+        /** Conservative, for when the portal doesn't declare `invalidTime`. */
         const val TTL_SLB_S = 300L
-        const val MARGEN_AUTH_S = 300L
+        const val AUTH_MARGIN_S = 300L
         val EXPIRED = Regex("""expired=(\d+)""")
 
     }
 }
 
 /**
- * Duración en ms de lo que manda el portal: llega como "HH:MM:SS", "MM:SS" o los segundos pelados
- * (número o texto). Cualquier otra cosa vale 0 — para pintar la barra es mejor no tener duración
- * (la app sondea los PCR) que tener una inventada, que además manda el seek a cualquier parte.
+ * Duration in ms of what the portal sends: it arrives as "HH:MM:SS", "MM:SS" or bare seconds
+ * (number or text). Anything else is worth 0 — for drawing the bar, no duration (the app polls the
+ * PCRs) beats a made-up one, which on top of that sends seeking anywhere.
  */
-internal fun duracionMsDelPortal(crudo: Any?): Long {
-    if (crudo == null || crudo == JSONObject.NULL) return 0
-    if (crudo is Number) return (crudo.toDouble() * 1000).toLong()
-    val texto = crudo.toString().trim()
-    if (texto.isEmpty()) return 0
-    val partes = texto.split(":")
-    if (partes.size > 3 || partes.any { it.isBlank() || !it.all(Char::isDigit) }) return 0
-    val segundos = partes.fold(0L) { acc, p -> acc * 60 + p.toLong() }
-    return segundos * 1000
+internal fun portalDurationMs(raw: Any?): Long {
+    if (raw == null || raw == JSONObject.NULL) return 0
+    if (raw is Number) return (raw.toDouble() * 1000).toLong()
+    val text = raw.toString().trim()
+    if (text.isEmpty()) return 0
+    val parts = text.split(":")
+    if (parts.size > 3 || parts.any { it.isBlank() || !it.all(Char::isDigit) }) return 0
+    val seconds = parts.fold(0L) { acc, p -> acc * 60 + p.toLong() }
+    return seconds * 1000
 }

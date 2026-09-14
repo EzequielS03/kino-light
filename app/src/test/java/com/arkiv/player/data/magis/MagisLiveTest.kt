@@ -9,8 +9,8 @@ import org.junit.Test
 
 class MagisLiveTest {
 
-    /** Forma real de `getSlbInfo` en modo vivo: `main_addr` en el objeto `cdn`, `url` = querystring. */
-    private fun slbDeVivo(
+    /** `getSlbInfo`'s real shape in live mode: `main_addr` on the `cdn` object, `url` = querystring. */
+    private fun liveSlb(
         vararg hosts: Pair<String, String>,
         invalidTime: String = "14400",
     ): JSONObject {
@@ -20,10 +20,10 @@ class MagisLiveTest {
         return JSONObject("""{"invalidTime":"$invalidTime","cdn_list":[$cdns]}""")
     }
 
-    private val authValido = "cdn_type=1&sign_type=cfl&token=${"a".repeat(32)}"
+    private val validAuth = "cdn_type=1&sign_type=cfl&token=${"a".repeat(32)}"
 
     @Test
-    fun `toma playCode y license de la MISMA entrada, no mezcla`() = runTest {
+    fun `takes playCode and license from the SAME entry, doesn't mix`() = runTest {
         val playLive = JSONObject(
             """{"liveAddressList":[
                 {"playCode":"cyx-2EF7E10E40C1ac19D6A9F3ED4CD2","license":"LIC-CORRECTO"},
@@ -31,10 +31,10 @@ class MagisLiveTest {
             ]}""",
         )
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v4/startPlayLive", MagisResult.Ok(playLive))
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slbDeVivo("http://live.example.com" to authValido)))
+        fake.queueResponse("v4/startPlayLive", MagisResult.Ok(playLive))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(liveSlb("http://live.example.com" to validAuth)))
 
-        val s = MagisLive(fake, sesionDeTestConCuenta(fake)).resolveChannel("cyx-RCNHD").dato()!!
+        val s = MagisLive(fake, testSessionWithAccount(fake)).resolveChannel("cyx-RCNHD").getOrNull()!!
 
         assertEquals("LIC-CORRECTO", s.license)
         assertEquals("cyx-2EF7E10E40C1ac19D6A9F3ED4CD2", s.playCode)
@@ -43,32 +43,32 @@ class MagisLiveTest {
     }
 
     @Test
-    fun `sin cuenta vinculada devuelve error sin llamar al portal`() = runTest {
+    fun `with no linked account it returns an error without calling the portal`() = runTest {
         val fake = FakePortalClient()
 
-        val r = MagisLive(fake, sesionDeTestSinCuenta(fake)).resolveChannel("cyx-RCNHD")
+        val r = MagisLive(fake, testSessionWithoutAccount(fake)).resolveChannel("cyx-RCNHD")
 
-        assertTrue(fake.llamadas.isEmpty())
-        assertEquals(MagisLive.SIN_CUENTA, (r as MagisResult.PortalError).codigo)
+        assertTrue(fake.calls.isEmpty())
+        assertEquals(MagisLive.NO_ACCOUNT, (r as MagisResult.PortalError).code)
     }
 
     @Test
-    fun `getSlbInfo pide el codigo del CANAL, no el playCode`() = runTest {
+    fun `getSlbInfo asks for the CHANNEL's code, not the playCode`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta(
+        fake.queueResponse(
             "v4/startPlayLive",
             MagisResult.Ok(JSONObject("""{"liveAddressList":[{"playCode":"cyx-INTERNO","license":"L"}]}""")),
         )
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slbDeVivo("live.example.com" to authValido)))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(liveSlb("live.example.com" to validAuth)))
 
-        MagisLive(fake, sesionDeTestConCuenta(fake)).resolveChannel("cyx-RCNHD")
+        MagisLive(fake, testSessionWithAccount(fake)).resolveChannel("cyx-RCNHD")
 
-        val (_, bean) = fake.llamadas.first { it.first == "v14/getSlbInfo" }
+        val (_, bean) = fake.calls.first { it.first == "v14/getSlbInfo" }
         assertEquals("cyx-RCNHD", (bean["liveCodeList"] as JSONArray).getString(0))
     }
 
     @Test
-    fun `si la primera direccion no trae playCode, gana la primera completa`() = runTest {
+    fun `if the first address carries no playCode, the first complete one wins`() = runTest {
         val playLive = JSONObject(
             """{"liveAddressList":[
                 {"playCode":"","license":"LIC-SIN-CODIGO"},
@@ -76,168 +76,168 @@ class MagisLiveTest {
             ]}""",
         )
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v4/startPlayLive", MagisResult.Ok(playLive))
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slbDeVivo("live.example.com" to authValido)))
+        fake.queueResponse("v4/startPlayLive", MagisResult.Ok(playLive))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(liveSlb("live.example.com" to validAuth)))
 
-        val s = MagisLive(fake, sesionDeTestConCuenta(fake)).resolveChannel("cyx-RCNHD").dato()!!
+        val s = MagisLive(fake, testSessionWithAccount(fake)).resolveChannel("cyx-RCNHD").getOrNull()!!
 
         assertEquals("cyx-COMPLETA", s.playCode)
         assertEquals("LIC-COMPLETA", s.license)
     }
 
     @Test
-    fun `un canal cuyo playCode el portal no manda se sirve con el codigo del canal`() = runTest {
+    fun `a channel whose playCode the portal doesn't send is served with the channel's code`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta(
+        fake.queueResponse(
             "v4/startPlayLive",
             MagisResult.Ok(JSONObject("""{"liveAddressList":[{"license":"LIC-UNICA"}]}""")),
         )
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slbDeVivo("live.example.com" to authValido)))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(liveSlb("live.example.com" to validAuth)))
 
-        val s = MagisLive(fake, sesionDeTestConCuenta(fake)).resolveChannel("cyx-RCNHD").dato()!!
+        val s = MagisLive(fake, testSessionWithAccount(fake)).resolveChannel("cyx-RCNHD").getOrNull()!!
 
         assertEquals("cyx-RCNHD", s.playCode)
         assertEquals("LIC-UNICA", s.license)
     }
 
     @Test
-    fun `devuelve TODOS los CDN de vivo, cada uno con su propio authBase`() = runTest {
-        val authSegundo = "sign_type=cfl&token=${"b".repeat(32)}"
+    fun `returns ALL of the live CDNs, each with its own authBase`() = runTest {
+        val secondAuth = "sign_type=cfl&token=${"b".repeat(32)}"
         val fake = FakePortalClient()
-        fake.encolarRespuesta(
+        fake.queueResponse(
             "v4/startPlayLive",
             MagisResult.Ok(JSONObject("""{"liveAddressList":[{"playCode":"pc","license":"L"}]}""")),
         )
-        fake.encolarRespuesta(
+        fake.queueResponse(
             "v14/getSlbInfo",
             MagisResult.Ok(
-                slbDeVivo(
-                    "http://primero.cdn/v3/youshi/" to authValido,
-                    "https://segundo.cdn" to authSegundo,
+                liveSlb(
+                    "http://primero.cdn/v3/youshi/" to validAuth,
+                    "https://segundo.cdn" to secondAuth,
                 ),
             ),
         )
 
-        val s = MagisLive(fake, sesionDeTestConCuenta(fake)).resolveChannel("c").dato()!!
+        val s = MagisLive(fake, testSessionWithAccount(fake)).resolveChannel("c").getOrNull()!!
 
         assertEquals(2, s.cdns.size)
-        // El path del main_addr se descarta: el proxy arma http://<host>/live/<playCode>.m3u8.
+        // The main_addr's path is discarded: the proxy builds http://<host>/live/<playCode>.m3u8.
         assertEquals("primero.cdn", s.cdns[0].cflHost)
-        assertEquals(authValido, s.cdns[0].authBase)
+        assertEquals(validAuth, s.cdns[0].authBase)
         assertEquals("segundo.cdn", s.cdns[1].cflHost)
-        assertEquals(authSegundo, s.cdns[1].authBase)
+        assertEquals(secondAuth, s.cdns[1].authBase)
         assertEquals("primero.cdn", s.cflHost)
     }
 
     @Test
-    fun `los CDN que no son de vivo o no piden cfl no cuentan`() = runTest {
+    fun `CDNs that aren't for live or don't ask for cfl don't count`() = runTest {
         val slb = JSONObject(
             """{"cdn_list":[
-                {"tag":"vod","main_addr":"http://vod.cdn","url_list":[{"url":"$authValido"}]},
+                {"tag":"vod","main_addr":"http://vod.cdn","url_list":[{"url":"$validAuth"}]},
                 {"tag":"live","main_addr":"http://nocfl.cdn","url_list":[{"url":"sign_type=cflx&token=x"}]},
-                {"tag":"live","main_addr":"http://si.cdn","url_list":[{"url":"$authValido"}]}
+                {"tag":"live","main_addr":"http://si.cdn","url_list":[{"url":"$validAuth"}]}
             ]}""",
         )
         val fake = FakePortalClient()
-        fake.encolarRespuesta(
+        fake.queueResponse(
             "v4/startPlayLive",
             MagisResult.Ok(JSONObject("""{"liveAddressList":[{"playCode":"pc","license":"L"}]}""")),
         )
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slb))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(slb))
 
-        val s = MagisLive(fake, sesionDeTestConCuenta(fake)).resolveChannel("c").dato()!!
+        val s = MagisLive(fake, testSessionWithAccount(fake)).resolveChannel("c").getOrNull()!!
 
         assertEquals(listOf("si.cdn"), s.cdns.map { it.cflHost })
     }
 
     @Test
-    fun `sin ningun CDN de vivo servible devuelve error`() = runTest {
+    fun `with no servable live CDN it returns an error`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta(
+        fake.queueResponse(
             "v4/startPlayLive",
             MagisResult.Ok(JSONObject("""{"liveAddressList":[{"playCode":"pc","license":"L"}]}""")),
         )
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(JSONObject("""{"cdn_list":[]}""")))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(JSONObject("""{"cdn_list":[]}""")))
 
-        val r = MagisLive(fake, sesionDeTestConCuenta(fake)).resolveChannel("c")
+        val r = MagisLive(fake, testSessionWithAccount(fake)).resolveChannel("c")
 
-        assertEquals(MagisLive.SIN_CDN, (r as MagisResult.PortalError).codigo)
+        assertEquals(MagisLive.NO_CDN, (r as MagisResult.PortalError).code)
     }
 
     @Test
-    fun `una licencia vacia no se deja pasar al proxy`() = runTest {
+    fun `an empty license isn't let through to the proxy`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta(
+        fake.queueResponse(
             "v4/startPlayLive",
             MagisResult.Ok(JSONObject("""{"liveAddressList":[{"playCode":"pc","license":""}]}""")),
         )
-        fake.encolarRespuesta("v14/getSlbInfo", MagisResult.Ok(slbDeVivo("live.cdn" to authValido)))
+        fake.queueResponse("v14/getSlbInfo", MagisResult.Ok(liveSlb("live.cdn" to validAuth)))
 
-        val r = MagisLive(fake, sesionDeTestConCuenta(fake)).resolveChannel("c")
+        val r = MagisLive(fake, testSessionWithAccount(fake)).resolveChannel("c")
 
-        assertEquals(MagisLive.SIN_LICENSE, (r as MagisResult.PortalError).codigo)
+        assertEquals(MagisLive.NO_LICENSE, (r as MagisResult.PortalError).code)
     }
 
     @Test
-    fun `un authBase sin token de 32 hex no se deja pasar al proxy`() = runTest {
+    fun `an authBase with no 32-hex token isn't let through to the proxy`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta(
+        fake.queueResponse(
             "v4/startPlayLive",
             MagisResult.Ok(JSONObject("""{"liveAddressList":[{"playCode":"pc","license":"L"}]}""")),
         )
-        fake.encolarRespuesta(
+        fake.queueResponse(
             "v14/getSlbInfo",
-            MagisResult.Ok(slbDeVivo("live.cdn" to "sign_type=cfl&token=corto")),
+            MagisResult.Ok(liveSlb("live.cdn" to "sign_type=cfl&token=corto")),
         )
 
-        val r = MagisLive(fake, sesionDeTestConCuenta(fake)).resolveChannel("c")
+        val r = MagisLive(fake, testSessionWithAccount(fake)).resolveChannel("c")
 
-        assertEquals(MagisLive.SIN_TOKEN, (r as MagisResult.PortalError).codigo)
+        assertEquals(MagisLive.NO_TOKEN, (r as MagisResult.PortalError).code)
     }
 
     @Test
-    fun `la vigencia sale del invalidTime del portal, y sin el del valor conservador`() = runTest {
-        suspend fun vigenciaCon(invalidTime: String): Long {
+    fun `the validity comes from the portal's invalidTime, and without it from the conservative value`() = runTest {
+        suspend fun validityWith(invalidTime: String): Long {
             val fake = FakePortalClient()
-            fake.encolarRespuesta(
+            fake.queueResponse(
                 "v4/startPlayLive",
                 MagisResult.Ok(JSONObject("""{"liveAddressList":[{"playCode":"pc","license":"L"}]}""")),
             )
-            fake.encolarRespuesta(
+            fake.queueResponse(
                 "v14/getSlbInfo",
-                MagisResult.Ok(slbDeVivo("live.cdn" to authValido, invalidTime = invalidTime)),
+                MagisResult.Ok(liveSlb("live.cdn" to validAuth, invalidTime = invalidTime)),
             )
-            val live = MagisLive(fake, sesionDeTestConCuenta(fake), ahoraMs = { 1_000_000_000_000L })
-            return live.resolveChannel("c").dato()!!.expiresAt
+            val live = MagisLive(fake, testSessionWithAccount(fake), nowMs = { 1_000_000_000_000L })
+            return live.resolveChannel("c").getOrNull()!!.expiresAt
         }
 
-        assertEquals(1_000_000_000L + 14400, vigenciaCon("14400"))
-        assertEquals(1_000_000_000L + MagisLive.TTL_CANAL_S, vigenciaCon(""))
-        assertEquals(1_000_000_000L + MagisLive.TTL_CANAL_S, vigenciaCon("basura"))
+        assertEquals(1_000_000_000L + 14400, validityWith("14400"))
+        assertEquals(1_000_000_000L + MagisLive.CHANNEL_TTL_S, validityWith(""))
+        assertEquals(1_000_000_000L + MagisLive.CHANNEL_TTL_S, validityWith("basura"))
     }
 
     @Test
-    fun `el codigo del portal sobrevive para que la UI sepa que hay que revincular`() = runTest {
+    fun `the portal's code survives so the UI knows it has to re-link`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v4/startPlayLive", MagisResult.PortalError("aaa100028", "未登录！"))
-        // El reintento de conSesionValida relogea y vuelve a fallar: el error que llega es el real.
-        fake.encolarRespuesta("v8/login", portalOk("userId" to "u", "userToken" to "t2"))
-        fake.encolarRespuesta("v4/startPlayLive", MagisResult.PortalError("aaa100028", "未登录！"))
+        fake.queueResponse("v4/startPlayLive", MagisResult.PortalError("aaa100028", "未登录！"))
+        // withValidSession's retry relogs in and fails again: the error that arrives is the real one.
+        fake.queueResponse("v8/login", portalOk("userId" to "u", "userToken" to "t2"))
+        fake.queueResponse("v4/startPlayLive", MagisResult.PortalError("aaa100028", "未登录！"))
 
-        val r = MagisLive(fake, sesionDeTestConCuenta(fake)).resolveChannel("c")
+        val r = MagisLive(fake, testSessionWithAccount(fake)).resolveChannel("c")
 
-        assertEquals("aaa100028", (r as MagisResult.PortalError).codigo)
-        assertEquals(0, fake.vecesLlamado("v14/getSlbInfo"))
+        assertEquals("aaa100028", (r as MagisResult.PortalError).code)
+        assertEquals(0, fake.timesCalled("v14/getSlbInfo"))
     }
 
     @Test
-    fun `sin liveAddressList devuelve error y no pide CDN`() = runTest {
+    fun `with no liveAddressList it returns an error and doesn't ask for a CDN`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("v4/startPlayLive", MagisResult.Ok(JSONObject("""{"returnCode":"0"}""")))
+        fake.queueResponse("v4/startPlayLive", MagisResult.Ok(JSONObject("""{"returnCode":"0"}""")))
 
-        val r = MagisLive(fake, sesionDeTestConCuenta(fake)).resolveChannel("c")
+        val r = MagisLive(fake, testSessionWithAccount(fake)).resolveChannel("c")
 
-        assertEquals(MagisLive.SIN_DIRECCIONES, (r as MagisResult.PortalError).codigo)
-        assertEquals(0, fake.vecesLlamado("v14/getSlbInfo"))
+        assertEquals(MagisLive.NO_ADDRESSES, (r as MagisResult.PortalError).code)
+        assertEquals(0, fake.timesCalled("v14/getSlbInfo"))
     }
 }

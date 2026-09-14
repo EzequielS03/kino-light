@@ -11,167 +11,170 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 
 /**
- * Categorías y canales de TV en vivo, directo del portal. Implementa la misma
- * [LiveCatalogGateway] que traía el gateway, así que las pantallas de vivo no cambian.
+ * Live TV categories and channels, straight from the portal. Implements the same
+ * [LiveCatalogGateway] the gateway used to provide, so the live screens don't change.
  *
- * El plan del sub-proyecto no incluía esto (solo la resolución del canal), pero sin el listado
- * la sección de vivo seguiría pidiéndole el catálogo al servidor — justo lo que esta rama saca.
+ * The sub-project's plan didn't include this (only channel resolution), but without the listing
+ * the live section would keep asking the server for the catalog — exactly what this branch removes.
  *
- * Hay caché en memoria porque el portal tiene un ritmo mínimo entre llamadas y la lista completa
- * son 3 páginas: sin caché, abrir el cajón de canales costaría ~1,5 s cada vez. Se pierde al morir
- * el proceso, que es exactamente lo que se quiere (el `main_addr` de la resolución no se cachea,
- * pero el catálogo sí se puede).
+ * There's an in-memory cache because the portal has a minimum pace between calls and the full list
+ * is 3 pages: with no cache, opening the channel drawer would cost ~1.5s every time. It's lost when
+ * the process dies, which is exactly what's wanted (resolution's `main_addr` isn't cached, but the
+ * catalog can be).
  */
 internal class MagisLiveCatalog(
-    private val catalogo: MagisCatalog,
+    private val catalog: MagisCatalog,
     private val portal: MagisPortalClientLike,
     private val session: MagisSession,
-    private val ahoraMs: () -> Long = { System.currentTimeMillis() },
+    private val nowMs: () -> Long = { System.currentTimeMillis() },
 ) : LiveCatalogGateway {
 
-    private val candado = Mutex()
-    private var categoriasCache: List<CategoriaDePortal> = emptyList()
-    private var categoriasVencen = 0L
-    private val canalesCache = mutableMapOf<Int, Pair<Long, List<LiveChannel>>>()
-    private val arboles = CacheConVencimiento<String, List<SeccionDeCatalogo>>(TTL_MS, tope = 8)
+    private val lock = Mutex()
+    private var categoriesCache: List<PortalCategory> = emptyList()
+    private var categoriesExpireAt = 0L
+    private val channelsCache = mutableMapOf<Int, Pair<Long, List<LiveChannel>>>()
+    private val trees = CacheConVencimiento<String, List<SeccionDeCatalogo>>(TTL_MS, tope = 8)
 
-    /** Una categoría tal como la entiende el portal, con la marca de adultos que él no trae. */
-    private data class CategoriaDePortal(val id: Int, val nombre: String, val adulto: Boolean)
+    /** A category as the portal understands it, with the adult flag it doesn't carry. */
+    private data class PortalCategory(val id: Int, val name: String, val isAdult: Boolean)
 
+    // NOTE: `incluirAdultos`/`categoria` keep their Spanish names here because they're overrides of
+    // `LiveCatalogGateway`'s own parameter names (data/gateway/, not yet translated) — several call
+    // sites (`ArkivTvRoot.kt`, `LiveViewModel.kt`, this file's own tests) use them as named
+    // arguments through that interface type, so diverging here would break them.
     override suspend fun categorias(incluirAdultos: Boolean): List<LiveCategory> =
-        todasLasCategorias()
-            .filter { incluirAdultos || !it.adulto }
-            .map { LiveCategory(id = it.id, nombre = it.nombre) }
+        allCategories()
+            .filter { incluirAdultos || !it.isAdult }
+            .map { LiveCategory(id = it.id, nombre = it.name) }
 
     /**
-     * TODOS los canales de la categoría, no la primera página. Medido contra el portal el
-     * 2026-08-14: la categoría "Todos" (76182) devuelve 500 por página y tiene TRES páginas sin un
-     * código repetido — 1040 canales de verdad. Pidiendo una sola, la guía, el cajón y el zapeo
-     * trabajaban con el 48% del catálogo y el buscador no podía encontrar lo que nunca se cargó.
+     * ALL of the category's channels, not the first page. Measured against the portal on
+     * 2026-08-14: the "Todos" category (76182) returns 500 per page and has THREE pages with no
+     * repeated code — 1040 real channels. Asking for a single one, the guide, the drawer and
+     * zapping worked with 48% of the catalog and search couldn't find what never loaded.
      */
     override suspend fun canales(categoria: Int): List<LiveChannel> {
-        candado.withLock {
-            canalesCache[categoria]?.takeIf { ahoraMs() < it.first }?.let { return it.second }
+        lock.withLock {
+            channelsCache[categoria]?.takeIf { nowMs() < it.first }?.let { return it.second }
         }
-        val esAdulta = todasLasCategorias().any { it.id == categoria && it.adulto }
-        val todos = mutableListOf<LiveChannel>()
-        val vistos = mutableSetOf<String>()
-        for (pagina in 1..MAX_PAGINAS) {
-            val lote = unaPagina(categoria, pagina, esAdulta) ?: break
-            val nuevos = lote.filter { vistos.add(it.code) }
-            todos.addAll(nuevos)
-            // Una página incompleta es la última. Sin este corte se seguiría pidiendo hasta el
-            // tope, y cada pedido de más gasta un turno del ritmo del portal para no traer nada.
-            if (lote.size < PAGINA || nuevos.isEmpty()) break
+        val isAdult = allCategories().any { it.id == categoria && it.isAdult }
+        val all = mutableListOf<LiveChannel>()
+        val seen = mutableSetOf<String>()
+        for (page in 1..MAX_PAGES) {
+            val batch = onePage(categoria, page, isAdult) ?: break
+            val new = batch.filter { seen.add(it.code) }
+            all.addAll(new)
+            // An incomplete page is the last one. Without this cutoff it would keep asking up to
+            // the cap, and every extra request spends a turn of the portal's rate limit for nothing.
+            if (batch.size < PAGE_SIZE || new.isEmpty()) break
         }
-        if (todos.isNotEmpty()) {
-            candado.withLock { canalesCache[categoria] = (ahoraMs() + TTL_MS) to todos }
+        if (all.isNotEmpty()) {
+            lock.withLock { channelsCache[categoria] = (nowMs() + TTL_MS) to all }
         }
-        return todos
+        return all
     }
 
     /**
-     * El portal NO tiene programación: lo que publica como "EPG" son endpoints de deportes, no una
-     * guía (comprobado; está fuera del alcance del sub-proyecto). Se contesta "no sé de ninguno",
-     * que es lo que la UI ya sabe mostrar, en vez de inventar horarios.
+     * The portal has NO programming: what it publishes as "EPG" are sports endpoints, not a guide
+     * (checked; it's outside the sub-project's scope). It answers "I don't know of any", which is
+     * what the UI already knows how to show, instead of making up schedules.
      */
     override suspend fun epg(codes: List<String>): Pair<Map<String, List<LiveProgram>>, List<String>> =
         emptyMap<String, List<LiveProgram>>() to codes
 
     /**
-     * Las secciones de una raíz del catálogo (películas, series, infantil, anime, 18+), cada una
-     * con sus primeros ítems: `getNextColumns` los trae en `assetList`, así que no hace falta una
-     * segunda llamada por sección.
+     * A catalog root's sections (movies, series, kids, anime, 18+), each with its first items:
+     * `getNextColumns` brings them in `assetList`, so a second call per section isn't needed.
      *
-     * Los códigos de las raíces se encontraron probando contra el portal: los "obvios"
-     * (`masnew_vod`, `masnew_movie`, `masnew_home`, `masnew`) los rechaza.
+     * The roots' codes were found by trying them against the portal: the "obvious" ones
+     * (`masnew_vod`, `masnew_movie`, `masnew_home`, `masnew`) get rejected.
      */
-    suspend fun arbol(raiz: String, incluirAdultos: Boolean = false): List<SeccionDeCatalogo> {
-        val codigo = RAICES[raiz] ?: throw IllegalArgumentException("no existe la raíz $raiz")
-        val esAdulta = raiz in RAICES_DE_ADULTOS
-        // Igual que la categoría 18+ de los canales: el default tiene que ser el seguro, para que
-        // ningún camino que se olvide del parámetro termine sirviéndola.
-        require(!esAdulta || incluirAdultos) { "la sección 18+ hay que pedirla explícitamente" }
+    suspend fun tree(root: String, includeAdults: Boolean = false): List<SeccionDeCatalogo> {
+        val code = ROOTS[root] ?: throw IllegalArgumentException("no existe la raíz $root")
+        val isAdultRoot = root in ADULT_ROOTS
+        // Same as the channels' 18+ category: the default has to be the safe one, so no path that
+        // forgets the parameter ends up serving it.
+        require(!isAdultRoot || includeAdults) { "la sección 18+ hay que pedirla explícitamente" }
 
-        candado.withLock { arboles[raiz]?.let { return it } }
-        val r = catalogo.nextColumns(codigo, tamano = 60)
-        val columnas = r.dato()?.optJSONArray("recommendList") ?: return emptyList()
+        lock.withLock { trees[root]?.let { return it } }
+        val r = catalog.nextColumns(code, pageSize = 60)
+        val columns = r.getOrNull()?.optJSONArray("recommendList") ?: return emptyList()
 
-        val secciones = mutableListOf<SeccionDeCatalogo>()
-        columnas.forEachObjeto { c ->
-            val nombre = c.optString("name").takeIf { it.isNotBlank() } ?: return@forEachObjeto
+        val sections = mutableListOf<SeccionDeCatalogo>()
+        columns.forEachObject { c ->
+            val name = c.optString("name").takeIf { it.isNotBlank() } ?: return@forEachObject
             val items = mutableListOf<ItemDeCatalogo>()
-            c.optJSONArray("assetList")?.forEachObjeto { a ->
-                val id = a.optString("contentId").takeIf { it.isNotBlank() } ?: return@forEachObjeto
-                val tipo = a.optString("programType").ifBlank { "movie" }
+            c.optJSONArray("assetList")?.forEachObject { a ->
+                val id = a.optString("contentId").takeIf { it.isNotBlank() } ?: return@forEachObject
+                val type = a.optString("programType").ifBlank { "movie" }
                 items.add(
                     ItemDeCatalogo(
                         id = id,
                         titulo = a.optString("name"),
-                        poster = logoDe(a),
+                        poster = logoFrom(a),
                         duracionS = a.opt("duration")?.toString()?.toIntOrNull() ?: 0,
-                        // Marcado ÍTEM POR ÍTEM y no solo en la sección: el ítem viaja solo hasta el
-                        // reproductor, y ahí la regla de "esto no se anota en el historial" tiene que
-                        // poder aplicarse sin saber de qué sección vino.
-                        adulto = esAdulta,
-                        // Antes esto lo firmaba el gateway y vencía a las 24 h; ahora es un
-                        // descriptor local, así que la sección sirve para reproducir siempre.
-                        ref = MagisRef(id, tipo, 0).codificar(),
-                        tipo = tipo,
+                        // Marked ITEM BY ITEM and not only on the section: the item travels alone
+                        // up to the player, and there the "this doesn't get logged in history"
+                        // rule has to be applicable without knowing which section it came from.
+                        adulto = isAdultRoot,
+                        // This used to be signed by the gateway and expire at 24h; now it's a
+                        // local descriptor, so the section is always usable for playback.
+                        ref = MagisRef(id, type, 0).encode(),
+                        tipo = type,
                     ),
                 )
             }
-            secciones.add(
+            sections.add(
                 SeccionDeCatalogo(
                     id = c.opt("columnId")?.toString()?.toIntOrNull() ?: 0,
-                    nombre = nombre,
-                    adulto = esAdulta,
+                    nombre = name,
+                    adulto = isAdultRoot,
                     items = items,
                 ),
             )
         }
-        if (secciones.isNotEmpty()) candado.withLock { arboles[raiz] = secciones }
-        return secciones
+        if (sections.isNotEmpty()) lock.withLock { trees[root] = sections }
+        return sections
     }
 
-    private suspend fun todasLasCategorias(): List<CategoriaDePortal> {
-        candado.withLock {
-            if (categoriasCache.isNotEmpty() && ahoraMs() < categoriasVencen) return categoriasCache
+    private suspend fun allCategories(): List<PortalCategory> {
+        lock.withLock {
+            if (categoriesCache.isNotEmpty() && nowMs() < categoriesExpireAt) return categoriesCache
         }
-        // `pageSize` 200 y no 30: con 30 el portal devolvía exactamente 30 —el número redondo era
-        // el corte, no el total— y se perdían OCHO categorías enteras (las reales son 38).
-        val r = catalogo.nextColumns(RAIZ_DE_VIVO, tamano = 200)
-        val lista = r.dato()?.optJSONArray("recommendList") ?: return emptyList()
-        val salida = mutableListOf<CategoriaDePortal>()
-        lista.forEachObjeto { c ->
-            val id = c.opt("columnId")?.toString()?.toIntOrNull() ?: return@forEachObjeto
-            val nombre = nombreDeCategoria(c.optString("name"))
-            salida.add(CategoriaDePortal(id = id, nombre = nombre, adulto = esDeAdultos(nombre)))
+        // `pageSize` 200 and not 30: with 30 the portal returned exactly 30 —the round number was
+        // the cutoff, not the total— and EIGHT whole categories were lost (the real count is 38).
+        val r = catalog.nextColumns(LIVE_ROOT, pageSize = 200)
+        val list = r.getOrNull()?.optJSONArray("recommendList") ?: return emptyList()
+        val output = mutableListOf<PortalCategory>()
+        list.forEachObject { c ->
+            val id = c.opt("columnId")?.toString()?.toIntOrNull() ?: return@forEachObject
+            val name = categoryName(c.optString("name"))
+            output.add(PortalCategory(id = id, name = name, isAdult = isAdultCategory(name)))
         }
-        if (salida.isNotEmpty()) {
-            candado.withLock {
-                categoriasCache = salida
-                categoriasVencen = ahoraMs() + TTL_MS
+        if (output.isNotEmpty()) {
+            lock.withLock {
+                categoriesCache = output
+                categoriesExpireAt = nowMs() + TTL_MS
             }
         }
-        return salida
+        return output
     }
 
-    /** `null` = el portal no contestó esta página (distinto de "la categoría no tiene más"). */
-    private suspend fun unaPagina(
+    /** `null` = the portal didn't answer this page (different from "the category has no more"). */
+    private suspend fun onePage(
         columnId: Int,
-        pagina: Int,
-        esAdulta: Boolean,
+        page: Int,
+        isAdult: Boolean,
     ): List<LiveChannel>? {
-        val sesion = session.ensureSession()
-        if (sesion !is MagisResult.Ok) return null
-        val r = session.conSesionValida {
+        val sessionResult = session.ensureSession()
+        if (sessionResult !is MagisResult.Ok) return null
+        val r = session.withValidSession {
             portal.call(
                 path = "v6/getLiveData",
                 bean = mapOf(
                     "columnId" to columnId,
-                    "pageNum" to pagina,
-                    "pageSize" to PAGINA,
+                    "pageNum" to page,
+                    "pageSize" to PAGE_SIZE,
                     "dataVersion" to "",
                     "expireTimeStr" to "",
                 ),
@@ -179,65 +182,65 @@ internal class MagisLiveCatalog(
                 userToken = session.userToken,
             )
         }
-        val lista = r.dato()?.optJSONArray("channelList") ?: return null
-        val salida = mutableListOf<LiveChannel>()
-        lista.forEachObjeto { c ->
-            val code = c.optString("channelCode").takeIf { it.isNotBlank() } ?: return@forEachObjeto
-            salida.add(
+        val list = r.getOrNull()?.optJSONArray("channelList") ?: return null
+        val output = mutableListOf<LiveChannel>()
+        list.forEachObject { c ->
+            val code = c.optString("channelCode").takeIf { it.isNotBlank() } ?: return@forEachObject
+            output.add(
                 LiveChannel(
                     code = code,
                     nombre = c.optString("name"),
                     numero = c.opt("channelNumber")?.toString()?.toIntOrNull() ?: 0,
-                    logo = logoDe(c),
-                    // Marcado en el CANAL y no solo en la categoría: el canal viaja solo hasta el
-                    // reproductor (zapeo, deep link, recientes) y ahí ya no hay categoría a mano.
-                    adulto = esAdulta,
+                    logo = logoFrom(c),
+                    // Marked on the CHANNEL and not only on the category: the channel travels
+                    // alone up to the player (zapping, deep link, recents) and there's no category
+                    // at hand there anymore.
+                    adulto = isAdult,
                 ),
             )
         }
-        return salida
+        return output
     }
 
     private companion object {
-        const val RAIZ_DE_VIVO = "masnew_live"
+        const val LIVE_ROOT = "masnew_live"
 
-        /** Las raíces del catálogo VOD, con los códigos que el portal sí acepta. */
-        val RAICES = mapOf(
+        /** The VOD catalog's roots, with the codes the portal does accept. */
+        val ROOTS = mapOf(
             "peliculas" to "masnew_movies",
             "series" to "masnew_series",
             "infantil" to "masnew_kids",
             "anime" to "masnew_anime",
             "adultos" to "masnew_adult",
         )
-        val RAICES_DE_ADULTOS = setOf("adultos")
-        const val PAGINA = 500
-        const val MAX_PAGINAS = 6
+        val ADULT_ROOTS = setOf("adultos")
+        const val PAGE_SIZE = 500
+        const val MAX_PAGES = 6
         const val TTL_MS = 6 * 60 * 60 * 1000L
 
-        /** El portal llama "ChannelList" a la categoría de todos los canales — un nombre interno
-         *  suyo, en inglés, que terminaba tal cual en la pantalla. */
-        val NOMBRES = mapOf("ChannelList" to "Todos")
+        /** The portal calls the all-channels category "ChannelList" — one of its own internal
+         *  names, in English, that ended up straight on the screen. */
+        val NAMES = mapOf("ChannelList" to "Todos")
 
-        /** Se reconocen por NOMBRE porque es lo único que da el portal: no hay ningún campo que
-         *  las marque. */
-        val DE_ADULTOS = setOf("18+", "adultos", "adulto", "xxx", "+18")
+        /** Recognized by NAME because it's the only thing the portal gives: there's no field that marks them. */
+        val ADULT_NAMES = setOf("18+", "adultos", "adulto", "xxx", "+18")
 
-        fun nombreDeCategoria(nombre: String): String = NOMBRES[nombre] ?: nombre
+        fun categoryName(name: String): String = NAMES[name] ?: name
 
-        fun esDeAdultos(nombre: String): Boolean = nombre.trim().lowercase() in DE_ADULTOS
+        fun isAdultCategory(name: String): Boolean = name.trim().lowercase() in ADULT_NAMES
 
         /**
-         * La imagen del canal en la forma REAL que manda el portal (diagnosticada en producción):
-         * NO hay `logo`/`icon`/`logoUrl` ni `posterList[].url` — esos campos eran especulativos y
-         * nunca vienen. Sí viene `posterList[]` con `fileType`/`fileUrl` (el `fileType` es el único
-         * criterio confiable, no el orden ni el tamaño) y, como respaldo, `posterUrl` suelta.
+         * The channel's image in the REAL shape the portal sends (diagnosed in production): there's
+         * NO `logo`/`icon`/`logoUrl` or `posterList[].url` — those fields were speculative and
+         * never arrive. `posterList[]` DOES come with `fileType`/`fileUrl` (`fileType` is the only
+         * reliable criterion, not order or size) and, as a fallback, a loose `posterUrl`.
          */
-        fun logoDe(canal: JSONObject): String? {
-            canal.optJSONArray("posterList")?.forEachObjeto { p ->
-                if (p.optString("fileType") != "icon") return@forEachObjeto
+        fun logoFrom(channel: JSONObject): String? {
+            channel.optJSONArray("posterList")?.forEachObject { p ->
+                if (p.optString("fileType") != "icon") return@forEachObject
                 p.optString("fileUrl").takeIf { it.isNotBlank() }?.let { return it }
             }
-            return canal.optString("posterUrl").takeIf { it.isNotBlank() }
+            return channel.optString("posterUrl").takeIf { it.isNotBlank() }
         }
     }
 }

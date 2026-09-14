@@ -65,5 +65,5 @@ internal fun testSessionWithoutAccount(fake: FakePortalClient = FakePortalClient
     testSession(fake)
 
 /** Shortcut to build portal responses in tests. */
-internal fun portalOk(vararg campos: Pair<String, Any?>): MagisResult<JSONObject> =
-    MagisResult.Ok(JSONObject(campos.toMap()))
+internal fun portalOk(vararg fields: Pair<String, Any?>): MagisResult<JSONObject> =
+    MagisResult.Ok(JSONObject(fields.toMap()))

@@ -88,7 +88,7 @@ fun SettingsScreen(contentPadding: PaddingValues, onOpenDownloads: () -> Unit = 
             ) {
                 when (tab) {
                     TabDeAjustes.SUBTITULOS -> SubtitulosTab()
-                    TabDeAjustes.CUENTA -> AccountSection(graph.cuentaDeMagis)
+                    TabDeAjustes.CUENTA -> AccountSection(graph.magisAccount)
                     TabDeAjustes.APP -> AppTab(onOpenDownloads = onOpenDownloads)
                 }
                 // El aire de abajo lo pone la cáscara: los tabs no tienen por qué saber que debajo hay

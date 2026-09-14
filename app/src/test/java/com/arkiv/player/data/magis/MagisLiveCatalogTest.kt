@@ -9,15 +9,15 @@ import org.junit.Test
 
 class MagisLiveCatalogTest {
 
-    private fun catalogoDeVivo(
+    private fun liveCatalog(
         fake: FakePortalClient,
-        ahoraMs: () -> Long = { 0L },
+        nowMs: () -> Long = { 0L },
     ): MagisLiveCatalog {
-        val session = sesionDeTest(fake)
-        return MagisLiveCatalog(MagisCatalog(fake, session), fake, session, ahoraMs)
+        val session = testSession(fake)
+        return MagisLiveCatalog(MagisCatalog(fake, session), fake, session, nowMs)
     }
 
-    private fun categoriasDelPortal() = MagisResult.Ok(
+    private fun portalCategories() = MagisResult.Ok(
         JSONObject(
             """{"recommendList":[
                 {"columnId":76182,"name":"ChannelList"},
@@ -28,9 +28,9 @@ class MagisLiveCatalogTest {
         ),
     )
 
-    private fun canalesDelPortal(vararg codigos: String) = MagisResult.Ok(
+    private fun portalChannels(vararg codes: String) = MagisResult.Ok(
         JSONObject(
-            """{"channelList":[${codigos.joinToString(",") { c ->
+            """{"channelList":[${codes.joinToString(",") { c ->
                 """{"channelCode":"$c","name":"Canal $c","channelNumber":"7",
                     "posterList":[{"fileType":"poster","fileUrl":"https://p/$c.jpg"},
                                   {"fileType":"icon","fileUrl":"https://i/$c.png"}]}"""
@@ -39,56 +39,56 @@ class MagisLiveCatalogTest {
     )
 
     @Test
-    fun `ChannelList se muestra como Todos y el 18+ no sale sin pedirlo`() = runTest {
+    fun `ChannelList shows as Todos and 18+ doesn't come out unrequested`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("getNextColumns", categoriasDelPortal())
+        fake.queueResponse("getNextColumns", portalCategories())
 
-        val cats = catalogoDeVivo(fake).categorias()
+        val cats = liveCatalog(fake).categorias()
 
         assertEquals(listOf("Todos", "Deportes"), cats.map { it.nombre })
         assertEquals(listOf(76182, 76183), cats.map { it.id })
     }
 
     @Test
-    fun `con incluirAdultos sale tambien la de adultos`() = runTest {
+    fun `with incluirAdultos, the adult one comes out too`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("getNextColumns", categoriasDelPortal())
+        fake.queueResponse("getNextColumns", portalCategories())
 
-        val cats = catalogoDeVivo(fake).categorias(incluirAdultos = true)
+        val cats = liveCatalog(fake).categorias(incluirAdultos = true)
 
         assertEquals(listOf("Todos", "Deportes", "18+"), cats.map { it.nombre })
     }
 
     @Test
-    fun `las categorias se piden con pageSize 200, no con el default`() = runTest {
+    fun `categories are requested with pageSize 200, not the default`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("getNextColumns", categoriasDelPortal())
+        fake.queueResponse("getNextColumns", portalCategories())
 
-        catalogoDeVivo(fake).categorias()
+        liveCatalog(fake).categorias()
 
-        val (_, bean) = fake.llamadas.first { it.first == "getNextColumns" }
+        val (_, bean) = fake.calls.first { it.first == "getNextColumns" }
         assertEquals("masnew_live", bean["columnCode"])
         assertEquals(200, bean["pageSize"])
     }
 
     @Test
-    fun `el logo sale del posterList con fileType icon, no del primero de la lista`() = runTest {
+    fun `the logo comes from posterList's fileType icon entry, not the list's first one`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("getNextColumns", categoriasDelPortal())
-        fake.encolarRespuesta("v6/getLiveData", canalesDelPortal("A"))
+        fake.queueResponse("getNextColumns", portalCategories())
+        fake.queueResponse("v6/getLiveData", portalChannels("A"))
 
-        val canales = catalogoDeVivo(fake).canales(76183)
+        val channels = liveCatalog(fake).canales(76183)
 
-        assertEquals("https://i/A.png", canales.single().logo)
-        assertEquals("Canal A", canales.single().nombre)
-        assertEquals(7, canales.single().numero)
+        assertEquals("https://i/A.png", channels.single().logo)
+        assertEquals("Canal A", channels.single().nombre)
+        assertEquals(7, channels.single().numero)
     }
 
     @Test
-    fun `sin icon en posterList se cae al posterUrl suelto`() = runTest {
+    fun `with no icon in posterList it falls back to the loose posterUrl`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("getNextColumns", categoriasDelPortal())
-        fake.encolarRespuesta(
+        fake.queueResponse("getNextColumns", portalCategories())
+        fake.queueResponse(
             "v6/getLiveData",
             MagisResult.Ok(
                 JSONObject(
@@ -101,100 +101,100 @@ class MagisLiveCatalogTest {
             ),
         )
 
-        val canales = catalogoDeVivo(fake).canales(76183)
+        val channels = liveCatalog(fake).canales(76183)
 
-        assertEquals("https://suelta/b.png", canales[0].logo)
-        assertNull(canales[1].logo)
+        assertEquals("https://suelta/b.png", channels[0].logo)
+        assertNull(channels[1].logo)
     }
 
     @Test
-    fun `los canales de una categoria de adultos quedan marcados uno por uno`() = runTest {
+    fun `an adult category's channels end up marked one by one`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("getNextColumns", categoriasDelPortal())
-        fake.encolarRespuesta("v6/getLiveData", canalesDelPortal("X"))
+        fake.queueResponse("getNextColumns", portalCategories())
+        fake.queueResponse("v6/getLiveData", portalChannels("X"))
 
-        val canales = catalogoDeVivo(fake).canales(76184)
+        val channels = liveCatalog(fake).canales(76184)
 
-        assertTrue(canales.single().adulto)
+        assertTrue(channels.single().adulto)
     }
 
     @Test
-    fun `una categoria normal no marca sus canales`() = runTest {
+    fun `a normal category doesn't mark its channels`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("getNextColumns", categoriasDelPortal())
-        fake.encolarRespuesta("v6/getLiveData", canalesDelPortal("X"))
+        fake.queueResponse("getNextColumns", portalCategories())
+        fake.queueResponse("v6/getLiveData", portalChannels("X"))
 
-        assertTrue(!catalogoDeVivo(fake).canales(76183).single().adulto)
+        assertTrue(!liveCatalog(fake).canales(76183).single().adulto)
     }
 
     @Test
-    fun `pagina hasta que el portal devuelve una pagina incompleta`() = runTest {
+    fun `pages until the portal returns an incomplete page`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("getNextColumns", categoriasDelPortal())
-        fake.encolarRespuesta("v6/getLiveData", canalesDelPortal(*(1..500).map { "p1-$it" }.toTypedArray()))
-        fake.encolarRespuesta("v6/getLiveData", canalesDelPortal(*(1..40).map { "p2-$it" }.toTypedArray()))
+        fake.queueResponse("getNextColumns", portalCategories())
+        fake.queueResponse("v6/getLiveData", portalChannels(*(1..500).map { "p1-$it" }.toTypedArray()))
+        fake.queueResponse("v6/getLiveData", portalChannels(*(1..40).map { "p2-$it" }.toTypedArray()))
 
-        val canales = catalogoDeVivo(fake).canales(76183)
+        val channels = liveCatalog(fake).canales(76183)
 
-        assertEquals(540, canales.size)
-        assertEquals(2, fake.vecesLlamado("v6/getLiveData"))
-        assertEquals(listOf(1, 2), fake.llamadas.filter { it.first == "v6/getLiveData" }.map { it.second["pageNum"] })
+        assertEquals(540, channels.size)
+        assertEquals(2, fake.timesCalled("v6/getLiveData"))
+        assertEquals(listOf(1, 2), fake.calls.filter { it.first == "v6/getLiveData" }.map { it.second["pageNum"] })
     }
 
     @Test
-    fun `si el portal ignorara pageNum no se duplica el catalogo`() = runTest {
+    fun `if the portal ignored pageNum the catalog wouldn't get duplicated`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("getNextColumns", categoriasDelPortal())
-        val pagina = canalesDelPortal(*(1..500).map { "rep-$it" }.toTypedArray())
-        fake.encolarRespuesta("v6/getLiveData", pagina)
-        fake.encolarRespuesta("v6/getLiveData", pagina)
+        fake.queueResponse("getNextColumns", portalCategories())
+        val page = portalChannels(*(1..500).map { "rep-$it" }.toTypedArray())
+        fake.queueResponse("v6/getLiveData", page)
+        fake.queueResponse("v6/getLiveData", page)
 
-        val canales = catalogoDeVivo(fake).canales(76183)
+        val channels = liveCatalog(fake).canales(76183)
 
-        assertEquals(500, canales.size)
-        assertEquals(2, fake.vecesLlamado("v6/getLiveData"))
+        assertEquals(500, channels.size)
+        assertEquals(2, fake.timesCalled("v6/getLiveData"))
     }
 
     @Test
-    fun `el catalogo se cachea y no vuelve al portal hasta que vence`() = runTest {
+    fun `the catalog gets cached and doesn't go back to the portal until it expires`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("getNextColumns", categoriasDelPortal())
-        fake.encolarRespuesta("v6/getLiveData", canalesDelPortal("A"))
-        var ahora = 0L
-        val catalogo = catalogoDeVivo(fake) { ahora }
+        fake.queueResponse("getNextColumns", portalCategories())
+        fake.queueResponse("v6/getLiveData", portalChannels("A"))
+        var now = 0L
+        val catalog = liveCatalog(fake) { now }
 
-        catalogo.canales(76183)
-        catalogo.canales(76183)
-        catalogo.categorias()
+        catalog.canales(76183)
+        catalog.canales(76183)
+        catalog.categorias()
 
-        assertEquals(1, fake.vecesLlamado("v6/getLiveData"))
-        assertEquals(1, fake.vecesLlamado("getNextColumns"))
+        assertEquals(1, fake.timesCalled("v6/getLiveData"))
+        assertEquals(1, fake.timesCalled("getNextColumns"))
 
-        // Pasadas las 6 h vuelve a preguntar.
-        ahora = 7 * 60 * 60 * 1000L
-        fake.encolarRespuesta("getNextColumns", categoriasDelPortal())
-        fake.encolarRespuesta("v6/getLiveData", canalesDelPortal("A"))
-        catalogo.canales(76183)
+        // Past 6h it asks again.
+        now = 7 * 60 * 60 * 1000L
+        fake.queueResponse("getNextColumns", portalCategories())
+        fake.queueResponse("v6/getLiveData", portalChannels("A"))
+        catalog.canales(76183)
 
-        assertEquals(2, fake.vecesLlamado("v6/getLiveData"))
+        assertEquals(2, fake.timesCalled("v6/getLiveData"))
     }
 
     @Test
-    fun `un error del portal no se cachea como un catalogo vacio`() = runTest {
+    fun `a portal error doesn't get cached as an empty catalog`() = runTest {
         val fake = FakePortalClient()
-        // Una sola: un RedError no dispara reintento (el portal no dijo nada, esta caido).
-        fake.encolarRespuesta("getNextColumns", MagisResult.RedError(java.io.IOException("sin red")))
-        val catalogo = catalogoDeVivo(fake)
+        // Just one: a RedError doesn't trigger a retry (the portal said nothing, it's down).
+        fake.queueResponse("getNextColumns", MagisResult.RedError(java.io.IOException("sin red")))
+        val catalog = liveCatalog(fake)
 
-        assertTrue(catalogo.categorias().isEmpty())
-        fake.encolarRespuesta("getNextColumns", categoriasDelPortal())
+        assertTrue(catalog.categorias().isEmpty())
+        fake.queueResponse("getNextColumns", portalCategories())
 
-        assertEquals(listOf("Todos", "Deportes"), catalogo.categorias().map { it.nombre })
+        assertEquals(listOf("Todos", "Deportes"), catalog.categorias().map { it.nombre })
     }
 
-    // --- árbol del catálogo (secciones con sus primeros ítems) --------------------------------
+    // --- catalog tree (sections with their first items) --------------------------------
 
-    private fun arbolDelPortal() = MagisResult.Ok(
+    private fun portalTree() = MagisResult.Ok(
         JSONObject(
             """{"recommendList":[
                 {"columnId":91,"name":"Estrenos","assetList":[
@@ -210,85 +210,85 @@ class MagisLiveCatalogTest {
     )
 
     @Test
-    fun `el arbol trae las secciones con sus items y el ref de cada uno`() = runTest {
+    fun `the tree carries the sections with their items and each one's ref`() = runTest {
         val fake = FakePortalClient()
-        fake.encolarRespuesta("getNextColumns", arbolDelPortal())
+        fake.queueResponse("getNextColumns", portalTree())
 
-        val secciones = catalogoDeVivo(fake).arbol("peliculas")
+        val sections = liveCatalog(fake).tree("peliculas")
 
-        // La sección sin nombre se descarta: no se puede pintar un encabezado vacío.
-        assertEquals(listOf("Estrenos", "Recomendadas"), secciones.map { it.nombre })
-        assertEquals(listOf(91, 92), secciones.map { it.id })
-        val items = secciones.first().items
+        // The unnamed section is discarded: an empty header can't be drawn.
+        assertEquals(listOf("Estrenos", "Recomendadas"), sections.map { it.nombre })
+        assertEquals(listOf(91, 92), sections.map { it.id })
+        val items = sections.first().items
         assertEquals(listOf("Una pelicula", "Una serie"), items.map { it.titulo })
         assertEquals("https://i/p1.jpg", items[0].poster)
         assertEquals(5400, items[0].duracionS)
-        assertEquals(MagisRef("P1", "movie", 0), MagisRef.decodificar(items[0].ref))
+        assertEquals(MagisRef("P1", "movie", 0), MagisRef.decode(items[0].ref))
         assertTrue(items[0].reproducible)
-        // El tipo deja ramificar sin abrir el ref: una serie primero pide sus capítulos.
+        // The type lets it branch without opening the ref: a series asks for its chapters first.
         assertTrue(items[1].esSerie)
-        assertEquals(MagisRef("S1", "teleplay", 0), MagisRef.decodificar(items[1].ref))
+        assertEquals(MagisRef("S1", "teleplay", 0), MagisRef.decode(items[1].ref))
     }
 
     @Test
-    fun `cada raiz tiene su propio codigo y los obvios no se usan`() = runTest {
+    fun `each root has its own code and the obvious ones aren't used`() = runTest {
         val fake = FakePortalClient()
-        fake.respuestaPorDefecto = arbolDelPortal()
-        val catalogo = catalogoDeVivo(fake)
+        fake.defaultResponse = portalTree()
+        val catalog = liveCatalog(fake)
 
         listOf("peliculas" to "masnew_movies", "series" to "masnew_series",
-               "infantil" to "masnew_kids", "anime" to "masnew_anime").forEach { (raiz, codigo) ->
-            catalogo.arbol(raiz)
-            assertEquals(codigo, fake.llamadas.last { it.first == "getNextColumns" }.second["columnCode"])
+               "infantil" to "masnew_kids", "anime" to "masnew_anime").forEach { (root, code) ->
+            catalog.tree(root)
+            assertEquals(code, fake.calls.last { it.first == "getNextColumns" }.second["columnCode"])
         }
     }
 
     @Test
-    fun `una raiz que no existe no se le pide al portal`() = runTest {
+    fun `a root that doesn't exist isn't requested from the portal`() = runTest {
         val fake = FakePortalClient()
 
-        val e = runCatching { catalogoDeVivo(fake).arbol("lo-que-sea") }.exceptionOrNull()
+        val e = runCatching { liveCatalog(fake).tree("lo-que-sea") }.exceptionOrNull()
 
         assertTrue("esperaba un error de argumento y fue $e", e is IllegalArgumentException)
-        assertTrue(fake.llamadas.isEmpty())
+        assertTrue(fake.calls.isEmpty())
     }
 
     @Test
-    fun `la seccion de adultos hay que pedirla explicitamente`() = runTest {
+    fun `the adult section has to be requested explicitly`() = runTest {
         val fake = FakePortalClient()
-        fake.respuestaPorDefecto = arbolDelPortal()
-        val catalogo = catalogoDeVivo(fake)
+        fake.defaultResponse = portalTree()
+        val catalog = liveCatalog(fake)
 
-        val e = runCatching { catalogo.arbol("adultos") }.exceptionOrNull()
+        val e = runCatching { catalog.tree("adultos") }.exceptionOrNull()
         assertTrue("esperaba que se niegue y fue $e", e is IllegalArgumentException)
-        assertTrue(fake.llamadas.isEmpty())
+        assertTrue(fake.calls.isEmpty())
 
-        val secciones = catalogo.arbol("adultos", incluirAdultos = true)
-        assertTrue("los items tienen que quedar marcados", secciones.first().items.all { it.adulto })
-        assertTrue(secciones.all { it.adulto })
+        val sections = catalog.tree("adultos", includeAdults = true)
+        assertTrue("los items tienen que quedar marcados", sections.first().items.all { it.adulto })
+        assertTrue(sections.all { it.adulto })
     }
 
     @Test
-    fun `el arbol se cachea por raiz`() = runTest {
+    fun `the tree gets cached per root`() = runTest {
         val fake = FakePortalClient()
-        fake.respuestaPorDefecto = arbolDelPortal()
-        val catalogo = catalogoDeVivo(fake)
+        fake.defaultResponse = portalTree()
+        val catalog = liveCatalog(fake)
 
-        catalogo.arbol("peliculas")
-        catalogo.arbol("peliculas")
-        catalogo.arbol("series")
+        catalog.tree("peliculas")
+        catalog.tree("peliculas")
+        catalog.tree("series")
 
-        assertEquals(2, fake.vecesLlamado("getNextColumns"))
+        assertEquals(2, fake.timesCalled("getNextColumns"))
     }
 
     @Test
-    fun `el portal no tiene EPG y se dice asi, sin inventar horarios`() = runTest {
+    fun `the portal has no EPG and it says so, without making up schedules`() = runTest {
         val fake = FakePortalClient()
 
-        val (guia, faltan) = catalogoDeVivo(fake).epg(listOf("c1", "c2"))
+        val (guide, missing) = liveCatalog(fake).epg(listOf("c1", "c2"))
 
-        assertTrue(guia.isEmpty())
-        assertEquals(listOf("c1", "c2"), faltan)
-        assertTrue(fake.llamadas.isEmpty())
+        assertTrue(guide.isEmpty())
+        assertEquals(listOf("c1", "c2"), missing)
+        assertTrue(fake.calls.isEmpty())
     }
 }

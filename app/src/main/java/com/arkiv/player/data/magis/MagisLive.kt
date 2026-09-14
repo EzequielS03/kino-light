@@ -6,34 +6,34 @@ import com.arkiv.player.data.gateway.LiveSession
 import org.json.JSONObject
 
 /**
- * Canal en vivo directo del portal. Devuelve la misma [LiveSession] que hasta ahora armaba
- * `LiveApi.resolver` contra el gateway, así que `LiveHlsProxy` no cambia: sigue pidiéndole
- * `http://<cflHost>/live/<playCode>.m3u8` al CDN y firmando cada segmento en el aparato
+ * Live channel straight from the portal. Returns the same [LiveSession] `LiveApi.resolver` used to
+ * build against the gateway, so `LiveHlsProxy` doesn't change: it keeps asking the CDN for
+ * `http://<cflHost>/live/<playCode>.m3u8` and signing each segment on the device
  * ([com.arkiv.player.playback.LocalSignature]).
  *
- * Son dos llamadas al portal y NO se cachean: el `main_addr` rota en cada respuesta, y un host
- * viejo contesta 403.
+ * It's two portal calls and they're NOT cached: `main_addr` rotates on every response, and an old
+ * host answers 403.
  */
 internal class MagisLive(
     private val portal: MagisPortalClientLike,
     private val session: MagisSession,
     private val apkVersion: String = BuildConfig.IPTV_APK_VERSION,
-    private val ahoraMs: () -> Long = { System.currentTimeMillis() },
+    private val nowMs: () -> Long = { System.currentTimeMillis() },
 ) {
 
     suspend fun resolveChannel(channelCode: String): MagisResult<LiveSession> {
-        // El vivo exige cuenta de verdad: con sesión anónima el portal contesta `aaa100028`
-        // ("未登录！"). Se corta acá para no gastar dos llamadas y para poder decir por qué.
+        // Live requires a real account: with an anonymous session the portal answers `aaa100028`
+        // ("未登录！"). Cut here to avoid spending two calls and to be able to say why.
         if (!session.hasAccountLinked) {
             return MagisResult.PortalError(
-                SIN_CUENTA,
+                NO_ACCOUNT,
                 "el canal en vivo exige una cuenta de Magis vinculada: la sesión anónima no alcanza",
             )
         }
-        val sesion = session.ensureSession()
-        if (sesion !is MagisResult.Ok) return sesion.comoError()
+        val sessionResult = session.ensureSession()
+        if (sessionResult !is MagisResult.Ok) return sessionResult.asError()
 
-        val play = session.conSesionValida {
+        val play = session.withValidSession {
             portal.call(
                 path = "v4/startPlayLive",
                 bean = mapOf("channelCode" to channelCode, "columnId" to 0, "type" to "1"),
@@ -41,136 +41,138 @@ internal class MagisLive(
                 userToken = session.userToken,
             )
         }
-        val playJson = play.dato() ?: return play.comoError()
-        val señal = señalDe(playJson)
+        val playJson = play.getOrNull() ?: return play.asError()
+        val signal = signalFrom(playJson)
             ?: return MagisResult.PortalError(
-                SIN_DIRECCIONES,
+                NO_ADDRESSES,
                 "el portal no dio direcciones para $channelCode",
             )
 
-        val slb = session.conSesionValida {
+        val slb = session.withValidSession {
             portal.call(
                 path = "v14/getSlbInfo",
-                // El código del CANAL, no el playCode: el portal devuelve los hosts de esa señal.
-                bean = beanDeSlb(apkVersion, liveCodes = listOf(channelCode)),
+                // The CHANNEL's code, not the playCode: the portal returns that signal's hosts.
+                bean = slbRequestParams(apkVersion, liveCodes = listOf(channelCode)),
                 userId = session.userId,
                 userToken = session.userToken,
             )
         }
-        val slbJson = slb.dato() ?: return slb.comoError()
+        val slbJson = slb.getOrNull() ?: return slb.asError()
 
-        val cdns = cdnsDeVivo(slbJson)
+        val cdns = liveCdns(slbJson)
         if (cdns.isEmpty()) {
             return MagisResult.PortalError(
-                SIN_CDN,
+                NO_CDN,
                 "no hay entrada CDN cfl de vivo para $channelCode",
             )
         }
 
-        val sesionDeCanal = LiveSession(
+        val channelSession = LiveSession(
             cflHost = cdns.first().cflHost,
             authBase = cdns.first().authBase,
-            license = señal.license,
+            license = signal.license,
             channel = channelCode,
-            expiresAt = ahoraMs() / 1000 + vigenciaDe(slbJson),
-            // Cómo se llama la señal EN EL CDN, que no siempre es el código del canal (medido:
-            // `cyx-RCNHD` se sirve como `cyx-2EF7E10E40C1ac19D6A9F3ED4CD2`). Pedirle al CDN el
-            // código del canal es pedirle una señal distinta de la que autoriza la licencia: 401.
-            playCode = señal.playCode.ifBlank { channelCode },
+            expiresAt = nowMs() / 1000 + ttlOf(slbJson),
+            // What the signal is called ON THE CDN, which isn't always the channel's code
+            // (measured: `cyx-RCNHD` is served as `cyx-2EF7E10E40C1ac19D6A9F3ED4CD2`). Asking the
+            // CDN for the channel's code is asking for a different signal from the one the license
+            // authorizes: 401.
+            playCode = signal.playCode.ifBlank { channelCode },
             cdns = cdns,
         )
 
-        // Lo que sigue es la misma validación que hacía `LiveApi.resolver` sobre la respuesta del
-        // gateway, y por el mismo motivo: `LiveHlsProxy` usa estos campos tal cual contra el CDN
-        // real, así que un vacío acá reaparece como un 401/403 opaco, lejos de donde se originó.
-        if (sesionDeCanal.license.isBlank()) {
-            return MagisResult.PortalError(SIN_LICENSE, "el portal dio $channelCode sin licencia")
+        // What follows is the same validation `LiveApi.resolver` used to do on the gateway's
+        // response, and for the same reason: `LiveHlsProxy` uses these fields as-is against the
+        // real CDN, so an empty one here shows back up as an opaque 401/403, far from where it
+        // originated.
+        if (channelSession.license.isBlank()) {
+            return MagisResult.PortalError(NO_LICENSE, "el portal dio $channelCode sin licencia")
         }
-        if (sesionDeCanal.token.isBlank()) {
+        if (channelSession.token.isBlank()) {
             return MagisResult.PortalError(
-                SIN_TOKEN,
+                NO_TOKEN,
                 "el authBase de $channelCode no trae token=<32 hex>",
             )
         }
-        return MagisResult.Ok(sesionDeCanal)
+        return MagisResult.Ok(channelSession)
     }
 
     /**
-     * Como [resolveChannel] pero lanzando, que es lo que espera quien abre un canal (antes lo
-     * lanzaba `LiveApi.resolver`). El mensaje lleva el motivo del portal: es lo que se ve cuando un
-     * canal no abre, y "no se pudo abrir" a secas no deja diagnosticar nada.
+     * Like [resolveChannel] but throwing, which is what whoever opens a channel expects (it used to
+     * be thrown by `LiveApi.resolver`). The message carries the portal's reason: it's what shows up
+     * when a channel doesn't open, and a bare "couldn't open it" leaves nothing to diagnose.
      */
-    suspend fun resolverOLanzar(channelCode: String): LiveSession {
+    suspend fun resolveOrThrow(channelCode: String): LiveSession {
         val r = resolveChannel(channelCode)
-        return r.dato() ?: throw com.arkiv.player.data.gateway.GatewayException(
+        return r.getOrNull() ?: throw com.arkiv.player.data.gateway.GatewayException(
             when (r) {
-                is MagisResult.PortalError -> "vivo: ${r.codigo}${r.msg?.let { " ($it)" }.orEmpty()}"
-                is MagisResult.RedError -> "vivo: no se pudo hablar con el portal (${r.causa.message})"
+                is MagisResult.PortalError -> "vivo: ${r.code}${r.msg?.let { " ($it)" }.orEmpty()}"
+                is MagisResult.RedError -> "vivo: no se pudo hablar con el portal (${r.cause.message})"
                 is MagisResult.Ok -> "vivo: el portal no dio sesión"
             },
         )
     }
 
-    private data class Señal(val playCode: String, val license: String)
+    private data class Signal(val playCode: String, val license: String)
 
     /**
-     * El `playCode` y la licencia salen de LA MISMA entrada, nunca cruzados: la licencia autoriza
-     * UNA señal, y emparejarla con el playCode de otra es justo el par que el CDN rechaza. Es lo
-     * que hace la app original (decompilada, `sources/h8/v3.java`): descarta las direcciones sin
-     * playCode o sin licencia y usa el par de la que quedó.
+     * `playCode` and the license come from THE SAME entry, never crossed: the license authorizes
+     * ONE signal, and pairing it with another's playCode is exactly the pair the CDN rejects. It's
+     * what the original app does (decompiled, `sources/h8/v3.java`): discards addresses with no
+     * playCode or no license and uses the pair from whichever was left.
      *
-     * Se prefiere la primera COMPLETA; si ninguna lo está, vale la primera con licencia y sin
-     * playCode — hay canales cuyo playCode el portal no manda y que andan con el código del canal,
-     * así que arreglar unos no puede romper esos.
+     * The first COMPLETE one is preferred; if none is, the first with a license and no playCode is
+     * good enough — there are channels whose playCode the portal doesn't send and that work with
+     * the channel's code, so fixing some can't break those.
      */
-    private fun señalDe(play: JSONObject): Señal? {
-        var primeraLicencia: String? = null
-        play.optJSONArray("liveAddressList")?.forEachObjeto { a ->
+    private fun signalFrom(play: JSONObject): Signal? {
+        var firstLicense: String? = null
+        play.optJSONArray("liveAddressList")?.forEachObject { a ->
             val license = a.optString("license")
             val playCode = a.optString("playCode")
-            if (primeraLicencia == null) primeraLicencia = license
+            if (firstLicense == null) firstLicense = license
             if (playCode.isNotBlank() && license.isNotBlank()) {
-                return Señal(playCode = playCode, license = license)
+                return Signal(playCode = playCode, license = license)
             }
         }
-        return primeraLicencia?.let { Señal(playCode = "", license = it) }
+        return firstLicense?.let { Signal(playCode = "", license = it) }
     }
 
     /**
-     * TODOS los CDN de vivo servibles, no el primero: medido el 2026-08-14 el portal devuelve tres
-     * y se usaba solo uno; ese día el CDN contestó 401 y el canal se murió teniendo otro host en la
-     * MISMA respuesta. Cada uno con SU `authBase`, porque el token viaja adentro de esa url y
-     * firmar con el de uno contra el host de otro es el mismo modo de falla.
+     * ALL servable live CDNs, not the first one: measured on 2026-08-14 the portal returns three
+     * and only one was used; that day the CDN answered 401 and the channel died while having
+     * another host in the SAME response. Each with ITS OWN `authBase`, because the token travels
+     * inside that url and signing with one against another's host is the same failure mode.
      */
-    private fun cdnsDeVivo(slb: JSONObject): List<CdnDeCanal> {
-        val salida = mutableListOf<CdnDeCanal>()
-        slb.optJSONArray("cdn_list")?.forEachObjeto { cdn ->
-            if (cdn.optString("tag") != "live") return@forEachObjeto
-            cdn.optJSONArray("url_list")?.forEachObjeto { u ->
+    private fun liveCdns(slb: JSONObject): List<CdnDeCanal> {
+        val output = mutableListOf<CdnDeCanal>()
+        slb.optJSONArray("cdn_list")?.forEachObject { cdn ->
+            if (cdn.optString("tag") != "live") return@forEachObject
+            cdn.optJSONArray("url_list")?.forEachObject { u ->
                 val url = u.optString("url")
-                if (!esCfl(url) && u.optString("sign_type") != "cfl") return@forEachObjeto
-                val host = hostPelado(cdn.optString("main_addr"))
-                if (host.isNotBlank()) salida.add(CdnDeCanal(cflHost = host, authBase = url))
+                if (!isCfl(url) && u.optString("sign_type") != "cfl") return@forEachObject
+                val host = bareHost(cdn.optString("main_addr"))
+                if (host.isNotBlank()) output.add(CdnDeCanal(cflHost = host, authBase = url))
             }
         }
-        return salida
+        return output
     }
 
     /**
-     * Cuánto vale esta info de CDN, según EL PORTAL: `invalidTime` (medido: 14400 = 4 h). Sin el
-     * campo se cae al valor conservador — re-resolver de más cuesta unos segundos, servir un host
-     * vencido corta la reproducción.
+     * How long this CDN info is good for, ACCORDING TO THE PORTAL: `invalidTime` (measured: 14400 =
+     * 4h). Without the field it falls back to the conservative value — re-resolving extra costs a
+     * few seconds, serving an expired host cuts playback off.
      */
-    private fun vigenciaDe(slb: JSONObject): Long =
-        slb.optString("invalidTime").toLongOrNull()?.takeIf { it > 0 } ?: TTL_CANAL_S
+    private fun ttlOf(slb: JSONObject): Long =
+        slb.optString("invalidTime").toLongOrNull()?.takeIf { it > 0 } ?: CHANNEL_TTL_S
 
     internal companion object {
-        const val TTL_CANAL_S = 300L
+        const val CHANNEL_TTL_S = 300L
 
-        const val SIN_CUENTA = "live_sin_cuenta"
-        const val SIN_DIRECCIONES = "live_sin_direcciones"
-        const val SIN_CDN = "live_sin_cdn_cfl"
-        const val SIN_LICENSE = "live_sin_license"
-        const val SIN_TOKEN = "live_sin_token_cfl"
+        const val NO_ACCOUNT = "live_no_account"
+        const val NO_ADDRESSES = "live_no_addresses"
+        const val NO_CDN = "live_no_cfl_cdn"
+        const val NO_LICENSE = "live_no_license"
+        const val NO_TOKEN = "live_no_cfl_token"
     }
 }

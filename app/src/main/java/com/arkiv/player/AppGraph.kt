@@ -113,7 +113,7 @@ class AppGraph(context: Context) {
             hosts = BuildConfig.IPTV_HOSTS.split(",").map { it.trim() }.filter { it.isNotBlank() },
             appId = BuildConfig.IPTV_APP_ID,
             apkVersion = BuildConfig.IPTV_APK_VERSION,
-            snProvider = { magisStore.leerSesion()?.sn.orEmpty() },
+            snProvider = { magisStore.readSession()?.sn.orEmpty() },
             // PACIENTE: el portal tarda ~11 s en resolver algunos canales (medido) y el default de
             // lectura de OkHttp son 10, o sea que los mataba justo antes de llegar. `newBuilder()`
             // y no un cliente nuevo: comparte pool de conexiones con el resto de las llamadas al
@@ -131,12 +131,12 @@ class AppGraph(context: Context) {
     /**
      * El vínculo con Magis visto desde "Ajustes → Cuenta" (celu y TV) y la oferta al entrar a la TV
      * (Task 8, sub-proyecto 2B): las tres pantallas dejaron de usar `AccountManager` para esto -ya
-     * no depende de ninguna sesión de Kino, ver el KDoc de [com.arkiv.player.data.magis.CuentaDeMagis]-.
+     * no depende de ninguna sesión de Kino, ver el KDoc de [com.arkiv.player.data.magis.MagisAccount]-.
      * `AccountManager` mismo se borró del todo en la Task 9 (sub-proyecto 2B), junto con el resto
      * del subsistema de cuentas.
      */
-    internal val cuentaDeMagis: com.arkiv.player.data.magis.CuentaDeMagis by lazy {
-        com.arkiv.player.data.magis.CuentaDeMagis(magisSession)
+    internal val magisAccount: com.arkiv.player.data.magis.MagisAccount by lazy {
+        com.arkiv.player.data.magis.MagisAccount(magisSession)
     }
 
     private val magisCatalog: com.arkiv.player.data.magis.MagisCatalog by lazy {
@@ -146,8 +146,8 @@ class AppGraph(context: Context) {
     /** Los títulos de Magis, directo del portal. Afuera solo se ve a través de [fuenteDeContenido]. */
     private val magisFuente: com.arkiv.player.data.gateway.ContentSource by lazy {
         com.arkiv.player.data.magis.MagisFuente(
-            catalogo = magisCatalog,
-            resolucion = com.arkiv.player.data.magis.MagisResolve(magisPortal, magisSession),
+            catalog = magisCatalog,
+            vodResolver = com.arkiv.player.data.magis.MagisResolve(magisPortal, magisSession),
             tmdb = tmdbApi,
         )
     }
@@ -210,7 +210,7 @@ class AppGraph(context: Context) {
      *  [liveHlsProxy]. */
     val liveController: com.arkiv.player.ui.live.LiveController by lazy {
         com.arkiv.player.ui.live.LiveController(
-            resolver = { code -> magisLive.resolverOLanzar(code) },
+            resolver = { code -> magisLive.resolveOrThrow(code) },
             urlPara = { sesion -> liveHlsProxy.urlFor(sesion) },
         )
     }

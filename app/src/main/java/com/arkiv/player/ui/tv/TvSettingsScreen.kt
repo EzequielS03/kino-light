@@ -26,7 +26,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.delay
-import com.arkiv.player.data.magis.EstadoDeMagis
+import com.arkiv.player.data.magis.MagisAccountState
 import com.arkiv.player.ui.rememberGraph
 
 /**
@@ -60,7 +60,7 @@ private enum class TabDeAjustesTv(val etiqueta: String) {
 @Composable
 fun TvSettingsScreen() {
     val graph = rememberGraph()
-    val cuentaMagis = graph.cuentaDeMagis
+    val cuentaMagis = graph.magisAccount
 
     // Vincular Magis abre la MISMA pantalla que la oferta al entrar ([TvOfertaVincularMagis]), no
     // un formulario desplegado adentro de la lista de Ajustes. Antes eran dos interfaces distintas
@@ -71,7 +71,7 @@ fun TvSettingsScreen() {
     // habían quedado sólo en una.
     var vinculandoMagis by remember { mutableStateOf(false) }
     if (vinculandoMagis) {
-        val estadoMagis by cuentaMagis.estado.collectAsStateWithLifecycle()
+        val estadoMagis by cuentaMagis.state.collectAsStateWithLifecycle()
         // Y se cierra sola al vincular. `TvOfertaVincularMagis` no avisa cuando sale bien: no le
         // hacía falta, porque en su uso original (`ArkivTvRoot`, la oferta al entrar) el que la
         // compone reevalúa si todavía hay que ofrecerla y deja de pintarla. Acá el `if` de arriba
@@ -79,7 +79,7 @@ fun TvSettingsScreen() {
         // portal la acepta— y la persona se queda mirando el mismo formulario, sin ninguna señal
         // de que pasó algo. Medido en el Fire TV el 2026-08-14: "le di vincular y no dijo nada".
         LaunchedEffect(estadoMagis) {
-            if (estadoMagis is EstadoDeMagis.Vinculada) vinculandoMagis = false
+            if (estadoMagis is MagisAccountState.Linked) vinculandoMagis = false
         }
         TvOfertaVincularMagis(
             cuenta = cuentaMagis,

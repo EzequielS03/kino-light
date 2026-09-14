@@ -5,100 +5,100 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class CuentaDeMagisTest {
+class MagisAccountTest {
 
-    private fun cuenta(portal: FakePortalClient, store: FakeCredentialStore = FakeCredentialStore()) =
-        CuentaDeMagis(MagisSession(portal, store))
+    private fun account(portal: FakePortalClient, store: FakeCredentialStore = FakeCredentialStore()) =
+        MagisAccount(MagisSession(portal, store))
 
     @Test
-    fun `arranca en Sin y refrescar lee lo que hay guardado`() = runTest {
+    fun `starts at None and refresh reads what's saved`() = runTest {
         val store = FakeCredentialStore()
-        val c = cuenta(FakePortalClient(), store)
-        assertEquals(EstadoDeMagis.Sin, c.estado.value)
+        val c = account(FakePortalClient(), store)
+        assertEquals(MagisAccountState.None, c.state.value)
 
-        store.guardarCuenta("persona@ejemplo.com", "clave123")
-        c.refrescar()
+        store.saveAccount("persona@ejemplo.com", "clave123")
+        c.refresh()
 
-        assertEquals(EstadoDeMagis.Vinculada("persona@ejemplo.com"), c.estado.value)
+        assertEquals(MagisAccountState.Linked("persona@ejemplo.com"), c.state.value)
     }
 
     @Test
-    fun `vincular con credenciales que el portal acepta deja Vinculada con el email`() = runTest {
+    fun `linking with credentials the portal accepts leaves Linked with the email`() = runTest {
         val portal = FakePortalClient()
-        portal.encolarRespuesta("v8/login", portalOk("userId" to "u1", "userToken" to "t1"))
-        val c = cuenta(portal)
+        portal.queueResponse("v8/login", portalOk("userId" to "u1", "userToken" to "t1"))
+        val c = account(portal)
 
-        c.vincular("persona@ejemplo.com", "clave123")
+        c.link("persona@ejemplo.com", "clave123")
 
-        assertEquals(EstadoDeMagis.Vinculada("persona@ejemplo.com"), c.estado.value)
+        assertEquals(MagisAccountState.Linked("persona@ejemplo.com"), c.state.value)
     }
 
     @Test
-    fun `credenciales rechazadas no cambian el estado y el mensaje lo dice`() = runTest {
+    fun `rejected credentials don't change the state and the message says so`() = runTest {
         val portal = FakePortalClient()
-        portal.encolarRespuesta("v8/login", MagisResult.PortalError("aaa100015", "clave mala"))
-        val c = cuenta(portal)
+        portal.queueResponse("v8/login", MagisResult.PortalError("aaa100015", "clave mala"))
+        val c = account(portal)
 
-        val e = runCatching { c.vincular("persona@ejemplo.com", "mala") }.exceptionOrNull()
+        val e = runCatching { c.link("persona@ejemplo.com", "mala") }.exceptionOrNull()
 
         assertTrue(e is MagisException)
         assertTrue("mensaje: ${e?.message}", e!!.message!!.contains("inválidas"))
-        assertEquals(EstadoDeMagis.Sin, c.estado.value)
+        assertEquals(MagisAccountState.None, c.state.value)
     }
 
     @Test
-    fun `el portal caido se distingue de una clave mala`() = runTest {
+    fun `a portal that's down is distinguished from a bad password`() = runTest {
         val portal = FakePortalClient()
-        portal.encolarRespuesta("v8/login", MagisResult.RedError(java.io.IOException("sin red")))
+        portal.queueResponse("v8/login", MagisResult.RedError(java.io.IOException("sin red")))
 
-        val e = runCatching { cuenta(portal).vincular("a@b.com", "x") }.exceptionOrNull()
+        val e = runCatching { account(portal).link("a@b.com", "x") }.exceptionOrNull()
 
         assertTrue("mensaje: ${e?.message}", e!!.message!!.contains("no disponible"))
     }
 
     @Test
-    fun `desvincular vuelve a Sin`() = runTest {
+    fun `unlink goes back to None`() = runTest {
         val portal = FakePortalClient()
         val store = FakeCredentialStore()
-        store.guardarSesion(SesionGuardada("u", "t", "", "sn"))
-        store.guardarCuenta("persona@ejemplo.com", "clave123")
-        val c = cuenta(portal, store)
-        c.refrescar()
-        assertEquals(EstadoDeMagis.Vinculada("persona@ejemplo.com"), c.estado.value)
+        store.saveSession(StoredSession("u", "t", "", "sn"))
+        store.saveAccount("persona@ejemplo.com", "clave123")
+        val c = account(portal, store)
+        c.refresh()
+        assertEquals(MagisAccountState.Linked("persona@ejemplo.com"), c.state.value)
 
-        c.desvincular()
+        c.unlink()
 
-        assertEquals(EstadoDeMagis.Sin, c.estado.value)
+        assertEquals(MagisAccountState.None, c.state.value)
     }
 
     @Test
-    fun `desvincular borra las credenciales aunque el portal este caido`() = runTest {
+    fun `unlink deletes the credentials even if the portal is down`() = runTest {
         val portal = FakePortalClient()
-        portal.respuestaPorDefecto = MagisResult.RedError(java.io.IOException("sin red"))
+        portal.defaultResponse = MagisResult.RedError(java.io.IOException("sin red"))
         val store = FakeCredentialStore()
-        store.guardarSesion(SesionGuardada("u", "t", "", "sn"))
-        store.guardarCuenta("persona@ejemplo.com", "clave123")
-        val c = cuenta(portal, store)
-        c.refrescar()
-        assertEquals(EstadoDeMagis.Vinculada("persona@ejemplo.com"), c.estado.value)
+        store.saveSession(StoredSession("u", "t", "", "sn"))
+        store.saveAccount("persona@ejemplo.com", "clave123")
+        val c = account(portal, store)
+        c.refresh()
+        assertEquals(MagisAccountState.Linked("persona@ejemplo.com"), c.state.value)
 
-        c.desvincular()
+        c.unlink()
 
-        assertEquals(null, store.leerCuenta())
-        assertEquals(EstadoDeMagis.Sin, c.estado.value)
+        assertEquals(null, store.readAccount())
+        assertEquals(MagisAccountState.None, c.state.value)
     }
 
     @Test
-    fun `desvincular con sesion activa avisa al portal antes de borrar`() = runTest {
+    fun `unlink with an active session notifies the portal before deleting`() = runTest {
         val portal = FakePortalClient()
         val store = FakeCredentialStore()
-        store.guardarSesion(SesionGuardada("u", "t", "", "sn"))
-        store.guardarCuenta("persona@ejemplo.com", "clave123")
-        val c = cuenta(portal, store)
-        c.refrescar()
+        store.saveSession(StoredSession("u", "t", "", "sn"))
+        store.saveAccount("persona@ejemplo.com", "clave123")
+        val c = account(portal, store)
+        c.refresh()
 
-        c.desvincular()
+        c.unlink()
 
-        assertEquals(1, portal.vecesLlamado("v5/loginOut"))
+        assertEquals(1, portal.timesCalled("v5/loginOut"))
     }
 }

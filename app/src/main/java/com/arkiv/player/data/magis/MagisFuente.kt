@@ -19,311 +19,312 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 
 /**
- * La app hablándole al portal de Magis directo, con el mismo contrato que antes le pedía al
- * gateway. Es el puerto de `MagisAdapter` (`arkiv-api/src/arkiv_api/adapters/magis/adapter.py`):
- * acá vive lo que el servidor hacía entre el portal y la app — rankear la búsqueda, armar los
- * capítulos y cruzarlos con TMDB.
+ * The app talking directly to the Magis portal, with the same contract it used to ask the gateway
+ * for. It's the port of `MagisAdapter` (`arkiv-api/src/arkiv_api/adapters/magis/adapter.py`): what
+ * the server used to do between the portal and the app lives here — ranking search, building
+ * chapters and crossing them with TMDB.
  *
- * Lo que el gateway guardaba en Redis se guarda en memoria: se pierde al morir el proceso, que para
- * un catálogo está bien y ahorra las llamadas con ritmo mínimo del portal mientras la app vive.
+ * What the gateway kept in Redis is kept in memory: it's lost when the process dies, which is fine
+ * for a catalog and saves the portal's rate-limited calls while the app is alive.
  */
 internal class MagisFuente(
-    private val catalogo: MagisCatalog,
-    private val resolucion: MagisResolve,
+    private val catalog: MagisCatalog,
+    private val vodResolver: MagisResolve,
     private val tmdb: TmdbApi,
-    private val ahoraMs: () -> Long = { System.currentTimeMillis() },
+    private val nowMs: () -> Long = { System.currentTimeMillis() },
 ) : ContentSource {
 
-    override fun recognizes(ref: String): Boolean = MagisRef.decodificar(ref) != null
+    override fun recognizes(ref: String): Boolean = MagisRef.decode(ref) != null
 
-    private val candado = Mutex()
-    private val busquedas = CacheConVencimiento<String, List<JSONObject>>(TTL_MS, tope = 32)
-    private val capitulos = CacheConVencimiento<String, CapitulosDelPortal>(TTL_MS, tope = 16)
+    private val lock = Mutex()
+    private val searches = CacheConVencimiento<String, List<JSONObject>>(TTL_MS, tope = 32)
+    private val chapters = CacheConVencimiento<String, PortalChapters>(TTL_MS, tope = 16)
 
-    // --- búsqueda -------------------------------------------------------------
+    // --- search -------------------------------------------------------------
 
     override fun search(ctx: GatewaySearchQuery): Flow<SearchEvent> = flow {
-        val t0 = ahoraMs()
+        val t0 = nowMs()
         emit(SearchEvent.SourceStart(FUENTE))
-        val items = runCatching { itemsOrdenados(ctx) }.getOrElse { e ->
-            emit(SearchEvent.SourceError(FUENTE, e.message ?: "error de magis", ahoraMs() - t0, 0))
-            emit(SearchEvent.Done(ahoraMs() - t0))
+        val items = runCatching { sortedItems(ctx) }.getOrElse { e ->
+            emit(SearchEvent.SourceError(FUENTE, e.message ?: "error de magis", nowMs() - t0, 0))
+            emit(SearchEvent.Done(nowMs() - t0))
             return@flow
         }
-        var cuantos = 0
+        var count = 0
         for (item in items) {
-            val resultado = resultadoDe(item, ctx) ?: continue
-            emit(SearchEvent.ResultEvent(FUENTE, resultado))
-            cuantos++
+            val result = resultFrom(item, ctx) ?: continue
+            emit(SearchEvent.ResultEvent(FUENTE, result))
+            count++
         }
-        emit(SearchEvent.SourceDone(FUENTE, cuantos, ahoraMs() - t0))
-        emit(SearchEvent.Done(ahoraMs() - t0))
+        emit(SearchEvent.SourceDone(FUENTE, count, nowMs() - t0))
+        emit(SearchEvent.Done(nowMs() - t0))
     }.flowOn(Dispatchers.IO)
 
-    private suspend fun itemsOrdenados(ctx: GatewaySearchQuery): List<JSONObject> {
-        val consulta = consultaDePortal(ctx.q)
-        // La clave es lo que se le pide AL PORTAL, no el `q` completo: así dos títulos de la misma
-        // familia comparten pool en vez de gastar una llamada cada uno.
-        val pool = candado.withLock { busquedas[consulta.lowercase()] }
-            ?: catalogo.search(consulta).let { r ->
-                val datos = r.dato() ?: throw GatewayException(explicar("búsqueda", r))
-                itemsDeBusqueda(datos).also {
-                    candado.withLock { busquedas[consulta.lowercase()] = it }
+    private suspend fun sortedItems(ctx: GatewaySearchQuery): List<JSONObject> {
+        val query = portalQuery(ctx.q)
+        // The key is what's asked OF THE PORTAL, not the whole `q`: this way two titles from the
+        // same family share a pool instead of spending one call each.
+        val pool = lock.withLock { searches[query.lowercase()] }
+            ?: catalog.search(query).let { r ->
+                val data = r.getOrNull() ?: throw GatewayException(explain("búsqueda", r))
+                searchItems(data).also {
+                    lock.withLock { searches[query.lowercase()] = it }
                 }
             }
 
-        // Se ordena DESPUÉS del caché y contra el `q` completo: el pool es de la familia, pero cada
-        // pedido quiere su título arriba.
-        var items = ordenarPorParecido(pool, formasDelTitulo(ctx))
+        // Sorted AFTER the cache and against the whole `q`: the pool is the family's, but each
+        // request wants its own title on top.
+        var items = sortBySimilarity(pool, titleForms(ctx))
 
-        val esSerie = ctx.type == "tv" || ctx.type == "anime"
-        if (esSerie && ctx.season > 0) {
-            // Con una temporada pedida se filtra a esa; si NINGUNA coincide se muestran todas, que
-            // es mejor que dejar la pestaña vacía por un nombre con un formato inesperado.
-            val coinciden = items.filter {
+        val isSeries = ctx.type == "tv" || ctx.type == "anime"
+        if (isSeries && ctx.season > 0) {
+            // With a requested season it's filtered down to that one; if NONE matches, all are
+            // shown, which is better than leaving the tab empty over an unexpected name format.
+            val matching = items.filter {
                 it.optString("programType") !in MagisRef.SERIES ||
-                    temporadaDeNombre(tituloDeItem(it)) == ctx.season
+                    seasonFromName(itemTitle(it)) == ctx.season
             }
-            if (coinciden.isNotEmpty()) items = coinciden
+            if (matching.isNotEmpty()) items = matching
         }
-        return ordenarTemporadas(items)
+        return sortSeasons(items)
     }
 
     /**
-     * Las formas conocidas de lo que se pidió: el título tal cual y, si TMDB lo sabe, el ORIGINAL.
-     * El portal guarda mucho contenido internacional solo con su título en inglés, así que sin el
-     * original no hay forma de reconocerlo desde una búsqueda en español. Es una AYUDA, no un
-     * requisito: si TMDB no está o se cae, se ordena con lo que hay.
+     * The known forms of what was asked: the title as-is and, if TMDB knows it, the ORIGINAL. The
+     * portal keeps a lot of international content only under its English title, so without the
+     * original there's no way to recognize it from a Spanish search. It's a HELP, not a
+     * requirement: if TMDB isn't available or fails, it sorts with what there is.
      */
-    private suspend fun formasDelTitulo(ctx: GatewaySearchQuery): List<String> {
+    private suspend fun titleForms(ctx: GatewaySearchQuery): List<String> {
         if (ctx.tmdbId <= 0) return listOf(ctx.q)
-        val tipo = if (ctx.type == "movie") "movie" else "tv"
-        val original = runCatching { tmdb.detail(tipo, ctx.tmdbId)?.originalTitle }.getOrNull()
+        val type = if (ctx.type == "movie") "movie" else "tv"
+        val original = runCatching { tmdb.detail(type, ctx.tmdbId)?.originalTitle }.getOrNull()
         return if (original.isNullOrBlank() || original == ctx.q) listOf(ctx.q)
         else listOf(ctx.q, original)
     }
 
-    private fun resultadoDe(item: JSONObject, ctx: GatewaySearchQuery): GatewayResult? {
+    private fun resultFrom(item: JSONObject, ctx: GatewaySearchQuery): GatewayResult? {
         val contentId = item.optString("contentId").takeIf { it.isNotBlank() } ?: return null
-        val tipoPrograma = item.optString("programType").ifBlank { "movie" }
-        val titulo = tituloDeItem(item)
-        val temporada =
-            if (tipoPrograma in MagisRef.SERIES) temporadaDeNombre(titulo) else ctx.season
-        val cuantosCapitulos = item.opt("volumnCount")?.toString()?.toIntOrNull()
+        val programType = item.optString("programType").ifBlank { "movie" }
+        val title = itemTitle(item)
+        val season =
+            if (programType in MagisRef.SERIES) seasonFromName(title) else ctx.season
+        val episodeCount = item.opt("volumnCount")?.toString()?.toIntOrNull()
             ?: item.opt("updateCount")?.toString()?.toIntOrNull()
             ?: 0
         return GatewayResult(
             source = FUENTE,
-            title = titulo.ifBlank { contentId },
-            ref = MagisRef(contentId, tipoPrograma, ctx.episode).codificar(),
+            title = title.ifBlank { contentId },
+            ref = MagisRef(contentId, programType, ctx.episode).encode(),
             kind = ctx.type,
-            year = anioDeItem(item),
-            season = temporada,
+            year = itemYear(item),
+            season = season,
             episode = ctx.episode,
             extra = mapOf(
                 "content_id" to contentId,
-                "program_type" to tipoPrograma,
-                "episode_count" to cuantosCapitulos.toString(),
-            ) + imagenesDeItem(item),
+                "program_type" to programType,
+                "episode_count" to episodeCount.toString(),
+            ) + itemImages(item),
         )
     }
 
-    // --- reproducción ---------------------------------------------------------
+    // --- playback ---------------------------------------------------------
 
     override suspend fun resolve(ref: String): GatewayPlayable {
-        val magis = MagisRef.decodificar(ref)
+        val magis = MagisRef.decode(ref)
             ?: throw GatewayException("ese ref no es de magis: no se puede reproducir")
 
-        // El contentId de una serie NO es reproducible (`startPlayVOD` sobre él devuelve
-        // `节目不存在`): hay que listar los capítulos y reproducir uno.
-        val capitulo = if (magis.esSerie) capituloDe(magis) else null
-        val r = resolucion.resolveVod(
-            contentId = capitulo?.optString("contentId")?.takeIf { it.isNotBlank() } ?: magis.contentId,
-            seriesContentId = if (capitulo != null) magis.contentId else null,
+        // A series' contentId is NOT playable (`startPlayVOD` on it returns `节目不存在`): its
+        // chapters have to be listed and one played.
+        val chapter = if (magis.isSeries) chapterFrom(magis) else null
+        val r = vodResolver.resolveVod(
+            contentId = chapter?.optString("contentId")?.takeIf { it.isNotBlank() } ?: magis.contentId,
+            seriesContentId = if (chapter != null) magis.contentId else null,
         )
-        val p = r.dato() ?: throw GatewayException(explicar("reproducción", r))
+        val p = r.getOrNull() ?: throw GatewayException(explain("reproducción", r))
         return GatewayPlayable(
             kind = FUENTE,
             url = p.url,
             headers = p.headers,
             mime = p.mime,
-            // De un capítulo manda la duración que declara la lista (ya está en memoria): el portal
-            // la manda vacía para casi todas las series, y ahí se va en 0 y la completa el
-            // reproductor demuxeando.
-            durationMs = if (capitulo != null) {
-                duracionMsDelPortal(capitulo.opt("duration"))
+            // For a chapter, the duration the list declares wins (already in memory): the portal
+            // sends it empty for almost every series, and there it falls to 0 and the player fills
+            // it in by demuxing.
+            durationMs = if (chapter != null) {
+                portalDurationMs(chapter.opt("duration"))
             } else {
                 p.durationMs
             },
             videoCodec = p.videoCodec,
             container = p.container,
-            subtitles = p.subtitulos.map { GatewaySubtitle(it.lang, it.url, it.formato) },
+            subtitles = p.subtitles.map { GatewaySubtitle(it.lang, it.url, it.format) },
         )
     }
 
-    /** El capítulo pedido, crudo como lo da el portal (de ahí sale su `contentId` y su duración). */
-    private suspend fun capituloDe(magis: MagisRef): JSONObject {
-        val items = capitulosDelPortal(magis.contentId).items
+    /** The requested chapter, raw as the portal gives it (its `contentId` and duration come from there). */
+    private suspend fun chapterFrom(magis: MagisRef): JSONObject {
+        val items = portalChapters(magis.contentId).items
         if (items.isEmpty()) throw GatewayException("la serie ${magis.contentId} vino sin capítulos")
-        if (magis.episodio <= 0) return items.first()
+        if (magis.episode <= 0) return items.first()
         return items.firstOrNull {
-            it.opt("seriesNumber")?.toString()?.trim() == magis.episodio.toString()
-        } ?: throw GatewayException("la serie no tiene el capítulo ${magis.episodio}")
+            it.opt("seriesNumber")?.toString()?.trim() == magis.episode.toString()
+        } ?: throw GatewayException("la serie no tiene el capítulo ${magis.episode}")
     }
 
-    // --- capítulos ------------------------------------------------------------
+    // --- chapters ------------------------------------------------------------
 
     override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySerie?> {
-        val magis = MagisRef.decodificar(ref)
+        val magis = MagisRef.decode(ref)
             ?: throw GatewayException("ese ref no es de magis: no se pueden listar capítulos")
-        val crudos = capitulosDelPortal(magis.contentId)
-        val (extra, serieTmdb) = enriquecer(crudos)
+        val raw = portalChapters(magis.contentId)
+        val (extra, seriesFromTmdb) = enrich(raw)
 
-        val episodios = crudos.items.mapNotNull { ep ->
-            val numero = ep.opt("seriesNumber")?.toString()?.toIntOrNull() ?: 0
-            val deTmdb = extra[numero]
+        val episodes = raw.items.mapNotNull { ep ->
+            val number = ep.opt("seriesNumber")?.toString()?.toIntOrNull() ?: 0
+            val fromTmdb = extra[number]
             GatewayEpisode(
-                number = numero,
-                title = ep.optString("name").ifBlank { "Capítulo $numero" },
-                // El ref apunta a la SERIE más el número: quien reproduzca vuelve a buscar el
-                // capítulo en la lista, que a esa altura ya está en memoria.
-                ref = MagisRef(magis.contentId, "teleplay", numero).codificar(),
-                still = deTmdb?.still,
-                tmdbTitle = deTmdb?.titulo,
-                overview = deTmdb?.sinopsis,
+                number = number,
+                title = ep.optString("name").ifBlank { "Capítulo $number" },
+                // The ref points at the SERIES plus the number: whoever plays it looks the chapter
+                // back up in the list, which is already in memory by then.
+                ref = MagisRef(magis.contentId, "teleplay", number).encode(),
+                still = fromTmdb?.still,
+                tmdbTitle = fromTmdb?.title,
+                overview = fromTmdb?.overview,
             )
         }
 
-        // El bloque `series` viaja SIEMPRE que el portal haya dado un imdb, aunque el
-        // enriquecimiento no haya salido: con el imdb la app puede resolver la serie por su cuenta.
-        val serie = if (IMDB.matches(crudos.imdb)) {
+        // The `series` block travels WHENEVER the portal gave an imdb, even if enrichment didn't
+        // come out: with the imdb the app can resolve the series on its own.
+        val series = if (IMDB.matches(raw.imdb)) {
             GatewaySerie(
-                imdbId = crudos.imdb,
-                tmdbId = serieTmdb?.tmdbId ?: 0,
-                seasonNumber = crudos.temporada ?: 0,
-                // El nombre canónico va solo si TMDB lo dio: en blanco la biblioteca adoptaría un
-                // nombre vacío y la tarjeta quedaría sin texto.
-                titulo = serieTmdb?.titulo.orEmpty(),
-                posterUrl = serieTmdb?.posterUrl.orEmpty(),
-                backdropUrl = serieTmdb?.backdropUrl.orEmpty(),
+                imdbId = raw.imdb,
+                tmdbId = seriesFromTmdb?.tmdbId ?: 0,
+                seasonNumber = raw.season ?: 0,
+                // The canonical name only goes if TMDB gave it: blank, the library would adopt an
+                // empty name and the card would be left with no text.
+                titulo = seriesFromTmdb?.titulo.orEmpty(),
+                posterUrl = seriesFromTmdb?.posterUrl.orEmpty(),
+                backdropUrl = seriesFromTmdb?.backdropUrl.orEmpty(),
             )
         } else {
             null
         }
-        return episodios to serie
+        return episodes to series
     }
 
-    /** Lo que el detalle de una serie da sobre su temporada. */
-    private data class CapitulosDelPortal(
+    /** What a series' detail gives about its season. */
+    private data class PortalChapters(
         val items: List<JSONObject>,
-        /** `keyWords` del detalle ES el id de IMDb de la serie. */
+        /** The detail's `keyWords` IS the series' IMDb id. */
         val imdb: String,
-        /** `null` = no se sabe qué temporada es (distinto de "es la 1"). */
-        val temporada: Int?,
-        /** Los capítulos que el portal DICE que tiene la temporada (puede ser más que los publicados). */
-        val declarados: Int?,
+        /** `null` = it's not known which season this is (different from "it's the 1st"). */
+        val season: Int?,
+        /** How many chapters the portal SAYS the season has (can be more than the published ones). */
+        val declared: Int?,
     )
 
-    private suspend fun capitulosDelPortal(serieId: String): CapitulosDelPortal {
-        candado.withLock { capitulos[serieId] }?.let { return it }
-        val r = catalogo.detail(serieId, tipo = "0")
-        val datos = r.dato()?.optJSONObject("assetData")
-            ?: throw GatewayException(explicar("capítulos", r))
+    private suspend fun portalChapters(seriesId: String): PortalChapters {
+        lock.withLock { chapters[seriesId] }?.let { return it }
+        val r = catalog.detail(seriesId, type = "0")
+        val data = r.getOrNull()?.optJSONObject("assetData")
+            ?: throw GatewayException(explain("capítulos", r))
 
         val items = mutableListOf<JSONObject>()
-        datos.optJSONArray("simpleProgramList")?.forEachObjeto { items.add(it) }
+        data.optJSONArray("simpleProgramList")?.forEachObject { items.add(it) }
 
-        val temporadas = datos.optJSONArray("sameSeasonSeriesList")
-        var numero: Int? = null
-        temporadas?.forEachObjeto { t ->
-            if (t.optString("contentId") == serieId) {
-                numero = t.opt("seasonNumber")?.toString()?.toIntOrNull()
+        val seasons = data.optJSONArray("sameSeasonSeriesList")
+        var number: Int? = null
+        seasons?.forEachObject { t ->
+            if (t.optString("contentId") == seriesId) {
+                number = t.opt("seasonNumber")?.toString()?.toIntOrNull()
             }
         }
-        // Una serie de temporada ÚNICA no aparece en su propia lista: el portal manda
-        // `sameSeasonSeriesList` vacía. Eso no es "no se sabe qué temporada es", es "es la 1", y
-        // leerlo como desconocido apagaba el enriquecimiento ENTERO con el imdb ahí al lado (medido
-        // en Dragon Ball: keyWords=tt0088509, 153 capítulos, sameSeasonSeriesList=[]).
+        // A SINGLE-season series doesn't show up in its own list: the portal sends an empty
+        // `sameSeasonSeriesList`. That's not "which season is unknown", it's "it's the 1st", and
+        // reading it as unknown turned off the ENTIRE enrichment with the imdb sitting right there
+        // (measured on Dragon Ball: keyWords=tt0088509, 153 chapters, sameSeasonSeriesList=[]).
         //
-        // Solo cuando la lista viene VACÍA: si trae temporadas y la nuestra no está, eso sí es no
-        // saber, y adivinar 1 enriquecería con los capítulos de otra temporada.
-        if (numero == null && (temporadas == null || temporadas.length() == 0)) numero = 1
+        // Only when the list comes EMPTY: if it carries seasons and ours isn't in it, that IS
+        // unknown, and guessing 1 would enrich with another season's chapters.
+        if (number == null && (seasons == null || seasons.length() == 0)) number = 1
 
-        val salida = CapitulosDelPortal(
+        val output = PortalChapters(
             items = items,
-            imdb = datos.optString("keyWords"),
-            temporada = numero,
-            declarados = datos.opt("volumnCount")?.toString()?.toIntOrNull(),
+            imdb = data.optString("keyWords"),
+            season = number,
+            declared = data.opt("volumnCount")?.toString()?.toIntOrNull(),
         )
-        // Solo se guarda si hay capítulos: cachear una lista vacía por un fallo transitorio dejaría
-        // la serie sin capítulos durante horas.
-        if (items.isNotEmpty()) candado.withLock { capitulos[serieId] = salida }
-        return salida
+        // Only saved if there are chapters: caching an empty list over a transient failure would
+        // leave the series with no chapters for hours.
+        if (items.isNotEmpty()) lock.withLock { chapters[seriesId] = output }
+        return output
     }
 
-    private data class DeTmdb(val still: String?, val titulo: String?, val sinopsis: String?)
+    private data class FromTmdb(val still: String?, val title: String?, val overview: String?)
 
     /**
-     * Imagen, nombre y sinopsis de cada capítulo según TMDB. El portal no los tiene (su
-     * `posterList` por capítulo llega siempre vacío) pero publica el id de IMDb de la serie, y con
-     * eso el match es exacto.
+     * Each chapter's image, name and synopsis according to TMDB. The portal doesn't have them (its
+     * per-chapter `posterList` always arrives empty) but it publishes the series' IMDb id, and with
+     * that the match is exact.
      *
-     * Best-effort de punta a punta: cualquier fallo devuelve vacío en vez de tumbar el listado, que
-     * es la llamada por la que se reproduce.
+     * Best-effort end to end: any failure returns empty instead of sinking the listing, which is
+     * the call that gets things playing.
      */
-    private suspend fun enriquecer(
-        crudos: CapitulosDelPortal,
-    ): Pair<Map<Int, DeTmdb>, TmdbSerieParaMagis?> {
-        val temporada = crudos.temporada
-        if (!IMDB.matches(crudos.imdb) || temporada == null) return emptyMap<Int, DeTmdb>() to null
+    private suspend fun enrich(
+        raw: PortalChapters,
+    ): Pair<Map<Int, FromTmdb>, TmdbSerieParaMagis?> {
+        val season = raw.season
+        if (!IMDB.matches(raw.imdb) || season == null) return emptyMap<Int, FromTmdb>() to null
         return runCatching {
-            val serie = tmdb.seriesByImdb(crudos.imdb)
-                ?: return@runCatching emptyMap<Int, DeTmdb>() to null
-            val deTmdb = tmdb.seasonEpisodes(serie.tmdbId, temporada)
-                ?: return@runCatching emptyMap<Int, DeTmdb>() to serie.paraMagis()
+            val series = tmdb.seriesByImdb(raw.imdb)
+                ?: return@runCatching emptyMap<Int, FromTmdb>() to null
+            val fromTmdb = tmdb.seasonEpisodes(series.tmdbId, season)
+                ?: return@runCatching emptyMap<Int, FromTmdb>() to series.forMagis()
 
-            // Guard de numeración: se compara el total que el portal DECLARA para la temporada
-            // contra el que tiene esa temporada en TMDB, y solo se enriquece si coinciden.
+            // Numbering guard: the total the portal DECLARES for the season gets compared against
+            // what that season has in TMDB, and it only enriches if they match.
             //
-            //  - One Piece "Temp.1" declara 8 capítulos y la temporada 1 real de TMDB tiene 61: no
-            //    coinciden, no se enriquece. El portal partió la serie distinto, y cruzar por número
-            //    pondría stills que no corresponden — peor que ninguno, porque no se nota.
-            //  - Una temporada en emisión declara 20 y el portal publicó 8: 20 SÍ coincide con TMDB,
-            //    así que esos 8 se enriquecen. Comparando publicados (8 contra 20) el guard
-            //    bloquearía justo lo que se acaba de estrenar, que es lo que más se mira.
+            //  - One Piece "Temp.1" declares 8 chapters and TMDB's real season 1 has 61: they don't
+            //    match, no enrichment happens. The portal split the series differently, and
+            //    crossing by number would put stills that don't correspond — worse than none,
+            //    because it goes unnoticed.
+            //  - A season that's airing declares 20 and the portal published 8: 20 DOES match
+            //    TMDB, so those 8 get enriched. Comparing published counts (8 against 20) the
+            //    guard would block exactly what just premiered, which is what gets watched most.
             //
-            // Esta cuenta es la que alguien va a querer "simplificar" a comparar cantidades reales;
-            // no se nota que está mal hasta que aparece un still que no es.
-            val esperados = crudos.declarados?.takeIf { it > 0 } ?: crudos.items.size
-            if (esperados != deTmdb.size) return@runCatching emptyMap<Int, DeTmdb>() to serie.paraMagis()
+            // This calculation is the kind someone will want to "simplify" to comparing real
+            // counts; it isn't noticed as wrong until a still shows up that doesn't belong.
+            val expected = raw.declared?.takeIf { it > 0 } ?: raw.items.size
+            if (expected != fromTmdb.size) return@runCatching emptyMap<Int, FromTmdb>() to series.forMagis()
 
-            val filas = deTmdb.associate { c ->
-                c.episode to DeTmdb(
+            val rows = fromTmdb.associate { c ->
+                c.episode to FromTmdb(
                     still = c.stillUrl.takeIf { it.isNotBlank() },
-                    titulo = c.name.takeIf { it.isNotBlank() },
-                    sinopsis = c.overview.takeIf { it.isNotBlank() },
+                    title = c.name.takeIf { it.isNotBlank() },
+                    overview = c.overview.takeIf { it.isNotBlank() },
                 )
-            }.filterValues { it.still != null || it.titulo != null || it.sinopsis != null }
+            }.filterValues { it.still != null || it.title != null || it.overview != null }
 
-            // Respaldo en inglés SOLO para las sinopsis vacías: TMDB devuelve el `overview` vacío en
-            // es-MX muy seguido (el nombre suele venir igual). Tiene su propio catch: es un extra
-            // sobre datos YA resueltos, así que si falla se conserva lo que se armó en español.
-            val faltan = filas.filterValues { it.sinopsis == null }.keys
-            if (faltan.isEmpty()) return@runCatching filas to serie.paraMagis()
-            val enIngles = runCatching {
-                tmdb.seasonEpisodes(serie.tmdbId, temporada, languageOverride = "en-US").orEmpty()
+            // English fallback ONLY for empty synopses: TMDB returns an empty `overview` in es-MX
+            // very often (the name usually comes in fine). It has its own catch: it's an extra on
+            // top of ALREADY resolved data, so if it fails, what got built in Spanish is kept.
+            val missing = rows.filterValues { it.overview == null }.keys
+            if (missing.isEmpty()) return@runCatching rows to series.forMagis()
+            val inEnglish = runCatching {
+                tmdb.seasonEpisodes(series.tmdbId, season, languageOverride = "en-US").orEmpty()
             }.getOrDefault(emptyList())
-            val completadas = filas.toMutableMap()
-            enIngles.forEach { c ->
-                if (c.episode in faltan && c.overview.isNotBlank()) {
-                    completadas[c.episode] = completadas.getValue(c.episode).copy(sinopsis = c.overview)
+            val completed = rows.toMutableMap()
+            inEnglish.forEach { c ->
+                if (c.episode in missing && c.overview.isNotBlank()) {
+                    completed[c.episode] = completed.getValue(c.episode).copy(overview = c.overview)
                 }
             }
-            completadas.toMap() to serie.paraMagis()
-        }.getOrDefault(emptyMap<Int, DeTmdb>() to null)
+            completed.toMap() to series.forMagis()
+        }.getOrDefault(emptyMap<Int, FromTmdb>() to null)
     }
 
-    /** Lo que de TMDB se usa acá, sin arrastrar el modelo entero. */
+    /** What of TMDB gets used here, without dragging along the whole model. */
     internal data class TmdbSerieParaMagis(
         val tmdbId: Int,
         val titulo: String,
@@ -331,13 +332,13 @@ internal class MagisFuente(
         val backdropUrl: String,
     )
 
-    private fun com.arkiv.player.data.catalog.TmdbSeriesByImdb.paraMagis() =
+    private fun com.arkiv.player.data.catalog.TmdbSeriesByImdb.forMagis() =
         TmdbSerieParaMagis(tmdbId, title, posterUrl, backdropUrl)
 
-    private fun explicar(que: String, r: MagisResult<*>): String = when (r) {
-        is MagisResult.PortalError -> "magis rechazó la $que (${r.codigo}${r.msg?.let { ": $it" }.orEmpty()})"
-        is MagisResult.RedError -> "no se pudo hablar con magis (${r.causa.message})"
-        is MagisResult.Ok -> "magis devolvió una $que sin datos"
+    private fun explain(what: String, r: MagisResult<*>): String = when (r) {
+        is MagisResult.PortalError -> "magis rechazó la $what (${r.code}${r.msg?.let { ": $it" }.orEmpty()})"
+        is MagisResult.RedError -> "no se pudo hablar con magis (${r.cause.message})"
+        is MagisResult.Ok -> "magis devolvió una $what sin datos"
     }
 
     private companion object {
@@ -347,22 +348,22 @@ internal class MagisFuente(
     }
 }
 
-/** Caché en memoria con vencimiento y tope de entradas (lo más viejo sale primero). */
+/** In-memory cache with expiry and an entry cap (the oldest goes first). */
 internal class CacheConVencimiento<K, V>(private val ttlMs: Long, private val tope: Int) {
-    private val entradas = LinkedHashMap<K, Pair<Long, V>>()
+    private val entries = LinkedHashMap<K, Pair<Long, V>>()
 
-    operator fun get(clave: K): V? {
-        val (vence, valor) = entradas[clave] ?: return null
-        if (System.currentTimeMillis() >= vence) {
-            entradas.remove(clave)
+    operator fun get(key: K): V? {
+        val (expiresAt, value) = entries[key] ?: return null
+        if (System.currentTimeMillis() >= expiresAt) {
+            entries.remove(key)
             return null
         }
-        return valor
+        return value
     }
 
-    operator fun set(clave: K, valor: V) {
-        entradas.remove(clave)
-        entradas[clave] = (System.currentTimeMillis() + ttlMs) to valor
-        while (entradas.size > tope) entradas.remove(entradas.keys.first())
+    operator fun set(key: K, value: V) {
+        entries.remove(key)
+        entries[key] = (System.currentTimeMillis() + ttlMs) to value
+        while (entries.size > tope) entries.remove(entries.keys.first())
     }
 }

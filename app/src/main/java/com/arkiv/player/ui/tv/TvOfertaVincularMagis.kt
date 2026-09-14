@@ -24,8 +24,8 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
-import com.arkiv.player.data.magis.CuentaDeMagis
-import com.arkiv.player.data.magis.EstadoDeMagis
+import com.arkiv.player.data.magis.MagisAccount
+import com.arkiv.player.data.magis.MagisAccountState
 import com.arkiv.player.data.magis.MagisException
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivTextSecondary
@@ -33,7 +33,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Decide si corresponde ofrecer vincular Magis apenas se entra a la TV (Task 10; desde Task 8,
- * sub-proyecto 2B, ya no mira ninguna sesión de Kino, solo [EstadoDeMagis]).
+ * sub-proyecto 2B, ya no mira ninguna sesión de Kino, solo [MagisAccountState]).
  *
  * Separada de la Composable a propósito -mismo criterio que usaba `entrarDesdeTv` en la ya borrada
  * `TvPantallaDeEntrada.kt`-: este proyecto no tiene infraestructura de tests de UI de Compose, así
@@ -41,14 +41,14 @@ import kotlinx.coroutines.launch
  * función pura, aparte.
  *
  * Se ofrece únicamente cuando:
- * - este aparato todavía NO tiene Magis vinculado ([EstadoDeMagis.Sin]) -no depende de si hay o no
+ * - este aparato todavía NO tiene Magis vinculado ([MagisAccountState.None]) -no depende de si hay o no
  *   una cuenta de Kino conectada: `MainActivity` compone `ArkivTvRoot` sin gate de sesión (ver su
  *   comentario "Sin gate de sesión"), así que esa condición ya no aplica-;
  * - la persona no dijo "Ahora no" antes en este aparato ([descartada], persistido en
  *   `SettingsStore.magisOfertaDescartada` -ya NO se resetea solo, ver su KDoc-).
  */
-fun debeOfrecerVincularMagis(estado: EstadoDeMagis, descartada: Boolean): Boolean =
-    estado is EstadoDeMagis.Sin && !descartada
+fun debeOfrecerVincularMagis(estado: MagisAccountState, descartada: Boolean): Boolean =
+    estado is MagisAccountState.None && !descartada
 
 /** Qué campo recibe las teclas del teclado en pantalla de [TvOfertaVincularMagis]. */
 private enum class CampoMagisOferta { EMAIL, PASSWORD }
@@ -77,7 +77,7 @@ private enum class CampoMagisOferta { EMAIL, PASSWORD }
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun TvOfertaVincularMagis(cuenta: CuentaDeMagis, onAhoraNo: () -> Unit) {
+internal fun TvOfertaVincularMagis(cuenta: MagisAccount, onAhoraNo: () -> Unit) {
     // ATRAS SALE DE ESTA PANTALLA, no de la app. `ArkivTvRoot` compone esta oferta y hace `return`
     // antes de llegar a su propio BackHandler, asi que mientras se muestra no habia NINGUNO puesto
     // y el back se lo llevaba el sistema: cerraba Kino entero. Para quien no queria vincular Magis,
@@ -101,10 +101,10 @@ internal fun TvOfertaVincularMagis(cuenta: CuentaDeMagis, onAhoraNo: () -> Unit)
         error = null
         scope.launch {
             try {
-                cuenta.vincular(campos.valor(CampoMagisOferta.EMAIL).trim(), campos.valor(CampoMagisOferta.PASSWORD))
+                cuenta.link(campos.valor(CampoMagisOferta.EMAIL).trim(), campos.valor(CampoMagisOferta.PASSWORD))
                 // No hace falta "cerrar" nada acá: en cuanto vincular deja el estado en Vinculada,
                 // debeOfrecerVincularMagis da false y quien llama (ArkivTvRoot) deja de componer esta
-                // pantalla solo, por la recomposición normal de cuenta.estado.
+                // pantalla solo, por la recomposición normal de cuenta.state.
             } catch (e: MagisException) {
                 error = e.message
             } finally {
