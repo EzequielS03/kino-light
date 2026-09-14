@@ -603,9 +603,9 @@ private fun PlayerContent(
 
     // Modo vivo (Tarea 14): overlay PROPIO, no reusa controles.visible/controles.activityTick -- esos
     // gobiernan la barra de progreso/fila de transporte de VOD, que en vivo no existen. Todo su
-    // estado (ficha del canal, EPG y cajón) vive en `PlayerVivo.kt`; de acá solo lo mueve el
+    // estado (ficha del canal, EPG y cajón) vive en `PlayerLive.kt`; de acá solo lo mueve el
     // listener de teclas del video, que sigue siendo de esta pantalla.
-    val estadoVivo = rememberEstadoDeVivo()
+    val estadoVivo = rememberLiveState()
     val liveCanal by vm.liveCanal.collectAsStateWithLifecycle()
     // Tarea 15: publicar el nombre del canal para NowPlayingPublisher (solo corre en el TV, pero
     // no cuesta nada tenerlo también seteado acá en el celu). Sin esto la barra del miniplayer
@@ -2571,17 +2571,17 @@ private fun PlayerContent(
                                 // pasar el caso "cerrado + izquierda".
                                 if (vivoDeMagis) {
                                     val accionDelCajon =
-                                        DrawerDpad.action(keyCode, estadoVivo.cajonAbierto, estadoVivo.focoCajon)
+                                        DrawerDpad.action(keyCode, estadoVivo.drawerOpen, estadoVivo.drawerFocus)
                                     if (accionDelCajon == DrawerAction.OPEN) {
-                                        estadoVivo.abrirCajon()
+                                        estadoVivo.openDrawer()
                                         return@setOnKeyListener true
                                     }
                                 }
                                 return@setOnKeyListener when (keyCode) {
                                     KeyEvent.KEYCODE_DPAD_UP ->
-                                        if (vivoDeMagis) { vm.zapAnterior(); estadoVivo.mostrarInfo(); true } else false
+                                        if (vivoDeMagis) { vm.zapAnterior(); estadoVivo.showInfo(); true } else false
                                     KeyEvent.KEYCODE_DPAD_DOWN ->
-                                        if (vivoDeMagis) { vm.zapSiguiente(); estadoVivo.mostrarInfo(); true } else false
+                                        if (vivoDeMagis) { vm.zapSiguiente(); estadoVivo.showInfo(); true } else false
                                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
                                     KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
                                     KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE ->
@@ -2755,7 +2755,7 @@ private fun PlayerContent(
                                 // `visible = !enVivo && ...` más abajo). Mismo par mostrar/ocultar
                                 // que controles.visible/bump() de VOD, con su propio estado. La ficha
                                 // es del vivo de Magis: en un canal de Caracol el tap no muestra nada.
-                                if (enVivo) estadoVivo.alternarInfo()
+                                if (enVivo) estadoVivo.toggleInfo()
                                 else controles.toggle()
                             },
                             onDoubleTap = { o ->
@@ -2808,7 +2808,7 @@ private fun PlayerContent(
                                 if (enVivo) {
                                     if (vivoDeMagis && !horizontal && kotlin.math.abs(totalDy) > UMBRAL_ZAP_PX) {
                                         if (totalDy < 0) vm.zapSiguiente() else vm.zapAnterior()
-                                        estadoVivo.mostrarInfo()
+                                        estadoVivo.showInfo()
                                     }
                                 } else if (horizontal) {
                                     activePlayer.seekTo(seekTarget); espejo.jumpTo(seekTarget); bump()
@@ -3642,9 +3642,9 @@ private fun PlayerContent(
         }
 
         // ---- Modo vivo (Tarea 14): overlay propio, chico -- reemplaza TODO el bloque de arriba.
-        // Las tres piezas viven en `PlayerVivo.kt`. ----
+        // Las tres piezas viven en `PlayerLive.kt`. ----
         if (enVivo) {
-            FranjaEnVivo(isTv = isTv, onBack = onBack) {
+            LiveBanner(isTv = isTv, onBack = onBack) {
                 // Tarea 18: los MISMOS botones que VOD (`estadoDlna` es uno solo para toda la
                 // pantalla), solo que colgados de ESTA franja porque el bloque VOD está oculto acá
                 // (visible=!enVivo). Se ofrece DESDE EL REPRODUCTOR, no en el diálogo previo de
@@ -3655,7 +3655,7 @@ private fun PlayerContent(
                 DlnaCastButtons(casting = casting, castContext = castContext, onDiscoverDlna = estadoDlna::discover)
             }
             // La ficha es del vivo de Magis: su canal y su EPG. Caracol no la tiene.
-            if (vivoDeMagis) FichaDelCanal(estado = estadoVivo, canal = liveCanal, liveApi = graph.catalogoDeVivo)
+            if (vivoDeMagis) ChannelCard(state = estadoVivo, channel = liveCanal, liveApi = graph.catalogoDeVivo)
         }
 
         // Que el botón TENÍA el foco. Es un pestillo y no la lectura viva de `isFocused`: cuando
@@ -3799,11 +3799,11 @@ private fun PlayerContent(
         ActiveDlnaBar(estadoDlna)
 
         // Va ÚLTIMO dentro del Box para quedar por encima del resto de overlays.
-        if (isTv && vivoDeMagis && estadoVivo.cajonAbierto) {
-            CajonDeCanalesDelVivo(
-                estado = estadoVivo,
-                canalActual = liveCanal?.code,
-                onElegirCanal = { lista, canal -> vm.irACanal(lista, canal) },
+        if (isTv && vivoDeMagis && estadoVivo.drawerOpen) {
+            LiveChannelDrawer(
+                state = estadoVivo,
+                currentChannel = liveCanal?.code,
+                onChooseChannel = { list, channel -> vm.irACanal(list, channel) },
             )
         }
     }
@@ -3811,8 +3811,8 @@ private fun PlayerContent(
     // Al cerrarse el cajón hay que devolverle el foco al video: si no, queda en una fila que ya no
     // existe y el control deja de responder -- ni zapping ni Atrás. El `videoView` es quien tiene
     // el `setOnKeyListener` del vivo.
-    LaunchedEffect(estadoVivo.cajonAbierto) {
-        if (!estadoVivo.cajonAbierto) {
+    LaunchedEffect(estadoVivo.drawerOpen) {
+        if (!estadoVivo.drawerOpen) {
             repeat(10) {
                 if (videoView?.requestFocus() == true) return@LaunchedEffect
                 delay(50)

@@ -16,7 +16,7 @@ private const val INACTIVITY_MS = 4500L
 /**
  * Whether the VOD controls overlay is on screen, and its auto-hide.
  *
- * Live mode does NOT use this: it has its own visible+tick pair in [EstadoDeVivo], because the
+ * Live mode does NOT use this: it has its own visible+tick pair in [LiveState], because the
  * progress bar and transport row these two variables govern don't exist in a live stream.
  *
  * Starts hidden on purpose: on open, the loading spinner shows and then the clean video, without
