@@ -28,20 +28,20 @@ import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
 /**
- * Idioma de audio y subtítulos, y cómo se ven los subtítulos. Es el tab más largo de todos: por sí
- * solo ocupaba la mitad del scroll cuando Ajustes era una sola columna.
+ * Audio and subtitle language, and how subtitles look. It's the longest tab of all: on its own it
+ * took up half the scroll when Ajustes was a single column.
  */
 @Composable
-internal fun SubtitulosTab() {
+internal fun SubtitlesTab() {
     val graph = rememberGraph()
     val style by graph.subtitlePrefs.prefs.collectAsStateWithLifecycle()
 
-    // Cambiar estilo: persiste local.
+    // Change style: persists locally.
     fun onChange(s: PlaybackPrefs) {
         graph.subtitlePrefs.update(s)
     }
 
-    // Vista previa.
+    // Preview.
     Box(
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
             .background(Color(0xFF222222)).padding(vertical = 20.dp),
@@ -58,7 +58,7 @@ internal fun SubtitulosTab() {
 
     LanguageOrderEditor(
         title = "Idioma del audio (en orden de preferencia)",
-        options = IDIOMAS_AUDIO,
+        options = AUDIO_LANGUAGES,
         order = style.audioLangs,
         onChange = { onChange(style.copy(audioLangs = it)) },
     )
@@ -67,14 +67,14 @@ internal fun SubtitulosTab() {
         title = "Idiomas que entiendo",
         subtitle = "Los subtítulos se prenden solos únicamente cuando el audio queda en un idioma " +
             "que no está en esta lista.",
-        options = IDIOMAS_AUDIO,
+        options = AUDIO_LANGUAGES,
         selected = style.understoodLangs,
         onChange = { onChange(style.copy(understoodLangs = it)) },
     )
 
     LanguageOrderEditor(
         title = "Idioma de los subtítulos (en orden de preferencia)",
-        options = IDIOMAS_SUBTITULO,
+        options = SUBTITLE_LANGUAGES,
         order = style.subtitleLangs,
         onChange = { onChange(style.copy(subtitleLangs = it)) },
     )
@@ -95,7 +95,7 @@ internal fun SubtitulosTab() {
         modifier = Modifier.padding(top = 4.dp),
     )
 
-    // Tamaño.
+    // Size.
     Label("Tamaño: ${style.sizePercent}%")
     Slider(
         value = style.sizePercent.toFloat(),
@@ -104,16 +104,16 @@ internal fun SubtitulosTab() {
         colors = SliderDefaults.colors(thumbColor = ArkivRed, activeTrackColor = ArkivRed),
     )
 
-    // Color del texto.
+    // Text color.
     Label("Color del texto")
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Swatch(0xFFFFFFFF, style.textColor) { onChange(style.copy(textColor = it)) }
-        Swatch(0xFFFFEB3B, style.textColor) { onChange(style.copy(textColor = it)) } // amarillo
-        Swatch(0xFF00E5FF, style.textColor) { onChange(style.copy(textColor = it)) } // cian
-        Swatch(0xFF00E676, style.textColor) { onChange(style.copy(textColor = it)) } // verde
+        Swatch(0xFFFFEB3B, style.textColor) { onChange(style.copy(textColor = it)) } // yellow
+        Swatch(0xFF00E5FF, style.textColor) { onChange(style.copy(textColor = it)) } // cyan
+        Swatch(0xFF00E676, style.textColor) { onChange(style.copy(textColor = it)) } // green
     }
 
-    // Fondo de la caja.
+    // Box background.
     Label("Fondo")
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Chip("Caja negra", style.backgroundColor == 0xCC000000L) { onChange(style.copy(backgroundColor = 0xCC000000L)) }
@@ -121,7 +121,7 @@ internal fun SubtitulosTab() {
         Chip("Sin fondo", style.backgroundColor == 0x00000000L) { onChange(style.copy(backgroundColor = 0x00000000L)) }
     }
 
-    // Borde.
+    // Border.
     Label("Borde del texto")
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Chip("Contorno", style.edge == PlaybackPrefs.EDGE_OUTLINE) { onChange(style.copy(edge = PlaybackPrefs.EDGE_OUTLINE)) }

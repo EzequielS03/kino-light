@@ -273,7 +273,7 @@ internal class EstadoDePistas(
         val codigo = fmt.language?.trim()?.takeIf { it.isNotEmpty() } ?: return respaldo
         LangTokens.classifyCode(codigo)
             .takeIf { it != TrackLang.UNKNOWN }
-            ?.etiqueta()
+            ?.label()
             ?.takeIf { it.isNotBlank() }
             ?.let { return it }
         // `forLanguageTag` se traga cualquier cosa y devuelve vacío si no la entiende, así que el
@@ -401,7 +401,7 @@ internal fun etiquetaDeSpu(
     if (i < 0 || i >= idiomasDeclarados.size) return nombre
     val lang = LangTokens.classifyCode(idiomasDeclarados[i])
     if (lang == TrackLang.UNKNOWN) return nombre
-    return "${lang.etiqueta()} · $nombre"
+    return "${lang.label()} · $nombre"
 }
 
 /**

@@ -42,7 +42,7 @@ fun TvLanguageOrderEditor(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TvLangBoton("✓ ${i + 1}. ${lang.etiqueta()}", Modifier.weight(1f)) {
+                TvLangBoton("✓ ${i + 1}. ${lang.label()}", Modifier.weight(1f)) {
                     onChange(LangOrderEdits.toggle(order, lang))
                 }
                 TvLangBoton("▲") { onChange(LangOrderEdits.moveUp(order, lang)) }
@@ -50,7 +50,7 @@ fun TvLanguageOrderEditor(
             }
         }
         options.filterNot { it in order }.forEach { lang ->
-            TvLangBoton(lang.etiqueta(), Modifier.fillMaxWidth(0.6f)) {
+            TvLangBoton(lang.label(), Modifier.fillMaxWidth(0.6f)) {
                 onChange(LangOrderEdits.toggle(order, lang))
             }
         }
@@ -75,7 +75,7 @@ fun TvLanguageChecklist(
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         options.forEach { lang ->
             val marca = if (lang in selected) "✓ " else "   "
-            TvLangBoton("$marca${lang.etiqueta()}", Modifier.fillMaxWidth(0.6f)) {
+            TvLangBoton("$marca${lang.label()}", Modifier.fillMaxWidth(0.6f)) {
                 onChange(LangOrderEdits.toggle(selected, lang))
             }
         }

@@ -10,8 +10,8 @@ import androidx.tv.material3.Text
 import com.arkiv.player.data.subtitles.PlaybackPrefs
 import com.arkiv.player.data.subtitles.SubtitleMode
 import com.arkiv.player.ui.rememberGraph
-import com.arkiv.player.ui.settings.IDIOMAS_AUDIO
-import com.arkiv.player.ui.settings.IDIOMAS_SUBTITULO
+import com.arkiv.player.ui.settings.AUDIO_LANGUAGES
+import com.arkiv.player.ui.settings.SUBTITLE_LANGUAGES
 
 /**
  * Idioma de audio y subtítulos en la TV. El estilo (tamaño, colores, borde) no está acá a
@@ -32,7 +32,7 @@ internal fun TvSettingsSubtitulos() {
     Text("Audio y subtítulos", style = MaterialTheme.typography.titleMedium, color = Color.White)
     TvLanguageOrderEditor(
         title = "Idioma del audio (en orden de preferencia)",
-        options = IDIOMAS_AUDIO,
+        options = AUDIO_LANGUAGES,
         order = prefs.audioLangs,
         onChange = { setPrefs(prefs.copy(audioLangs = it)) },
     )
@@ -40,13 +40,13 @@ internal fun TvSettingsSubtitulos() {
         title = "Idiomas que entiendo",
         subtitle = "Los subtítulos se prenden solos únicamente cuando el audio queda en un " +
             "idioma que no está en esta lista.",
-        options = IDIOMAS_AUDIO,
+        options = AUDIO_LANGUAGES,
         selected = prefs.understoodLangs,
         onChange = { setPrefs(prefs.copy(understoodLangs = it)) },
     )
     TvLanguageOrderEditor(
         title = "Idioma de los subtítulos (en orden de preferencia)",
-        options = IDIOMAS_SUBTITULO,
+        options = SUBTITLE_LANGUAGES,
         order = prefs.subtitleLangs,
         onChange = { setPrefs(prefs.copy(subtitleLangs = it)) },
     )

@@ -34,26 +34,26 @@ import com.arkiv.player.ui.rememberGraph
  * pickers -- were all pruned from this branch; see the deleted `ReproduccionTab.kt`), so today
  * "Subtítulos" opens the screen.
  */
-private enum class TabDeAjustes(val etiqueta: String) {
-    SUBTITULOS("Subtítulos"),
-    CUENTA("Cuenta"),
+private enum class SettingsTab(val label: String) {
+    SUBTITLES("Subtítulos"),
+    ACCOUNT("Cuenta"),
     APP("App"),
 }
 
 /**
- * Ajustes del celular, repartidos en tabs.
+ * The phone's Ajustes, spread across tabs.
  *
- * Antes era una sola columna con ocho bloques encadenados: para llegar a "Mis aparatos" había que
- * pasar por los tres editores de idioma y la paleta de colores de los subtítulos. Cada tab arma su
- * propio estado —solo el visible se suscribe a las preferencias que muestra— y la fila de tabs vive
- * fuera del scroll, así queda siempre a mano.
+ * Used to be a single column with eight blocks chained together: to reach "Mis aparatos" you had
+ * to pass through the three language editors and the subtitle color palette. Each tab builds its
+ * own state --only the visible one subscribes to the preferences it shows-- and the tab row lives
+ * outside the scroll, so it's always within reach.
  */
 @Composable
 fun SettingsScreen(contentPadding: PaddingValues, onOpenDownloads: () -> Unit = {}) {
     val graph = rememberGraph()
-    var tab by rememberSaveable { mutableStateOf(TabDeAjustes.SUBTITULOS) }
-    // Un scroll por tab: con uno solo compartido, entrar a "Cuenta" desde el fondo de "Subtítulos"
-    // dejaba la pantalla arrancada a mitad de camino.
+    var tab by rememberSaveable { mutableStateOf(SettingsTab.SUBTITLES) }
+    // One scroll per tab: with a single shared one, entering "Cuenta" from the bottom of
+    // "Subtítulos" left the screen starting halfway down.
     val scroll = rememberSaveable(tab, saver = ScrollState.Saver) { ScrollState(0) }
 
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
@@ -75,8 +75,8 @@ fun SettingsScreen(contentPadding: PaddingValues, onOpenDownloads: () -> Unit = 
                     .padding(horizontal = 20.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TabDeAjustes.entries.forEach { t ->
-                    Chip(t.etiqueta, t == tab) { tab = t }
+                SettingsTab.entries.forEach { t ->
+                    Chip(t.label, t == tab) { tab = t }
                 }
             }
 
@@ -87,12 +87,12 @@ fun SettingsScreen(contentPadding: PaddingValues, onOpenDownloads: () -> Unit = 
                     .padding(horizontal = 20.dp),
             ) {
                 when (tab) {
-                    TabDeAjustes.SUBTITULOS -> SubtitulosTab()
-                    TabDeAjustes.CUENTA -> AccountSection(graph.magisAccount)
-                    TabDeAjustes.APP -> AppTab(onOpenDownloads = onOpenDownloads)
+                    SettingsTab.SUBTITLES -> SubtitlesTab()
+                    SettingsTab.ACCOUNT -> AccountSection(graph.magisAccount)
+                    SettingsTab.APP -> AppTab(onOpenDownloads = onOpenDownloads)
                 }
-                // El aire de abajo lo pone la cáscara: los tabs no tienen por qué saber que debajo hay
-                // una barra de navegación.
+                // The bottom shell adds the air below: the tabs don't need to know there's a
+                // navigation bar under them.
                 Spacer(Modifier.height(contentPadding.calculateBottomPadding() + 32.dp))
             }
         }

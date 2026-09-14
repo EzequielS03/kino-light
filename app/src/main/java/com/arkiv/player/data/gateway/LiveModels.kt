@@ -151,7 +151,7 @@ data class LiveSignature(val moment: Long, val sign2: String)
 interface LiveCatalogGateway {
     /**
      * @param incluirAdultos pide también la categoría 18+. El gateway la filtra por DEFECTO, así
-     *   que sin esto no viene — ver `CandadoDeAdultos`. Es un candado de control remoto, no una
+     *   que sin esto no viene — ver `AdultsLock`. Es un candado de control remoto, no una
      *   frontera de seguridad: quien arme el pedido a mano puede ponerlo igual.
      */
     suspend fun categorias(incluirAdultos: Boolean = false): List<LiveCategory>

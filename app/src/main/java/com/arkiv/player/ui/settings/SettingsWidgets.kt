@@ -19,9 +19,9 @@ import androidx.compose.ui.unit.dp
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
-// Piezas chicas compartidas por los tabs de Ajustes del celular. Vivían dentro de
-// SettingsScreen.kt cuando esa pantalla era un solo scroll; al partirla en tabs quedaron
-// repartidas entre dos archivos y acá tienen un lugar sin dueño.
+// Small pieces shared by the phone's Ajustes tabs. Used to live inside SettingsScreen.kt when
+// that screen was a single scroll; when it was split into tabs they ended up spread across two
+// files and this is their unowned home.
 
 @Composable
 internal fun Label(text: String) {

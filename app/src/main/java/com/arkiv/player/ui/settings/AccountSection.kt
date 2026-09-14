@@ -21,24 +21,23 @@ import com.arkiv.player.data.magis.MagisException
 import kotlinx.coroutines.launch
 
 /**
- * "Ajustes → Cuenta" del celular (Task 8, sub-proyecto 2B): el vínculo con Magis, sobre sus propios
- * pies. Ya no hay login/logout de Kino acá -esta pantalla dejó de tomar un `AccountManager`-; lo
- * único que queda es vincular o desvincular Magis directo contra [MagisAccount], sin ninguna
- * cuenta de Kino de por medio. La Task 9 (sub-proyecto 2B) se llevó `AccountManager` y el login de
- * Kino enteros (`ui/entrada/`), así que este archivo perdió también `AnonimoSection` -su único
- * llamador era esa pantalla-; [PasswordField] sigue abajo porque [SinVincularSection] la sigue
- * usando para el formulario de Magis.
+ * The phone's "Ajustes → Cuenta" (Task 8, sub-project 2B): the link with Magis, standing on its
+ * own. There's no more Kino login/logout here -this screen stopped taking an `AccountManager`-;
+ * all that's left is linking or unlinking Magis directly against [MagisAccount], with no Kino
+ * account in between. Task 9 (sub-project 2B) took `AccountManager` and the whole Kino login
+ * (`ui/entrada/`) away, so this file also lost `AnonimoSection` -its only caller was that screen-;
+ * [PasswordField] stays below because [UnlinkedSection] still uses it for the Magis form.
  */
 @Composable
-internal fun AccountSection(cuenta: MagisAccount) {
-    val estado by cuenta.state.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { cuenta.refresh() }
+internal fun AccountSection(account: MagisAccount) {
+    val state by account.state.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { account.refresh() }
 
     Text("Cuenta", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp, bottom = 6.dp))
 
-    when (val e = estado) {
-        is MagisAccountState.Linked -> VinculadaSection(cuenta, e)
-        MagisAccountState.None -> SinVincularSection(cuenta)
+    when (val s = state) {
+        is MagisAccountState.Linked -> LinkedSection(account, s)
+        MagisAccountState.None -> UnlinkedSection(account)
     }
 }
 
@@ -60,35 +59,36 @@ private fun PasswordField(value: String, onValueChange: (String) -> Unit, label:
                 )
             }
         },
-        // `PasswordVisualTransformation` enmascara lo que se DIBUJA, no lo que se expone en el
-        // árbol de accesibilidad: sin esto, el texto tipeado sale en claro en un `uiautomator
-        // dump` y para cualquier servicio de accesibilidad instalado. Verificado en el S24+ con la
-        // clave autocompletada por el gestor de contraseñas — se leía entera.
+        // `PasswordVisualTransformation` masks what gets DRAWN, not what's exposed in the
+        // accessibility tree: without this, the typed text comes out in the clear in a
+        // `uiautomator dump` and to any installed accessibility service. Verified on the S24+ with
+        // the password autofilled by the password manager -- it read out whole.
         //
-        // Cuando la clave está a la vista (el ojito), no se marca: ahí la persona ya decidió
-        // mostrarla, y marcarla igual haría que un lector de pantalla no pudiera dictarla.
+        // When the password is in plain view (the eye icon), it isn't marked: there the person
+        // already decided to show it, and marking it anyway would keep a screen reader from
+        // dictating it.
         modifier = modifier.semantics { if (!visible) password() },
     )
 }
 
 @Composable
-private fun VinculadaSection(cuenta: MagisAccount, estado: MagisAccountState.Linked) {
+private fun LinkedSection(account: MagisAccount, state: MagisAccountState.Linked) {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
 
-    Text("Magis vinculado como ${estado.email}", style = MaterialTheme.typography.bodyMedium)
+    Text("Magis vinculado como ${state.email}", style = MaterialTheme.typography.bodyMedium)
 
     OutlinedButton(
         enabled = !busy,
         onClick = {
             scope.launch {
                 busy = true
-                // try/finally, no try/catch: unlink() no lanza -MagisSession.logout() nunca
-                // tira, devuelve MagisResult-, pero sin el finally una excepción inesperada dejaba
-                // el botón clavado en "Desvinculando…" para siempre. Mismo patrón que la TV
-                // (TvSettingsCuenta.TvVinculadaSection).
+                // try/finally, not try/catch: unlink() doesn't throw -MagisSession.logout() never
+                // throws, it returns a MagisResult-, but without the finally an unexpected
+                // exception left the button stuck on "Desvinculando…" forever. Same pattern as the
+                // TV (TvSettingsCuenta.TvVinculadaSection).
                 try {
-                    cuenta.unlink()
+                    account.unlink()
                 } finally {
                     busy = false
                 }
@@ -98,10 +98,10 @@ private fun VinculadaSection(cuenta: MagisAccount, estado: MagisAccountState.Lin
     ) { Text(if (busy) "Desvinculando…" else "Desvincular Magis") }
 }
 
-/** Sub-bloque para vincular una cuenta de Magis que ya exista -sin ninguna cuenta de Kino de la
- *  que sacar el email, así que arranca en blanco (antes venía precargado con el email de Kino). */
+/** Sub-block for linking an already-existing Magis account -with no Kino account to pull the
+ *  email from, so it starts blank (it used to come preloaded with the Kino email). */
 @Composable
-private fun SinVincularSection(cuenta: MagisAccount) {
+private fun UnlinkedSection(account: MagisAccount) {
     val scope = rememberCoroutineScope()
     var expanded by remember { mutableStateOf(false) }
     var email by remember { mutableStateOf("") }
@@ -122,8 +122,9 @@ private fun SinVincularSection(cuenta: MagisAccount) {
             modifier = Modifier.fillMaxWidth())
         PasswordField(password, { password = it; error = null }, "Contraseña de Magis",
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
-        // Ya no está "Registrar en Magis": crear la cuenta necesitaba el ida y vuelta del código
-        // por email, que orquestaba el servidor. Acá se vincula una cuenta que YA existe.
+        // "Registrar en Magis" is no longer here: creating the account needed the back-and-forth
+        // of the email code, which the server used to orchestrate. Here an ALREADY existing
+        // account gets linked.
         Text(
             "Tiene que ser una cuenta de Magis que ya exista.",
             style = MaterialTheme.typography.bodySmall,
@@ -140,7 +141,7 @@ private fun SinVincularSection(cuenta: MagisAccount) {
                 scope.launch {
                     busy = true
                     try {
-                        cuenta.link(email.trim(), password)
+                        account.link(email.trim(), password)
                         expanded = false
                     } catch (e: MagisException) {
                         error = e.message

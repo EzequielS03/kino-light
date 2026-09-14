@@ -42,11 +42,11 @@ class SettingsStore(context: Context) {
     private val _adultosDesbloqueado = MutableStateFlow(prefs.getBoolean(KEY_ADULTOS_DESBLOQUEADO, false))
     val adultosDesbloqueado: StateFlow<Boolean> = _adultosDesbloqueado
 
-    // El código que abre ese candado, elegido desde Ajustes. `null` = nunca se eligió ninguno y
-    // rige el default; quién decide eso es `CandadoDeAdultos.codigoEfectivo`, no este store --
-    // acá solo se guarda lo que la persona escribió. Es texto plano a propósito: el candado frena
-    // a alguien con el control remoto, no a alguien con `adb` (ver el KDoc de `CandadoDeAdultos`),
-    // así que cifrarlo daría una sensación de seguridad que el resto del diseño no sostiene.
+    // The code that opens that lock, chosen from Ajustes. `null` = none was ever chosen and the
+    // default rules; who decides that is `AdultsLock.effectiveCode`, not this store -- this only
+    // saves what the person typed. It's plain text on purpose: the lock stops someone with the
+    // remote, not someone with `adb` (see `AdultsLock`'s KDoc), so encrypting it would give a
+    // sense of security the rest of the design doesn't back up.
     private val _codigoAdultos = MutableStateFlow(prefs.getString(KEY_CODIGO_ADULTOS, null))
     val codigoAdultos: StateFlow<String?> = _codigoAdultos
 

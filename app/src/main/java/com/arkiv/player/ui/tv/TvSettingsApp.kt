@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
 import com.arkiv.player.data.SettingsStore
 import com.arkiv.player.data.update.UpdateInfo
 import com.arkiv.player.ui.rememberGraph
-import com.arkiv.player.ui.settings.CandadoDeAdultos
+import com.arkiv.player.ui.settings.AdultsLock
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 import com.arkiv.player.ui.update.UpdateDialog
@@ -98,7 +98,7 @@ private fun TvSeccionAdultos(store: SettingsStore) {
     var codigo by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
 
-    if (CandadoDeAdultos.hayQueMostrarLaSeccion(desbloqueado)) {
+    if (AdultsLock.shouldShowSection(desbloqueado)) {
         Text("Adultos", style = MaterialTheme.typography.titleMedium, color = Color.White)
         Text(
             "La categoría 18+ está visible en En vivo y en el cajón de canales de este aparato.",
@@ -113,7 +113,7 @@ private fun TvSeccionAdultos(store: SettingsStore) {
         TvCambiarCodigoDeAdultos(store) { guardado = it }
         return
     }
-    if (!CandadoDeAdultos.hayQueMostrarElCampo(desbloqueado)) return
+    if (!AdultsLock.shouldShowField(desbloqueado)) return
 
     val focusManager = LocalFocusManager.current
 
@@ -121,14 +121,14 @@ private fun TvSeccionAdultos(store: SettingsStore) {
         // El reseteo se mira ANTES de abrir: es la salida para quien olvidó el código que puso, y
         // por eso no hay ninguna otra pista de que exista. La señal de que funcionó es que el
         // aviso del código por defecto vuelve a aparecer solo.
-        if (CandadoDeAdultos.pideReseteo(codigo)) {
+        if (AdultsLock.requestsReset(codigo)) {
             store.setCodigoAdultos(null)
             guardado = null
             codigo = ""
             error = false
             return
         }
-        if (CandadoDeAdultos.abre(codigo, CandadoDeAdultos.codigoEfectivo(guardado))) {
+        if (AdultsLock.unlocks(codigo, AdultsLock.effectiveCode(guardado))) {
             store.setAdultosDesbloqueado(true)
             desbloqueado = true
             error = false
@@ -141,9 +141,9 @@ private fun TvSeccionAdultos(store: SettingsStore) {
     Text("Código", style = MaterialTheme.typography.titleMedium, color = Color.White)
     // Mientras el código sea el que sabe cualquiera, se dice. Es lo que hace que la sección sea
     // usable por quien instala el APK sin haberlo compilado; desaparece con un código propio.
-    if (CandadoDeAdultos.esElDefault(guardado)) {
+    if (AdultsLock.isDefault(guardado)) {
         Text(
-            "Por defecto: ${CandadoDeAdultos.CODIGO_POR_DEFECTO}",
+            "Por defecto: ${AdultsLock.DEFAULT_CODE}",
             style = MaterialTheme.typography.bodySmall,
             color = ArkivTextSecondary,
         )
@@ -196,13 +196,13 @@ private fun TvCambiarCodigoDeAdultos(store: SettingsStore, alGuardar: (String) -
     fun guardar() {
         val limpio = nuevo.trim()
         when {
-            !CandadoDeAdultos.formatoValido(limpio) -> {
+            !AdultsLock.isValidFormat(limpio) -> {
                 mensaje = "Usa 4 dígitos"
                 listo = false
             }
             // Sin explicar por qué: decir "ese es el de reseteo" sería anunciar la salida que el
             // reseteo existe para no anunciar.
-            CandadoDeAdultos.estaReservado(limpio) -> {
+            AdultsLock.isReserved(limpio) -> {
                 mensaje = "Ese código no está disponible, elige otro"
                 listo = false
             }

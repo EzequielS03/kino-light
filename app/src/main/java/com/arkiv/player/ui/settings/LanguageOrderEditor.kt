@@ -19,19 +19,19 @@ import com.arkiv.player.playback.TrackLang
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivTextSecondary
 
-/** Idiomas ofrecidos para audio. `DUAL` aplica a pistas multi-audio de los releases. */
-val IDIOMAS_AUDIO = listOf(
+/** Languages offered for audio. `DUAL` applies to releases' multi-audio tracks. */
+val AUDIO_LANGUAGES = listOf(
     TrackLang.LATINO, TrackLang.CASTELLANO, TrackLang.SPANISH,
     TrackLang.DUAL, TrackLang.ENGLISH, TrackLang.JAPANESE,
 )
 
-/** Para subtítulos no se ofrece `DUAL`: no existe una pista de texto "dual". */
-val IDIOMAS_SUBTITULO = listOf(
+/** `DUAL` isn't offered for subtitles: there's no such thing as a "dual" text track. */
+val SUBTITLE_LANGUAGES = listOf(
     TrackLang.LATINO, TrackLang.CASTELLANO, TrackLang.SPANISH,
     TrackLang.ENGLISH, TrackLang.JAPANESE,
 )
 
-fun TrackLang.etiqueta(): String = when (this) {
+fun TrackLang.label(): String = when (this) {
     TrackLang.LATINO -> "Español latino"
     TrackLang.CASTELLANO -> "Castellano"
     TrackLang.SPANISH -> "Español (genérico)"
@@ -42,9 +42,9 @@ fun TrackLang.etiqueta(): String = when (this) {
 }
 
 /**
- * Lista ordenada de idiomas: los elegidos arriba y numerados (el reproductor los recorre en ese
- * orden), los no elegidos abajo en gris. Se edita con check + flechas en vez de arrastrar, porque el
- * mismo patrón tiene que funcionar con el control remoto del TV.
+ * Ordered list of languages: the chosen ones on top and numbered (the player goes through them in
+ * that order), the unchosen ones below in gray. Edited with a checkbox + arrows instead of
+ * dragging, because the same pattern has to work with the TV remote.
  */
 @Composable
 fun LanguageOrderEditor(
@@ -60,7 +60,7 @@ fun LanguageOrderEditor(
         modifier = Modifier.padding(top = 16.dp, bottom = 6.dp),
     )
     Column {
-        val sinElegir = options.filterNot { it in order }
+        val unchosen = options.filterNot { it in order }
         order.forEachIndexed { i, lang ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(
@@ -68,7 +68,7 @@ fun LanguageOrderEditor(
                     onCheckedChange = { onChange(LangOrderEdits.toggle(order, lang)) },
                     colors = CheckboxDefaults.colors(checkedColor = ArkivRed),
                 )
-                Text("${i + 1}. ${lang.etiqueta()}", color = Color.White, modifier = Modifier.weight(1f))
+                Text("${i + 1}. ${lang.label()}", color = Color.White, modifier = Modifier.weight(1f))
                 TextButton(onClick = { onChange(LangOrderEdits.moveUp(order, lang)) }, enabled = i > 0) {
                     Text("▲", color = if (i > 0) Color.White else ArkivTextSecondary)
                 }
@@ -80,23 +80,24 @@ fun LanguageOrderEditor(
                 }
             }
         }
-        sinElegir.forEach { lang ->
+        unchosen.forEach { lang ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(
                     checked = false,
                     onCheckedChange = { onChange(LangOrderEdits.toggle(order, lang)) },
                     colors = CheckboxDefaults.colors(checkedColor = ArkivRed),
                 )
-                Text(lang.etiqueta(), color = ArkivTextSecondary, modifier = Modifier.weight(1f))
+                Text(lang.label(), color = ArkivTextSecondary, modifier = Modifier.weight(1f))
             }
         }
     }
 }
 
 /**
- * Lista de idiomas SIN orden: acá "entiendo japonés" no es mejor ni peor que "entiendo inglés", así
- * que no se ofrecen flechas — mostrarlas sugeriría una prioridad que nadie usa. Comparte
- * [LangOrderEdits.toggle] con el editor ordenado para no repetir la regla de "nunca vaciar la lista".
+ * List of languages WITH NO order: here "I understand Japanese" is neither better nor worse than
+ * "I understand English", so no arrows are offered — showing them would suggest a priority nobody
+ * uses. Shares [LangOrderEdits.toggle] with the ordered editor to not repeat the "never empty the
+ * list" rule.
  */
 @Composable
 fun LanguageChecklistEditor(
@@ -120,16 +121,16 @@ fun LanguageChecklistEditor(
     )
     Column {
         options.forEach { lang ->
-            val marcado = lang in selected
+            val checked = lang in selected
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(
-                    checked = marcado,
+                    checked = checked,
                     onCheckedChange = { onChange(LangOrderEdits.toggle(selected, lang)) },
                     colors = CheckboxDefaults.colors(checkedColor = ArkivRed),
                 )
                 Text(
-                    lang.etiqueta(),
-                    color = if (marcado) Color.White else ArkivTextSecondary,
+                    lang.label(),
+                    color = if (checked) Color.White else ArkivTextSecondary,
                     modifier = Modifier.weight(1f),
                 )
             }

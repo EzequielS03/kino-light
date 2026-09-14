@@ -22,7 +22,7 @@ import com.arkiv.player.data.update.UpdateInfo
 import com.arkiv.player.ui.rememberGraph
 import com.arkiv.player.ui.update.UpdateDialog
 
-/** Lo que es de la app y no del contenido: actualizaciones y acceso a descargas offline. */
+/** What belongs to the app and not to the content: updates and access to offline downloads. */
 @Composable
 internal fun AppTab(onOpenDownloads: () -> Unit = {}) {
     val graph = rememberGraph()
@@ -31,8 +31,8 @@ internal fun AppTab(onOpenDownloads: () -> Unit = {}) {
     var checking by remember { mutableStateOf(false) }
     var manualUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
 
-    // Chequeo manual: independiente del diálogo global de MainActivity, así funciona aunque
-    // este último ya haya sido descartado por el usuario en esta sesión.
+    // Manual check: independent of MainActivity's global dialog, so it works even if the user
+    // already dismissed that one this session.
     fun checkForUpdatesNow() {
         checking = true
         scope.launch {
@@ -74,6 +74,6 @@ internal fun AppTab(onOpenDownloads: () -> Unit = {}) {
         }
     }
 
-    // Al final y sin anunciarse: bloqueado no se ve más que un renglón que pide un código.
-    SeccionDeAdultos(graph.settings)
+    // At the end and unannounced: locked, it shows no more than a row asking for a code.
+    AdultsSection(graph.settings)
 }
