@@ -42,7 +42,9 @@ fun nativeHalf(value: String): String {
 android {
     namespace = "com.arkiv.player"
     compileSdk = 35
-    ndkVersion = "26.1.10909125"
+    // r28+: the linker defaults to 16 KB-aligned LOAD segments, which newer Android devices
+    // require. r26 didn't, and left our own native module (libcredentials.so) unaligned.
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId = "com.arkiv.player.light" // own id: full Arkiv and Arkiv Light coexist on the same device
@@ -198,6 +200,10 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
+    // Forced past the version material3 pulls in transitively (1.0.1, whose native library
+    // isn't 16 KB-aligned): a direct declaration wins over a transitive one at the same Gradle
+    // conflict-resolution level, with no need to bump the whole Compose BOM for it.
+    implementation("androidx.graphics:graphics-path:1.1.0")
     implementation("androidx.navigation:navigation-compose:2.8.4")
 
     // Compose for TV (Android TV / Fire TV)

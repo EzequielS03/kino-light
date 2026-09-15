@@ -17,3 +17,7 @@ add_library(credentials SHARED native_credentials.cpp)
 find_library(log-lib log)
 
 target_link_libraries(credentials mbedcrypto ${log-lib})
+
+# 16 KB-aligned LOAD segments, explicit rather than relying on the NDK's default: newer Android
+# devices use a 16 KB page size, and an unaligned segment fails to load there.
+target_link_options(credentials PRIVATE "-Wl,-z,max-page-size=16384")
