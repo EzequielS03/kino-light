@@ -1,6 +1,5 @@
 package com.arkiv.player.data.magis
 
-import com.arkiv.player.BuildConfig
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
@@ -34,8 +33,8 @@ internal data class MagisPlayable(
 internal class MagisResolve(
     private val portal: MagisPortalClientLike,
     private val session: MagisSession,
-    private val appId: String = BuildConfig.IPTV_APP_ID,
-    private val apkVersion: String = BuildConfig.IPTV_APK_VERSION,
+    private val appId: String = "",
+    private val apkVersion: String = "",
     private val nowMs: () -> Long = { System.currentTimeMillis() },
 ) {
 

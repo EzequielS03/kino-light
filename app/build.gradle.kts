@@ -52,11 +52,6 @@ android {
         // anymore: the person picks the code in Settings and it starts at a public default (see
         // `CandadoDeAdultos`). An APK distributed with a code only the person who built it knew left
         // the section locked for everyone else.
-        buildConfigField("String", "IPTV_3DES_KEY", "\"${readEnv("IPTV_3DES_KEY")}\"")
-        buildConfigField("String", "IPTV_HOSTS", "\"${readEnv("IPTV_HOSTS")}\"")
-        buildConfigField("String", "IPTV_APP_ID", "\"${readEnv("IPTV_APP_ID")}\"")
-        buildConfigField("String", "IPTV_APK_VERSION", "\"${readEnv("IPTV_APK_VERSION")}\"")
-        buildConfigField("String", "TMDB_API_KEY", "\"${readEnv("API_KEY")}\"")
         // Cast receiver to launch on the TV. Empty falls back to Google's Default Media Receiver,
         // which cannot play the MPEG-TS Magis serves -- see `receiver/index.html`. It lives in the
         // .env because it is registered per developer account in the Cast Developer Console, so a

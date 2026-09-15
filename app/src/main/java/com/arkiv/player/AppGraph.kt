@@ -79,9 +79,6 @@ class AppGraph(context: Context) {
 
     val apkDownloader: ApkDownloader by lazy { ApkDownloader(appContext) }
 
-    // Temporary, added here so ActivationScreen/TvActivationScreen/MainActivity compile. Task 9
-    // wires this properly (refreshCredentialsIfActivated for the OTA worker); this is the same
-    // byte-identical form it lands with, so nothing here is thrown away.
     val credentialsStore: com.arkiv.player.data.credentials.RemoteCredentialsStore by lazy {
         com.arkiv.player.data.credentials.EncryptedRemoteCredentialsStore(appContext)
     }
@@ -124,11 +121,12 @@ class AppGraph(context: Context) {
     }
 
     private val magisPortal: com.arkiv.player.data.magis.MagisPortalClientLike by lazy {
+        val creds = credentialsStore.read()!! // never null here: nothing reaching magisPortal is reachable before activation
         com.arkiv.player.data.magis.MagisPortalClient(
-            crypto = com.arkiv.player.data.magis.MagisCrypto(BuildConfig.IPTV_3DES_KEY),
-            hosts = BuildConfig.IPTV_HOSTS.split(",").map { it.trim() }.filter { it.isNotBlank() },
-            appId = BuildConfig.IPTV_APP_ID,
-            apkVersion = BuildConfig.IPTV_APK_VERSION,
+            crypto = com.arkiv.player.data.magis.MagisCrypto(creds.iptv3desKey),
+            hosts = creds.iptvHosts.split(",").map { it.trim() }.filter { it.isNotBlank() },
+            appId = creds.iptvAppId,
+            apkVersion = creds.iptvApkVersion,
             snProvider = { magisStore.readSession()?.sn.orEmpty() },
             // PATIENT: the portal takes ~11s to resolve some channels (measured) and OkHttp's
             // default read timeout is 10, i.e. it was killing them right before they landed.
@@ -161,9 +159,14 @@ class AppGraph(context: Context) {
 
     /** Magis titles, straight from the portal. Only visible from outside through [contentSource]. */
     private val magisSource: com.arkiv.player.data.gateway.ContentSource by lazy {
+        val creds = credentialsStore.read()!!
         com.arkiv.player.data.magis.MagisSource(
             catalog = magisCatalog,
-            vodResolver = com.arkiv.player.data.magis.MagisResolve(magisPortal, magisSession),
+            vodResolver = com.arkiv.player.data.magis.MagisResolve(
+                magisPortal, magisSession,
+                appId = creds.iptvAppId,
+                apkVersion = creds.iptvApkVersion,
+            ),
             tmdb = tmdbApi,
         )
     }
@@ -198,7 +201,10 @@ class AppGraph(context: Context) {
     }
 
     internal val magisLive: com.arkiv.player.data.magis.MagisLive by lazy {
-        com.arkiv.player.data.magis.MagisLive(magisPortal, magisSession)
+        com.arkiv.player.data.magis.MagisLive(
+            magisPortal, magisSession,
+            apkVersion = credentialsStore.read()!!.iptvApkVersion,
+        )
     }
 
     /** Live categories and channels + the catalog's section tree, straight from the portal. */
@@ -415,7 +421,7 @@ class AppGraph(context: Context) {
      * benefit, but the cap on the whole call was still needed.
      */
     val tmdbApi: TmdbApi by lazy {
-        TmdbApi(language = "es-MX")
+        TmdbApi(apiKey = credentialsStore.read()!!.tmdbApiKey, language = "es-MX")
     }
     val subtitlePrefs: com.arkiv.player.data.subtitles.SubtitlePrefs by lazy {
         com.arkiv.player.data.subtitles.SubtitlePrefs(appContext)

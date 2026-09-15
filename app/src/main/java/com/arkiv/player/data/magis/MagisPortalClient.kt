@@ -37,7 +37,8 @@ internal interface MagisPortalClientLike {
  *  - the `apk` / `apkVer` / `spkgVer` headers always go.
  *
  * [hosts] is received through the constructor (and not read from `BuildConfig` in here) so tests
- * can point it at a `MockWebServer`; the real wiring passes it `BuildConfig.IPTV_HOSTS.split(",")`.
+ * can point it at a `MockWebServer`; the real wiring passes it the hosts read from
+ * `RemoteCredentialsStore` (see [com.arkiv.player.AppGraph.magisPortal]).
  */
 internal class MagisPortalClient(
     private val crypto: MagisCrypto,

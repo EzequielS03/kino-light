@@ -6,7 +6,9 @@ import javax.crypto.spec.SecretKeySpec
 
 /**
  * Encryption for the Magis portal's bodies: hex(base64(3DES-EDE/ECB/PKCS5(json))).
- * [keyHex] is the 24-byte master key in hex (BuildConfig.IPTV_3DES_KEY).
+ * [keyHex] is the 24-byte master key in hex, sourced at runtime from
+ * [com.arkiv.player.data.credentials.RemoteCredentialsStore] (see
+ * [com.arkiv.player.data.credentials.RemoteCredentials.iptv3desKey]).
  */
 internal class MagisCrypto(keyHex: String) {
 

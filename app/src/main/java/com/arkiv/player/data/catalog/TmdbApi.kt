@@ -2,7 +2,6 @@ package com.arkiv.player.data.catalog
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import com.arkiv.player.BuildConfig
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -129,7 +128,7 @@ data class TmdbDetail(
 class TmdbApi(
     /** TMDB v3 key, embedded in this branch's build (`API_KEY` from `.env`). v3 is used and not
      *  the v4 bearer, to avoid depending on a second secret. */
-    private val apiKey: String = BuildConfig.TMDB_API_KEY,
+    private val apiKey: String = "",
     private val language: String = "es-MX",
     /** Parameterizable only for tests: production talks to TMDB. */
     private val baseUrl: String = BASE_TMDB,

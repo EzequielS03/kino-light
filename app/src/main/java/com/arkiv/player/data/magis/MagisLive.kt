@@ -1,6 +1,5 @@
 package com.arkiv.player.data.magis
 
-import com.arkiv.player.BuildConfig
 import com.arkiv.player.data.gateway.ChannelCdn
 import com.arkiv.player.data.gateway.LiveSession
 import org.json.JSONObject
@@ -17,7 +16,7 @@ import org.json.JSONObject
 internal class MagisLive(
     private val portal: MagisPortalClientLike,
     private val session: MagisSession,
-    private val apkVersion: String = BuildConfig.IPTV_APK_VERSION,
+    private val apkVersion: String = "",
     private val nowMs: () -> Long = { System.currentTimeMillis() },
 ) {
 
