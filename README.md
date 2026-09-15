@@ -12,16 +12,8 @@ mismo catálogo y la misma cuenta en ambos.
 También puedes ver todas las versiones en la [página de releases](https://github.com/lordmacu/kino-light/releases).
 
 <p align="center">
-  <img src="docs/screenshots/home.png" width="49%" alt="Pantalla de inicio" />
-  <img src="docs/screenshots/player.png" width="49%" alt="Reproductor" />
-</p>
-<p align="center">
-  <img src="docs/screenshots/search.png" width="49%" alt="Buscador" />
-  <img src="docs/screenshots/search-results.png" width="49%" alt="Resultados de búsqueda" />
-</p>
-<p align="center">
-  <img src="docs/screenshots/live.png" width="49%" alt="Canales en vivo" />
-  <img src="docs/screenshots/categorias.png" width="49%" alt="Categorías" />
+  <img src="docs/screenshots/home.png" width="49%" alt="Pantalla de inicio en el televisor" />
+  <img src="docs/screenshots/phone-home.png" width="24%" alt="Pantalla de inicio en el celular" />
 </p>
 
 ## Sin virus, sin publicidad y sin rastreadores
@@ -76,6 +68,28 @@ catálogo y los mismos servidores de siempre, pero sin nada de lo que la app ori
 La versión de TV tiene su propio diseño, pensado para verse y manejarse con el control remoto
 desde el sofá: control por flechas, foco grande y legible, y las mismas funciones que en el
 celular.
+
+<p align="center">
+  <img src="docs/screenshots/home.png" width="49%" alt="Inicio" />
+  <img src="docs/screenshots/player.png" width="49%" alt="Reproductor" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/search.png" width="49%" alt="Buscador" />
+  <img src="docs/screenshots/search-results.png" width="49%" alt="Resultados de búsqueda" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/live.png" width="49%" alt="Canales en vivo" />
+  <img src="docs/screenshots/categorias.png" width="49%" alt="Categorías" />
+</p>
+
+## En el celular
+
+<p align="center">
+  <img src="docs/screenshots/phone-home.png" width="24%" alt="Inicio en el celular" />
+  <img src="docs/screenshots/phone-search.png" width="24%" alt="Buscador en el celular" />
+  <img src="docs/screenshots/phone-detail.png" width="24%" alt="Detalle de un título en el celular" />
+  <img src="docs/screenshots/phone-player.png" width="24%" alt="Reproductor en el celular" />
+</p>
 
 ## Novedades recientes
 
