@@ -280,4 +280,151 @@ class MagisSessionTest {
 
         assertEquals(Unit, r.getOrNull())
     }
+
+    // --- sendRegistrationCode / confirmRegistration -------------------------------------------
+
+    @Test
+    fun `sendRegistrationCode mints a device separate from the stored one and asks for a code`() = runTest {
+        val fake = FakePortalClient()
+        fake.queueResponse("v3/snToken", portalOk("snToken" to "REG-TOK"))
+        fake.queueResponse("v8/active", portalOk("userId" to "reg-user", "userToken" to "reg-token"))
+        fake.queueResponse("v2/sendEmailVerifyCode", portalOk())
+        val session = testSession(fake) // already has sn="sn-test" stored
+
+        val r = session.sendRegistrationCode("nueva@ejemplo.com")
+
+        val pending = r.getOrNull()!!
+        assertEquals("reg-user", pending.userId)
+        assertEquals("reg-token", pending.userToken)
+        val expectedSn = "194d9e98c52ddfb2207a35c04ac392d3" // md5("REG-TOK" + SNTOKEN_SALT)
+        assertEquals(expectedSn, pending.sn)
+        // The temp device's sn must never equal (or leak into) the currently stored one.
+        assertTrue("registration device must differ from the stored one", pending.sn != "sn-test")
+
+        val codeCall = fake.calls.first { it.first == "v2/sendEmailVerifyCode" }
+        assertEquals("nueva@ejemplo.com", codeCall.second["email"])
+        assertEquals("reg-user", codeCall.second["userId"])
+        assertEquals("reg-token", codeCall.second["userToken"])
+        // Every call in the flow (active + sendEmailVerifyCode) must carry the NEW device's sn,
+        // never the stored one -- this is the whole point of the sn override.
+        assertTrue(fake.sns.filterNotNull().all { it == pending.sn })
+
+        // The stored session (this device's real one) must be completely untouched.
+        assertEquals("sn-test", session.sn)
+        assertEquals("t-test", session.userToken)
+    }
+
+    @Test
+    fun `sendRegistrationCode fails cleanly if activation never returns a token`() = runTest {
+        val fake = FakePortalClient()
+        fake.queueResponse("v3/snToken", portalOk("snToken" to "REG-TOK"))
+        fake.queueResponse("v8/active", portalOk("userId" to "reg-user")) // no userToken
+        val session = testSession(fake)
+
+        val r = session.sendRegistrationCode("nueva@ejemplo.com")
+
+        assertTrue("expected an error, got $r", r !is MagisResult.Ok<*>)
+        assertEquals(0, fake.timesCalled("v2/sendEmailVerifyCode"))
+        // Nothing about the real session changes on failure.
+        assertEquals("sn-test", session.sn)
+    }
+
+    @Test
+    fun `sendRegistrationCode surfaces a rejection from sendEmailVerifyCode (e_g_ already registered)`() = runTest {
+        val fake = FakePortalClient()
+        fake.queueResponse("v3/snToken", portalOk("snToken" to "REG-TOK"))
+        fake.queueResponse("v8/active", portalOk("userId" to "reg-user", "userToken" to "reg-token"))
+        fake.queueResponse("v2/sendEmailVerifyCode", MagisResult.PortalError("aaa100090", "email ya registrado"))
+        val session = testSession(fake)
+
+        val r = session.sendRegistrationCode("existente@ejemplo.com")
+
+        assertTrue(r is MagisResult.PortalError)
+        assertEquals("aaa100090", (r as MagisResult.PortalError).code)
+    }
+
+    @Test
+    fun `confirmRegistration validates, binds, logs in, and only then replaces the stored session`() = runTest {
+        val fake = FakePortalClient()
+        fake.queueResponse("v2/validateVerifyCode", portalOk())
+        fake.queueResponse("v2/bindEmail", portalOk())
+        fake.queueResponse("v8/login", portalOk("userId" to "final-user", "userToken" to "final-token", "jwtToken" to "final-jwt"))
+        val store = FakeCredentialStore()
+        store.saveSession(StoredSession("u-viejo", "t-viejo", "", sn = "sn-viejo"))
+        val session = MagisSession(fake, store)
+        val pending = MagisSession.PendingRegistration(userId = "reg-user", userToken = "reg-token", sn = "reg-sn")
+
+        val r = session.confirmRegistration(pending, "nueva@ejemplo.com", "MiClaveNueva123", "123456")
+
+        assertEquals(Unit, r.getOrNull())
+        val validateCall = fake.calls.first { it.first == "v2/validateVerifyCode" }
+        assertEquals("123456", validateCall.second["verifyCode"])
+        assertEquals("reg-user", validateCall.second["userId"])
+        val bindCall = fake.calls.first { it.first == "v2/bindEmail" }
+        assertEquals("nueva@ejemplo.com", bindCall.second["email"])
+        assertEquals("e4fec498f0794c38ed02391744724150", bindCall.second["pwd"]) // md5("MiClaveNueva123"+"cloudstream")
+        // All three calls carry the PENDING device's sn, not whatever was stored before.
+        assertTrue(fake.sns.filterNotNull().all { it == "reg-sn" })
+
+        assertEquals("final-token", store.readSession()?.userToken)
+        assertEquals("final-jwt", store.readSession()?.jwtToken)
+        assertEquals("reg-sn", store.readSession()?.sn)
+        assertEquals("nueva@ejemplo.com" to "MiClaveNueva123", store.readAccount())
+        assertTrue(session.hasAccountLinked)
+    }
+
+    @Test
+    fun `confirmRegistration leaves the current session untouched if the code is rejected`() = runTest {
+        val fake = FakePortalClient()
+        fake.queueResponse("v2/validateVerifyCode", MagisResult.PortalError("aaa100091", "código inválido"))
+        val store = FakeCredentialStore()
+        store.saveSession(StoredSession("u-viejo", "t-viejo", "", sn = "sn-viejo"))
+        val session = MagisSession(fake, store)
+        val pending = MagisSession.PendingRegistration(userId = "reg-user", userToken = "reg-token", sn = "reg-sn")
+
+        val r = session.confirmRegistration(pending, "nueva@ejemplo.com", "MiClaveNueva123", "000000")
+
+        assertTrue(r is MagisResult.PortalError)
+        assertEquals(0, fake.timesCalled("v2/bindEmail"))
+        assertEquals(0, fake.timesCalled("v8/login"))
+        assertEquals("t-viejo", store.readSession()?.userToken)
+        assertEquals("sn-viejo", store.readSession()?.sn)
+        assertNull(store.readAccount())
+    }
+
+    @Test
+    fun `confirmRegistration leaves the current session untouched if bindEmail is rejected`() = runTest {
+        val fake = FakePortalClient()
+        fake.queueResponse("v2/validateVerifyCode", portalOk())
+        fake.queueResponse("v2/bindEmail", MagisResult.PortalError("aaa100090", "email ya en uso"))
+        val store = FakeCredentialStore()
+        store.saveSession(StoredSession("u-viejo", "t-viejo", "", sn = "sn-viejo"))
+        val session = MagisSession(fake, store)
+        val pending = MagisSession.PendingRegistration(userId = "reg-user", userToken = "reg-token", sn = "reg-sn")
+
+        val r = session.confirmRegistration(pending, "nueva@ejemplo.com", "MiClaveNueva123", "123456")
+
+        assertTrue(r is MagisResult.PortalError)
+        assertEquals(0, fake.timesCalled("v8/login"))
+        assertEquals("t-viejo", store.readSession()?.userToken)
+        assertNull(store.readAccount())
+    }
+
+    @Test
+    fun `confirmRegistration leaves the current session untouched if the final login has no token`() = runTest {
+        val fake = FakePortalClient()
+        fake.queueResponse("v2/validateVerifyCode", portalOk())
+        fake.queueResponse("v2/bindEmail", portalOk())
+        fake.queueResponse("v8/login", portalOk("userId" to "final-user")) // no userToken
+        val store = FakeCredentialStore()
+        store.saveSession(StoredSession("u-viejo", "t-viejo", "", sn = "sn-viejo"))
+        val session = MagisSession(fake, store)
+        val pending = MagisSession.PendingRegistration(userId = "reg-user", userToken = "reg-token", sn = "reg-sn")
+
+        val r = session.confirmRegistration(pending, "nueva@ejemplo.com", "MiClaveNueva123", "123456")
+
+        assertTrue("expected an error, got $r", r !is MagisResult.Ok<*>)
+        assertEquals("t-viejo", store.readSession()?.userToken)
+        assertNull(store.readAccount())
+    }
 }

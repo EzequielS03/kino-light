@@ -37,6 +37,19 @@ internal class MagisSession(
 
     val hasAccountLinked: Boolean get() = store.readAccount() != null
 
+    /**
+     * A device minted for a pending registration, held ENTIRELY in memory by whoever calls
+     * [sendRegistrationCode] -- there's nothing to persist across a process restart, since
+     * abandoning the flow mid-way just means minting a fresh device next time. Never written to
+     * [store] until [confirmRegistration] succeeds, so a failed or abandoned registration can
+     * never corrupt this device's real session.
+     */
+    data class PendingRegistration(
+        val userId: String,
+        val userToken: String,
+        val sn: String,
+    )
+
     /** Only the email: the saved password is for relogging on its own, not for showing or passing around. */
     fun linkedEmail(): String? = store.readAccount()?.first
 
@@ -66,6 +79,102 @@ internal class MagisSession(
 
     suspend fun login(email: String, password: String): MagisResult<Unit> =
         lock.withLock { loginWithoutLock(email, password) }
+
+    /**
+     * First step of creating a brand-new Magis account (no gateway needed -- port of the old
+     * `arkiv-api`'s `registro_enviar_codigo`, `adapters/magis/session.py`): mints a FRESH, separate
+     * device (never touches this device's stored session/`sn`) and asks Magis to email it a
+     * verification code. The returned [PendingRegistration] must be held by the caller (in-memory
+     * UI state) and passed to [confirmRegistration].
+     */
+    suspend fun sendRegistrationCode(email: String): MagisResult<PendingRegistration> = lock.withLock {
+        val snR = portal.call("v3/snToken", hardwareFingerprint(), baseFields = false)
+        val snJ = snR.getOrNull() ?: return@withLock snR.asError()
+        val snToken = snJ.optString("snToken").takeIf { it.isNotBlank() }
+            ?: return@withLock MagisResult.PortalError("snToken_failed", "el portal no devolvió snToken")
+        val sn = (snJ.optString("sn").takeIf { it.isNotBlank() } ?: md5Hex(snToken + SNTOKEN_SALT)).lowercase()
+
+        val activateBean = mapOf(
+            "snToken" to snToken, "authVersion" to "", "authCode" to "", "preCode" to "",
+            "macAddr" to FIXED_MAC, "reserve1" to "", "openNum" to 4, "channel" to "default",
+            "matadata" to "", "signdata" to "",
+        )
+        val actR = portal.call("v8/active", activateBean, baseFields = false, sn = sn)
+        val actJ = actR.getOrNull() ?: return@withLock actR.asError()
+        val userId = actJ.optString("userId")
+        val userToken = actJ.optString("userToken")
+        if (userToken.isBlank()) {
+            return@withLock MagisResult.PortalError("active_sin_token", "activación sin userToken")
+        }
+        val pending = PendingRegistration(userId, userToken, sn)
+
+        val codeR = portal.call(
+            "v2/sendEmailVerifyCode",
+            mapOf("email" to email, "type" to "1", "userId" to userId, "userToken" to userToken),
+            baseFields = false,
+            sn = sn,
+        )
+        if (codeR !is MagisResult.Ok) return@withLock codeR.asError()
+        MagisResult.Ok(pending)
+    }
+
+    /**
+     * Second step (port of `registro_confirmar`): validates the code, binds email+password to the
+     * PENDING device, logs in with the new credentials, and only on full success replaces this
+     * device's stored session and account with the new ones. A failure at any step leaves the
+     * current session (if any) completely untouched.
+     */
+    suspend fun confirmRegistration(
+        pending: PendingRegistration,
+        email: String,
+        password: String,
+        code: String,
+    ): MagisResult<Unit> = lock.withLock {
+        val validateR = portal.call(
+            "v2/validateVerifyCode",
+            mapOf(
+                "type" to "1", "email" to email, "verifyCode" to code,
+                "userToken" to pending.userToken, "userId" to pending.userId,
+            ),
+            baseFields = false,
+            sn = pending.sn,
+        )
+        if (validateR !is MagisResult.Ok) return@withLock validateR.asError()
+
+        val bindR = portal.call(
+            "v2/bindEmail",
+            mapOf(
+                "email" to email, "pwd" to md5Hex(password + PASSWORD_SALT), "type" to "1",
+                "userId" to pending.userId, "userToken" to pending.userToken,
+            ),
+            baseFields = false,
+            sn = pending.sn,
+        )
+        if (bindR !is MagisResult.Ok) return@withLock bindR.asError()
+
+        val loginBean = mapOf(
+            "accountType" to "2", "userName" to email,
+            "password" to md5Hex(password + PASSWORD_SALT), "type" to "1",
+            "macAddr" to FIXED_MAC, "areaCode" to "", "verificationCode" to "", "verificationToken" to "",
+            "matadata" to "", "signdata" to "", "channel" to "default",
+        )
+        val loginR = portal.call("v8/login", loginBean, baseFields = false, sn = pending.sn)
+        val loginJ = loginR.getOrNull() ?: return@withLock loginR.asError()
+        if (loginJ.optString("userToken").isBlank()) {
+            return@withLock MagisResult.PortalError("login_sin_token", "login sin userToken")
+        }
+
+        store.saveSession(
+            StoredSession(
+                userId = loginJ.optString("userId"),
+                userToken = loginJ.optString("userToken"),
+                jwtToken = loginJ.optString("jwtToken"),
+                sn = pending.sn,
+            ),
+        )
+        store.saveAccount(email, password)
+        MagisResult.Ok(Unit)
+    }
 
     /**
      * Unlinks the account: logs out of the portal, deletes the credentials and goes back to

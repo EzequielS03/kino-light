@@ -9,6 +9,10 @@ internal class FakePortalClient : MagisPortalClientLike {
     /** The session (userId, userToken) each call traveled with, in the same order as
      *  [calls] -- to assert that a retry uses the NEW token, not the one that just died. */
     val sessions = mutableListOf<Pair<String, String>>()
+
+    /** The `sn` override each call traveled with, same order as [calls] -- to assert a
+     *  registration flow's temporary device never leaks into another call's device dict. */
+    val sns = mutableListOf<String?>()
     private val queuesByPath = mutableMapOf<String, ArrayDeque<MagisResult<JSONObject>>>()
     var defaultResponse: MagisResult<JSONObject> = MagisResult.Ok(JSONObject())
 
@@ -25,9 +29,11 @@ internal class FakePortalClient : MagisPortalClientLike {
         baseFields: Boolean,
         userId: String,
         userToken: String,
+        sn: String?,
     ): MagisResult<JSONObject> {
         calls.add(path to bean)
         sessions.add(userId to userToken)
+        sns.add(sn)
         val queue = queuesByPath[path]
         return if (queue != null && queue.isNotEmpty()) queue.removeFirst() else defaultResponse
     }

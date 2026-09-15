@@ -23,6 +23,11 @@ internal interface MagisPortalClientLike {
         baseFields: Boolean = true,
         userId: String = "",
         userToken: String = "",
+        /** Overrides the device dict's `sn` for this one call. `null` (the default) keeps using
+         *  whatever [MagisPortalClient]'s own `snProvider` returns (this device's stored session).
+         *  Needed for account registration: that flow mints a SEPARATE, temporary device that must
+         *  never overwrite the stored one's `sn` until registration actually succeeds. */
+        sn: String? = null,
     ): MagisResult<JSONObject>
 }
 
@@ -75,6 +80,7 @@ internal class MagisPortalClient(
         baseFields: Boolean,
         userId: String,
         userToken: String,
+        sn: String?,
     ): MagisResult<JSONObject> {
         val body = buildMap<String, Any?> {
             if (baseFields) {
@@ -83,7 +89,7 @@ internal class MagisPortalClient(
                 put("userToken", userToken)
             }
             putAll(bean)
-            putAll(deviceDict())   // the device enriches (and overwrites) whatever comes in the bean
+            putAll(deviceDict(sn))   // the device enriches (and overwrites) whatever comes in the bean
         }
         val wire = crypto.encryptBody(JSONObject(body).toString())
 
@@ -139,7 +145,7 @@ internal class MagisPortalClient(
      * `reserve1`/`deviceToken`/`drmId` go EMPTY on purpose — that's how production sends them and
      * how `new_anonymous_device` clears them before minting (`iptv_client.py:187-188`).
      */
-    private fun deviceDict(): Map<String, Any?> = mapOf(
+    private fun deviceDict(snOverride: String? = null): Map<String, Any?> = mapOf(
         "loginType" to "2",
         "appLanguage" to "en",
         "apkVersion" to apkVersion,
@@ -152,7 +158,7 @@ internal class MagisPortalClient(
         "B29" to "",
         "reserve1" to "",
         "deviceToken" to "",
-        "sn" to snProvider(),
+        "sn" to (snOverride ?: snProvider()),
         "drmId" to "",
         "sdkVer" to 36,
     )
