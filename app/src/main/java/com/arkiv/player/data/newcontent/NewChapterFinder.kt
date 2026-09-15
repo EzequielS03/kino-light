@@ -77,7 +77,7 @@ class NewChapterFinder(
     private suspend fun checkMagis(series: SeriesCandidate): Int {
         val ref = itemDao.getItem(series.itemId)?.torrentData.orEmpty()
         if (ref.isBlank()) return 0
-        val (atSource, gatewaySerie) = gateway.episodesWithSeries(ref)
+        val (atSource, gatewaySeries) = gateway.episodesWithSeries(ref)
         if (atSource.isEmpty()) {
             Log.i(TAG, "magis ${series.itemId}: no chapters (stale ref?)")
             return 0
@@ -96,10 +96,10 @@ class NewChapterFinder(
                 title = item.title,
                 episode = number,
                 posterUrl = item.thumbnailUrl,
-                season = gatewaySerie?.seasonNumber,
+                season = gatewaySeries?.seasonNumber,
                 // `optInt` in parsing gives 0 if the field were missing, and a 0 isn't null (see
                 // the same shielding in SearchPlayback.playMagisSeason).
-                tmdbId = gatewaySerie?.tmdbId?.takeIf { it > 0 },
+                tmdbId = gatewaySeries?.tmdbId?.takeIf { it > 0 },
                 still = ep.still,
                 tmdbTitle = ep.tmdbTitle,
                 overview = ep.overview,
@@ -131,7 +131,7 @@ class NewChapterFinder(
         val item = itemDao.getItem(series.itemId) ?: return 0
         val ref = item.torrentData.orEmpty()
         if (ref.isBlank()) return 0
-        val (atSource, gatewaySerie) = gateway.episodesWithSeries(ref)
+        val (atSource, gatewaySeries) = gateway.episodesWithSeries(ref)
         if (atSource.isEmpty()) {
             Log.i(TAG, "ditu ${series.itemId}: no chapters (stale ref?)")
             return 0
@@ -139,7 +139,7 @@ class NewChapterFinder(
 
         // Same season rule the save path uses, so a chapter is keyed here exactly as it would be
         // once saved.
-        val candidates = atSource.map { ep -> DituEntities.caracolChapter(ep, gatewaySerie) }
+        val candidates = atSource.map { ep -> DituEntities.caracolChapter(ep, gatewaySeries) }
         val saveable = DituEntities.saveableChapters(ref, candidates)
         if (saveable.isEmpty()) return 0
 
@@ -164,7 +164,7 @@ class NewChapterFinder(
                 episodeTitle = cap.title,
                 seriesRef = ref,
                 season = cap.season,
-                tmdbId = gatewaySerie?.tmdbId?.takeIf { it > 0 },
+                tmdbId = gatewaySeries?.tmdbId?.takeIf { it > 0 },
             )
             if (id != null) added++
         }

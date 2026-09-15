@@ -236,8 +236,8 @@ fun ArkivTvRoot(
                 // PlayerViewModel/PlayerScreen). `TvLiveGuideScreen.watchChannel()` already left
                 // in LiveZappingSource the list it was entered with -- here it only needs to
                 // navigate with the prefix PlayerSource.kindFor() recognizes as live.
-                onWatchChannel = { canal ->
-                    goToPlayer("${com.arkiv.player.playback.PlayerSource.LIVE_PREFIX}${canal.code}")
+                onWatchChannel = { channel ->
+                    goToPlayer("${com.arkiv.player.playback.PlayerSource.LIVE_PREFIX}${channel.code}")
                 },
                 onBack = { navController.popBackStack() },
             )

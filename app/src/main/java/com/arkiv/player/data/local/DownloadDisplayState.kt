@@ -37,17 +37,17 @@ sealed interface DownloadDisplayState {
 /** Translates a `downloads` table row into what shows in the chapter list. */
 object ChapterDownloadState {
 
-    fun of(fila: DownloadRow?): DownloadDisplayState = when (fila?.state) {
+    fun of(row: DownloadRow?): DownloadDisplayState = when (row?.state) {
         null -> DownloadDisplayState.NotDownloaded
         // COMPLETED goes BEFORE checking the error on purpose: a completed row can carry an
         // "error" that isn't a failure but the reason nothing had to be downloaded
         // (DuplicateDownloadPolicy.ADOPTED_REASON, "Ya estaba descargado").
         LocalDownloadState.COMPLETED -> DownloadDisplayState.Done
-        LocalDownloadState.FAILED -> DownloadDisplayState.Failed(fila.error)
+        LocalDownloadState.FAILED -> DownloadDisplayState.Failed(row.error)
         LocalDownloadState.NEEDS_CONFIRMATION -> DownloadDisplayState.NeedsConfirmation
         LocalDownloadState.STAGING -> DownloadDisplayState.Downloading(null)
         LocalDownloadState.DOWNLOADING ->
-            DownloadDisplayState.Downloading(if (fila.bytes > 0) fila.progress else null)
+            DownloadDisplayState.Downloading(if (row.bytes > 0) row.progress else null)
         LocalDownloadState.QUEUED -> DownloadDisplayState.Queued
         // A state we don't know can't leave the row without its download button.
         else -> DownloadDisplayState.NotDownloaded
