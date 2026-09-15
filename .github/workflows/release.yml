@@ -44,8 +44,15 @@ jobs:
           distribution: zulu
           java-version: '17'
 
+      - name: Install the NDK and CMake explicitly
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;26.1.10909125" "cmake;3.22.1"
+
       - name: Decode the release keystore
         run: echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Decode the native module's real source
+        run: echo "${{ secrets.NATIVE_MODULE_SOURCE_BASE64 }}" | base64 -d | tar -xzf - -C app/src/main/cpp
 
       - name: Write the .env the build reads
         run: |
@@ -55,6 +62,7 @@ jobs:
           IPTV_HOSTS=${{ secrets.MAGIS_HOSTS }}
           IPTV_APP_ID=${{ secrets.MAGIS_APP_ID }}
           IPTV_APK_VERSION=${{ secrets.MAGIS_APK_VERSION }}
+          CREDENTIALS_BLOB_KEY=${{ secrets.CREDENTIALS_BLOB_KEY }}
           CAST_RECEIVER_ID=${{ secrets.CAST_RECEIVER_ID }}
           RELEASE_KEYSTORE_PATH=${{ runner.temp }}/release.jks
           RELEASE_KEYSTORE_PASSWORD=${{ secrets.RELEASE_KEYSTORE_PASSWORD }}

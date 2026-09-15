@@ -19,6 +19,7 @@ app/src/main/cpp/*.h
 # no se podía ni empujar — por eso este repo arranca con historia nueva.
 build/
 app/build/
+app/.cxx/
 .gradle/
 local.properties
 
