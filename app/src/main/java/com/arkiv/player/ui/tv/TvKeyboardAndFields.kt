@@ -18,7 +18,6 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -114,19 +113,15 @@ fun TvKeyboardAndFields(
 
     // Full screen: with nothing on top, the keyboard gets its full height and its mode keys don't
     // get clipped against the bottom edge -which on a TV falls right in the overscan zone-.
+    //
+    // Title and subtitle live above the fields column, not in their own full-width row: sitting
+    // there, above the keyboard, they read as squeezed against it. Above the fields they read as
+    // what they are -context for what's about to be typed-.
     Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(top = 24.dp, start = 48.dp, end = 48.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Text(title, style = MaterialTheme.typography.titleLarge, color = Color.White)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = ArkivTextSecondary)
-        }
         Row(Modifier.fillMaxSize()) {
             Column(
                 Modifier.fillMaxHeight().weight(KEYBOARD_WEIGHT)
-                    .padding(start = 48.dp, end = 24.dp, bottom = 16.dp),
+                    .padding(start = 48.dp, top = 24.dp, end = 24.dp, bottom = 16.dp),
             ) {
                 TvKeyboard(
                     text = activeText,
@@ -143,6 +138,8 @@ fun TvKeyboardAndFields(
                 Modifier.fillMaxHeight().weight(FIELDS_WEIGHT).padding(top = 24.dp, end = 48.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                Text(title, style = MaterialTheme.typography.titleLarge, color = Color.White)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = ArkivTextSecondary)
                 fields(firstFieldFocus)
             }
         }
