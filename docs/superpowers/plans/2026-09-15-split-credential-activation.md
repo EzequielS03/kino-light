@@ -1932,7 +1932,7 @@ bundle = {
     "apkVersion": base64.b64encode(file_half(apk_version).encode()).decode(),
     "tmdb": base64.b64encode(file_half(tmdb_key).encode()).decode(),
 }
-plaintext = json.dumps(bundle).encode()
+plaintext = json.dumps(bundle, separators=(',', ':')).encode()  # no whitespace: native_credentials.cpp's extractField() searches for an exact "key":" substring
 
 aes_key = hashlib.sha256(blob_key.encode()).digest()
 iv = os.urandom(12)
@@ -1986,7 +1986,7 @@ def combine(f, n):
 
 key_3des = "5f3a9c1e7b2d4468091acaffe12300de45ab6c7"
 bundle = {"3des": base64.b64encode(file_half(key_3des).encode()).decode()}
-plaintext = json.dumps(bundle).encode()
+plaintext = json.dumps(bundle, separators=(',', ':')).encode()  # no whitespace: native_credentials.cpp's extractField() searches for an exact "key":" substring
 aes_key = hashlib.sha256(b"0000000000000000000000000000000000000000000000000000000000").digest()
 iv = os.urandom(12)
 ct = AESGCM(aes_key).encrypt(iv, plaintext, None)
