@@ -19,6 +19,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -141,6 +142,11 @@ internal fun MagisExoPlayer(
             }
     }
 
+    var videoAspectRatio by remember(exoPlayer) { mutableFloatStateOf(0f) }
+    // Read inside the layout listener below, which is built once (`remember`) and outlives every
+    // recomposition: a plain `zoom` capture would freeze at whatever it was on that first build.
+    val currentZoom = rememberUpdatedState(zoom)
+
     val textureView = remember(exoPlayer) {
         TextureView(context).apply {
             // No opacity, so whatever has no picture lets the background show through. On its own
@@ -150,8 +156,17 @@ internal fun MagisExoPlayer(
             // Where it ends up placed. This uncovered that the view was shrinking halfway through
             // (1920x1080 on mount, 1920x800 once the video's ratio arrives), and stays here in case
             // some device does something odd with the size again.
-            addOnLayoutChangeListener { _, l, t, r, b, _, _, _, _ ->
+            //
+            // Also re-applies the aspect transform on any real size change (a rotation, chiefly):
+            // `update`'s `fitAspect` call only re-runs on recomposition, and neither `videoAspectRatio`
+            // nor `zoom` change just because Android relaid out the view at its new fillMaxSize()
+            // bounds -- without this, the picture stayed squashed with the PREVIOUS orientation's
+            // transform until something unrelated forced a recomposition.
+            addOnLayoutChangeListener { v, l, t, r, b, oldL, oldT, oldR, oldB ->
                 Log.i(TAG, "TextureView placed at [$l,$t]-[$r,$b] · ${r - l}x${b - t}")
+                if (r - l != oldR - oldL || b - t != oldB - oldT) {
+                    (v as TextureView).fitAspect(videoAspectRatio, currentZoom.value)
+                }
             }
         }
     }
@@ -161,7 +176,6 @@ internal fun MagisExoPlayer(
             setUserDefaultTextSize()
         }
     }
-    var videoAspectRatio by remember(exoPlayer) { mutableFloatStateOf(0f) }
 
     DisposableEffect(exoPlayer) {
         exoPlayer.setVideoTextureView(textureView)

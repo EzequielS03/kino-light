@@ -19,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -110,12 +111,26 @@ internal fun LiveExoPlayer(
             }
     }
 
+    var videoAspectRatio by remember(exoPlayer) { mutableFloatStateOf(0f) }
+    // Read inside the layout listener below, which is built once (`remember`) and outlives every
+    // recomposition: a plain `zoom` capture would freeze at whatever it was on that first build.
+    val currentZoom = rememberUpdatedState(zoom)
+
     val textureView = remember(exoPlayer) {
         TextureView(context).apply {
             isOpaque = false
+            // Re-applies the aspect transform on any real size change (a rotation, chiefly):
+            // `update`'s `fitAspect` call only re-runs on recomposition, and neither
+            // `videoAspectRatio` nor `zoom` change just because Android relaid out the view at its
+            // new fillMaxSize() bounds -- without this, the picture stayed squashed with the
+            // PREVIOUS orientation's transform. Same fix as MagisExoPlayer's TextureView.
+            addOnLayoutChangeListener { v, l, t, r, b, oldL, oldT, oldR, oldB ->
+                if (r - l != oldR - oldL || b - t != oldB - oldT) {
+                    (v as TextureView).fitAspect(videoAspectRatio, currentZoom.value)
+                }
+            }
         }
     }
-    var videoAspectRatio by remember(exoPlayer) { mutableFloatStateOf(0f) }
 
     DisposableEffect(exoPlayer) {
         exoPlayer.setVideoTextureView(textureView)
