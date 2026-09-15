@@ -79,6 +79,22 @@ class AppGraph(context: Context) {
 
     val apkDownloader: ApkDownloader by lazy { ApkDownloader(appContext) }
 
+    // Temporary, added here so ActivationScreen/TvActivationScreen/MainActivity compile. Task 9
+    // wires this properly (refreshCredentialsIfActivated for the OTA worker); this is the same
+    // byte-identical form it lands with, so nothing here is thrown away.
+    val credentialsStore: com.arkiv.player.data.credentials.RemoteCredentialsStore by lazy {
+        com.arkiv.player.data.credentials.EncryptedRemoteCredentialsStore(appContext)
+    }
+
+    val credentialsActivator: com.arkiv.player.data.credentials.CredentialsActivator by lazy {
+        com.arkiv.player.data.credentials.CredentialsActivator(
+            okhttp3.OkHttpClient.Builder()
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .build(),
+        )
+    }
+
     /**
      * `OkHttpClient` for the Magis portal (Task 9, sub-project 2B): with the accounts subsystem
      * gone -`InterceptorDeSesion`, which used to hang here to close the person's session on a real

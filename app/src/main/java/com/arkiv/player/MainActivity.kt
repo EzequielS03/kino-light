@@ -100,11 +100,24 @@ class MainActivity : AppCompatActivity() {
                 }
                 Box(Modifier.fillMaxSize()) {
                     if (loadContent) {
-                        // No session gate: Kino L goes straight to the home, without asking
-                        // PocketBase or the gateway whether there's a session. The accounts
-                        // subsystem (ui/entrada/, EntradaViewModel) was deleted entirely in Task 9
-                        // (sub-project 2B): there's nothing left to call from here.
-                        if (isTv) {
+                        var credentials by remember { mutableStateOf(graph.credentialsStore.read()) }
+                        if (credentials == null) {
+                            // Blocks all other navigation until activation succeeds -- see
+                            // docs/superpowers/specs/2026-09-15-split-credential-activation-design.md.
+                            if (isTv) {
+                                com.arkiv.player.ui.tv.TvActivationScreen(
+                                    activator = graph.credentialsActivator,
+                                    store = graph.credentialsStore,
+                                    onActivated = { credentials = graph.credentialsStore.read() },
+                                )
+                            } else {
+                                com.arkiv.player.ui.ActivationScreen(
+                                    activator = graph.credentialsActivator,
+                                    store = graph.credentialsStore,
+                                    onActivated = { credentials = graph.credentialsStore.read() },
+                                )
+                            }
+                        } else if (isTv) {
                             ArkivTvRoot(
                                 deepLinkEpisodeId = pendingEpisode,
                                 onDeepLinkConsumed = { pendingEpisode = null },
