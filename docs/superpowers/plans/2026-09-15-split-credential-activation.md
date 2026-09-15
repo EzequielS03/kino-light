@@ -792,6 +792,21 @@ outside git (a password manager note, a local backup) -- the working directory a
 enough, since `git clean -fdx` or a fresh clone loses it silently. Any future change to this file
 requires the user pasting its current content back first, or making the change themselves.
 
+**Correction found during implementation review, applied here:** this task's code originally
+included a fourth anti-instrumentation signal, a self `ptrace(PTRACE_TRACEME)` check. It was
+removed after a task reviewer identified it as unsound when run inside the app's own main process
+(rather than a forked child): the self-issued `ptrace(PTRACE_DETACH, ...)` that was meant to undo
+it does not actually work (a traced process is neither its own tracer nor addressable via `pid=0`),
+so the SECOND of the five `resolve*()` calls in one activation -- all on the same thread -- gets
+`EPERM` from its own now-redundant `TRACEME` attempt and reads as "instrumentation detected,"
+breaking activation for every real user, every time. The textbook fix (isolate the probe in a
+forked child) was rejected as its own hazard: raw `fork()` from Android app code outside Zygote is
+unsafe against ART's own threads/locks and not something to improvise without real-device testing.
+**The combination rule is now "any one of three signals" (Frida port, `/proc/self/maps` scan,
+`TracerPid`), not four** -- a real, if modest, sensitivity reduction from what the user chose
+during brainstorming ("any 1 of 4 strong signals"), traded for a mechanism that actually works
+instead of one that always fires. See `docs/superpowers/specs/2026-09-15-split-credential-activation-design.md`'s "Anti-instrumentation check" section, corrected to match.
+
 **Design ruling on the crypto primitive:** hand-writing AES-GCM from scratch in this plan is the
 kind of exacting, easy-to-get-subtly-wrong code this project should not carry unreviewed. Vendor
 **mbedTLS** (Apache 2.0, a small, well-established embedded/mobile crypto library) via CMake
@@ -905,7 +920,7 @@ static std::string deobfuscate(const unsigned char *masked, int len) {
     return out;
 }
 
-// --- Anti-instrumentation: signals 1-4 must positively and cleanly detect instrumentation to
+// --- Anti-instrumentation: each signal must positively and cleanly detect instrumentation to
 // count. An unreadable/ambiguous signal reads as "not detected" -- see the spec's fail-safe rule.
 
 // Kill switch: same shape as MainActivity's BLOCK_ON_ROOT. If a real device ever false-positives,
@@ -949,28 +964,26 @@ static bool signalTracerPid() {
     return false; // line missing entirely: ambiguous, not detected
 }
 
-static bool signalSelfTraceFails() {
-    // A process can only ever have one tracer. If Frida (or anything else) is already attached,
-    // this call fails -- but a permission error unrelated to tracing must not read as "detected".
-    errno = 0;
-    long result = ptrace(PTRACE_TRACEME, 0, nullptr, nullptr);
-    if (result == 0) {
-        ptrace(PTRACE_DETACH, 0, nullptr, nullptr); // undo: this thread must stay traceable normally
-        return false;
-    }
-    return errno == EPERM; // EPERM specifically means "already traced"; anything else is ambiguous
-}
+// A fourth signal -- self ptrace(PTRACE_TRACEME) failing -- was in this design's first draft and
+// was removed during implementation review: it is unsound when run in the app's own main process
+// rather than a forked child. PTRACE_TRACEME marks the CALLING thread as traced by its real parent
+// (zygote/app_process, not a debugger prepared to act as one) and that state is never actually
+// undone by a self-issued ptrace(PTRACE_DETACH, ...) -- DETACH is a tracer-on-tracee operation, and
+// a traced process is neither its own tracer nor addressable via pid=0. On a clean device this
+// means the SECOND of the five resolve*() calls in one activation (all running on the same thread)
+// gets EPERM from its own TRACEME attempt -- indistinguishable from "already traced by Frida" --
+// so it reads as instrumentation detected and activation fails for every real user, every time.
+// Isolating the probe in a forked child (the textbook fix on desktop Linux) is not something to
+// improvise on Android without real-device testing: raw fork() from app code outside Zygote is a
+// known hazard against ART's own threads and locks. Dropped rather than risk either problem.
 
 /**
- * Combination rule: any one of signals 1-4 alone is enough to refuse. Signal 5 (timing, not
- * separately broken out here) is never a sole trigger -- see the spec's "Anti-instrumentation
- * check" section. Since each of 1-4 above already reads its own ambiguous case as "false" (the
- * fail-safe rule), there is nothing left for a timing tie-breaker to resolve in this
- * implementation -- it's the union of four clean, positive signals, with no separate ambiguous
- * bucket to break a tie on.
+ * Combination rule: any one of these three signals alone is enough to refuse -- each is a specific,
+ * deliberate indicator with a low false-positive rate on its own, and each already reads its own
+ * unreadable/ambiguous case as "not detected" (the fail-safe rule) above.
  */
 static bool isInstrumented() {
-    return signalFridaPort() || signalMapsHasFrida() || signalTracerPid() || signalSelfTraceFails();
+    return signalFridaPort() || signalMapsHasFrida() || signalTracerPid();
 }
 
 static bool shouldRefuse() {

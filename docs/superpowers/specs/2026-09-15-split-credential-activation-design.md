@@ -239,6 +239,23 @@ credential resolution**, not a whole-app gate:
   security goal -- this only blocks the activation/resolve step, never the
   rest of the app.
 
+**Correction found during implementation (plan Task 7), applied to what actually shipped:**
+signal 4 (self-trace) turned out to be unsound the way it's described above -- calling
+`ptrace(PTRACE_TRACEME, ...)` on the app's OWN main-process thread (not a forked child) marks that
+thread as traced by its real parent (zygote/`app_process`) **permanently**; the self-issued
+`ptrace(PTRACE_DETACH, ...)` meant to undo it does not work (a traced process is neither its own
+tracer nor addressable via `pid=0`). Since a single activation calls all five `resolve*` functions
+back-to-back on the same thread, the SECOND call's own `TRACEME` attempt gets `EPERM` -- identical
+to "already traced by Frida" -- so activation would fail for every real user, every time, on a
+completely clean device. Isolating the probe in a forked child (the textbook fix on desktop Linux)
+was rejected as its own hazard: raw `fork()` from Android app code outside Zygote is unsafe against
+ART's own threads and locks, not something to improvise without real-device testing. **Signal 4 was
+removed.** The shipped combination rule is "any one of signals 1-3 alone is enough to refuse" (the
+Frida port check, the `/proc/self/maps` scan, and `TracerPid` -- all confirmed side-effect-free);
+signal 5 (timing) was already never a sole trigger and remains unimplemented, as before. This is a
+real, if modest, sensitivity reduction from the four-signal design the user chose below -- kept
+here as the historical record of that choice, with this note as the honest amendment.
+
 **Precedent this decision is grounded in, not a hypothetical**: `RootDetection`
 already produces a real false positive on some Xiaomi Android TV sticks --
 exactly why `BLOCK_ON_ROOT` is `false` today, per the user directly. That
