@@ -73,15 +73,15 @@ internal class MagisResolve(
         val playJson = play.getOrNull() ?: return play.asError()
 
         val media = bestMedia(playJson)
-            ?: return MagisResult.PortalError("sin_media", "magis devolvió sin media reproducible")
+            ?: return MagisResult.PortalError("sin_media", "Xuper devolvió sin media reproducible")
         val license = media.optJSONArray("licenseList")?.optJSONObject(0)?.optString("license")
             ?.takeIf { it.isNotBlank() }
-            ?: return MagisResult.PortalError("sin_license", "magis devolvió sin licenseList")
+            ?: return MagisResult.PortalError("sin_license", "Xuper devolvió sin licenseList")
 
         val currentSlb = sessionSlb()
         val slbJson = currentSlb.getOrNull() ?: return currentSlb.asError()
         val cdn = vodCdn(slbJson)
-            ?: return MagisResult.PortalError("sin_cdn_vod", "magis no expuso CDN de vod con token libre")
+            ?: return MagisResult.PortalError("sin_cdn_vod", "Xuper no expuso CDN de vod con token libre")
 
         // `container` is what the portal SAYS and travels raw to the demuxer; `ext` is the CDN
         // object's key, which only exists in two flavors. Asking for `.mp4` when the portal said

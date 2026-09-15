@@ -406,7 +406,7 @@ private fun PlayerContent(
     // branch's pruning).
     val resolvingSourceName = remember(episodeId) {
         when (PlayerSource.kindFor(episodeId)) {
-            SourceKind.MAGIS -> "de Magis"
+            SourceKind.MAGIS -> "de Xuper"
             SourceKind.DITU -> "de Caracol"
             else -> "web"
         }

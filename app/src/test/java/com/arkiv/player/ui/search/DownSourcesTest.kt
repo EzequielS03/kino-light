@@ -20,7 +20,7 @@ class DownSourcesTest {
             assertTrue(downSourceNotices(state, SourceTab.ALL).isEmpty())
             assertEquals(NO_SOURCES_TEXT, noSourcesText(state))
             assertEquals("Sin resultados en Caracol.", emptyTabText(SourceTab.CARACOL, false, state))
-            assertEquals("Buscando en Magis…", emptyTabText(SourceTab.MAGIS, true, state))
+            assertEquals("Buscando en Xuper…", emptyTabText(SourceTab.MAGIS, true, state))
             assertEquals("Sin resultados", emptySectionText(SourceTab.MAGIS, state))
         }
     }
@@ -32,7 +32,7 @@ class DownSourcesTest {
         assertTrue(downSourceNotices(caracolDown, SourceTab.MAGIS).isEmpty())
         // Caracol's tab doesn't say "Buscando…" or "Sin resultados": its line already explains it.
         assertNull(emptyTabText(SourceTab.CARACOL, true, caracolDown))
-        assertEquals("Sin resultados en Magis.", emptyTabText(SourceTab.MAGIS, false, caracolDown))
+        assertEquals("Sin resultados en Xuper.", emptyTabText(SourceTab.MAGIS, false, caracolDown))
         assertEquals("No respondió", emptySectionText(SourceTab.CARACOL, caracolDown))
         assertEquals("Sin resultados", emptySectionText(SourceTab.MAGIS, caracolDown))
         // Magis did respond, with nothing: the usual advice is still the right one.
@@ -44,7 +44,7 @@ class DownSourcesTest {
         assertEquals(NO_RESPONSE_TEXT, noSourcesText(everythingDown))
         assertFalse(noSourcesText(everythingDown).contains("temporada"))
         assertEquals(
-            listOf("Magis no respondió: timeout", "Caracol no respondió"),
+            listOf("Xuper no respondió: timeout", "Caracol no respondió"),
             downSourceNotices(everythingDown, SourceTab.ALL),
         )
     }
@@ -65,7 +65,7 @@ class DownSourcesTest {
     /** Magis untouched: its line is still its name and its error text, as before. */
     @Test fun `magis's line stays the same`() {
         val state = SourcesState().withFailure("magis", "Unable to resolve host \"x\"", UnknownHostException("x"))
-        assertEquals(listOf("Magis no respondió: Unable to resolve host \"x\""), downSourceNotices(state, SourceTab.ALL))
+        assertEquals(listOf("Xuper no respondió: Unable to resolve host \"x\""), downSourceNotices(state, SourceTab.ALL))
     }
 
     /** `CompositeSource` names "desconocida" a source that goes down before announcing itself. */

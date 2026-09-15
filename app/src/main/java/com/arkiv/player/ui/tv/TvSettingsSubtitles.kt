@@ -52,9 +52,9 @@ internal fun TvSettingsSubtitles() {
     )
     TvActionOption(
         if (prefs.subtitleMode == SubtitleMode.AUTO) {
-            "Subtítulos: automáticos (tocá para desactivar)"
+            "Subtítulos: automáticos (toca para desactivar)"
         } else {
-            "Subtítulos: desactivados (tocá para automáticos)"
+            "Subtítulos: desactivados (toca para automáticos)"
         },
     ) {
         val newMode = if (prefs.subtitleMode == SubtitleMode.AUTO) SubtitleMode.OFF else SubtitleMode.AUTO

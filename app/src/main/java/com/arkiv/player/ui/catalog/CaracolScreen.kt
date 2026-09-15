@@ -265,7 +265,7 @@ private fun CaracolGrid(
     if (titles.isEmpty()) {
         EmptyState(
             title = error ?: "Caracol no tiene $emptyLabel para mostrar.",
-            subtitle = if (error != null) "Probá otra vez con «Recargar»." else null,
+            subtitle = if (error != null) "Prueba otra vez con «Recargar»." else null,
         )
         return
     }
@@ -296,7 +296,7 @@ private fun CaracolChannels(
         ChannelsState.Empty -> EmptyState(title = "Caracol no tiene canales en vivo para mostrar.")
         is ChannelsState.Failed -> EmptyState(
             title = channels.message,
-            subtitle = "Probá otra vez con «Recargar».",
+            subtitle = "Prueba otra vez con «Recargar».",
         )
         is ChannelsState.Ready -> LazyColumn(contentPadding = contentPadding, modifier = Modifier.fillMaxSize()) {
             items(channels.channels, key = { it.channelId }) { channel ->

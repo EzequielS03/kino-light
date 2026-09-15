@@ -159,7 +159,7 @@ class SearchPlayback(private val graph: AppGraph) {
     suspend fun playMagis(r: com.arkiv.player.data.gateway.GatewayResult): PlaybackResult {
         val epId = magisEpisodeId(r)
         return if (epId != null) PlaybackResult.Ready(epId)
-        else PlaybackResult.Failed("No se pudo preparar la reproducción de Magis.")
+        else PlaybackResult.Failed("No se pudo preparar la reproducción de Xuper.")
     }
 
     /**

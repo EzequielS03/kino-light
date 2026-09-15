@@ -14,7 +14,7 @@ class LiveErrorMessageTest {
     fun `with no Magis account the message says to link one`() {
         val msg = liveErrorMessage(hasMagisAccount = false, channelName = "Canal 5")
 
-        assertTrue("must name the Magis account: $msg", msg.contains("cuenta de Magis"))
+        assertTrue("must name the Xuper account: $msg", msg.contains("cuenta de Xuper"))
         assertTrue("must say where to link it: $msg", msg.contains("Ajustes"))
         // Doesn't name the channel: the problem isn't THAT channel, it's that live is down entirely.
         assertTrue(!msg.contains("Canal 5"))

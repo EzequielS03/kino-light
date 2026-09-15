@@ -79,7 +79,7 @@ class DownloadsViewModel(
     }
 
     /**
-     * One-time notice for the user ("ya lo tenés bajado"). Lives here and not in the screen
+     * One-time notice for the user ("ya lo tienes bajado"). Lives here and not in the screen
      * because the case that needs it is exactly the one that leaves NO trace: if the queue skips
      * the download as a duplicate, no row gets created, so the chapter keeps showing as "not
      * downloaded" and the tap looks like it does nothing. The screen shows it and calls [messageShown].

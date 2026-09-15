@@ -136,7 +136,7 @@ class CineCatalogViewModel(
             }.getOrDefault(emptyList())
             if (result.isEmpty()) {
                 endReached = true
-                if (fetchedPage == 1) _error.value = "Sin resultados. Probá otra búsqueda."
+                if (fetchedPage == 1) _error.value = "Sin resultados. Prueba otra búsqueda."
             } else page++
             val tmdbCards = result.map { GridCard(it) }
             _items.value = if (reset) tmdbCards else _items.value + tmdbCards

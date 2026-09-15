@@ -185,7 +185,7 @@ object MagisEntities {
         val itemId = itemIdFor(contentId)
         val item = ItemEntity(
             identifier = itemId,
-            title = title.ifBlank { "Magis" },
+            title = title.ifBlank { "Xuper" },
             description = null,
             thumbnailUrl = posterUrl,
             addedAt = existing?.addedAt ?: now,
@@ -283,7 +283,7 @@ object MagisEntities {
         val isChapter = episode > 0
         val item = ItemEntity(
             identifier = itemId,
-            title = title.ifBlank { "Magis" },
+            title = title.ifBlank { "Xuper" },
             description = null,
             thumbnailUrl = posterUrl,
             addedAt = existing?.addedAt ?: now,

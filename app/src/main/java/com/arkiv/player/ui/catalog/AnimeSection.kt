@@ -117,7 +117,7 @@ class AnimeViewModel(private val api: AniListApi) : ViewModel() {
             val result = runCatching { api.browse(page, _sort.value, query, _genre.value) }.getOrDefault(emptyList())
             if (result.isEmpty()) {
                 endReached = true
-                if (page == 1) _error.value = "No se pudo cargar el anime. Revisá la conexión."
+                if (page == 1) _error.value = "No se pudo cargar el anime. Revisa la conexión."
             } else page++
             _shows.value = if (reset) result else _shows.value + result
             _loading.value = false

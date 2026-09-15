@@ -203,7 +203,7 @@ fun SearchScreen(
         scope.launch {
             val epId = playback.magisEpisodeId(r)
             if (epId == null) {
-                playError = "No se pudo preparar la descarga de Magis."
+                playError = "No se pudo preparar la descarga de Xuper."
                 return@launch
             }
             val outcome = graph.localDownloads.enqueue(epId, DownloadSource.sourceFor(epId))
@@ -790,7 +790,7 @@ private fun ResultsContent(
             }
         } else if (tab == SourceTab.ALL) {
             // "Todo": a collapsible section per origin, in [SourceTab]'s order.
-            sourceSection(this, "MAGIS", ArkivMagisBlue, magis, searchingSources.isSearching(SourceTab.MAGIS), "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, emptySectionText(SourceTab.MAGIS, sourcesState))
+            sourceSection(this, "XUPER", ArkivMagisBlue, magis, searchingSources.isSearching(SourceTab.MAGIS), "MAGIS" in expandedSections, { toggle("MAGIS") }, enabled, onPlay, emptySectionText(SourceTab.MAGIS, sourcesState))
             sourceSection(this, "CARACOL", ArkivCaracolVerde, caracol, searchingSources.isSearching(SourceTab.CARACOL), "CARACOL" in expandedSections, { toggle("CARACOL") }, enabled, onPlay, emptySectionText(SourceTab.CARACOL, sourcesState))
         } else {
             // With one origin chosen the section header is unnecessary: the list goes flat.

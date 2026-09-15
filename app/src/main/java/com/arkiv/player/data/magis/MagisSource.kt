@@ -46,7 +46,7 @@ internal class MagisSource(
         val t0 = nowMs()
         emit(SearchEvent.SourceStart(FUENTE))
         val items = runCatching { sortedItems(ctx) }.getOrElse { e ->
-            emit(SearchEvent.SourceError(FUENTE, e.message ?: "error de magis", nowMs() - t0, 0))
+            emit(SearchEvent.SourceError(FUENTE, e.message ?: "error de Xuper", nowMs() - t0, 0))
             emit(SearchEvent.Done(nowMs() - t0))
             return@flow
         }
@@ -132,7 +132,7 @@ internal class MagisSource(
 
     override suspend fun resolve(ref: String): GatewayPlayable {
         val magis = MagisRef.decode(ref)
-            ?: throw GatewayException("ese ref no es de magis: no se puede reproducir")
+            ?: throw GatewayException("ese ref no es de Xuper: no se puede reproducir")
 
         // A series' contentId is NOT playable (`startPlayVOD` on it returns `节目不存在`): its
         // chapters have to be listed and one played.
@@ -175,7 +175,7 @@ internal class MagisSource(
 
     override suspend fun episodesWithSeries(ref: String): Pair<List<GatewayEpisode>, GatewaySeries?> {
         val magis = MagisRef.decode(ref)
-            ?: throw GatewayException("ese ref no es de magis: no se pueden listar capítulos")
+            ?: throw GatewayException("ese ref no es de Xuper: no se pueden listar capítulos")
         val raw = portalChapters(magis.contentId)
         val (extra, seriesFromTmdb) = enrich(raw)
 
@@ -336,9 +336,9 @@ internal class MagisSource(
         TmdbSeriesForMagis(tmdbId, title, posterUrl, backdropUrl)
 
     private fun explain(what: String, r: MagisResult<*>): String = when (r) {
-        is MagisResult.PortalError -> "magis rechazó la $what (${r.code}${r.msg?.let { ": $it" }.orEmpty()})"
-        is MagisResult.RedError -> "no se pudo hablar con magis (${r.cause.message})"
-        is MagisResult.Ok -> "magis devolvió una $what sin datos"
+        is MagisResult.PortalError -> "Xuper rechazó la $what (${r.code}${r.msg?.let { ": $it" }.orEmpty()})"
+        is MagisResult.RedError -> "no se pudo hablar con Xuper (${r.cause.message})"
+        is MagisResult.Ok -> "Xuper devolvió una $what sin datos"
     }
 
     private companion object {

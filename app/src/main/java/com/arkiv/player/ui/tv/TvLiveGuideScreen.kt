@@ -262,11 +262,11 @@ fun TvLiveGuideScreen(onWatchChannel: (LiveChannel) -> Unit, onBack: () -> Unit)
                     view == TvLocalView.RECENT && baseChannels.isEmpty() ->
                         TvGuideMessage("Sin canales recientes", "Los canales que abras van a aparecer acá.")
                     state.error != null && state.channels.isEmpty() ->
-                        TvGuideMessage(state.error!!, "Presioná OK para reintentar.") { vm.chooseCategory(state.activeCategory) }
+                        TvGuideMessage(state.error!!, "Presiona OK para reintentar.") { vm.chooseCategory(state.activeCategory) }
                     state.loading && state.channels.isEmpty() ->
                         TvGuideMessage("Cargando canales…", null)
                     search.isNotBlank() && channels.isEmpty() ->
-                        TvGuideMessage("Sin resultados", "Probá con otro nombre o número de canal.")
+                        TvGuideMessage("Sin resultados", "Prueba con otro nombre o número de canal.")
                     baseChannels.isEmpty() ->
                         TvGuideMessage("Sin canales", "No encontramos canales en esta categoría.")
                     else -> LazyColumn(

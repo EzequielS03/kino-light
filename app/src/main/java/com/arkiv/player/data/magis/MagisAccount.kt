@@ -50,13 +50,13 @@ internal class MagisAccount(private val session: MagisSession) {
     suspend fun link(email: String, password: String) = withContext(Dispatchers.IO) {
         when (val r = session.login(email, password)) {
             is MagisResult.Ok -> _state.value = MagisAccountState.Linked(email)
-            is MagisResult.RedError -> throw MagisException("Magis no disponible")
+            is MagisResult.RedError -> throw MagisException("Xuper no disponible")
             // The portal says WHY, but in Chinese: we show ours and theirs (code +
             // message) goes to the log -- without the code, a "credenciales inválidas" that's
             // actually "aaa100082: this device is already bound to another account" is undiagnosable.
             is MagisResult.PortalError -> {
                 Log.w(TAG, "link rejected by the portal: code=${r.code}, message=${r.msg}")
-                throw MagisException("Credenciales de Magis inválidas")
+                throw MagisException("Credenciales de Xuper inválidas")
             }
         }
     }
@@ -64,6 +64,36 @@ internal class MagisAccount(private val session: MagisSession) {
     suspend fun unlink() = withContext(Dispatchers.IO) {
         session.logout()
         _state.value = MagisAccountState.None
+    }
+
+    /** First step of creating a brand-new Magis account: see [MagisSession.sendRegistrationCode]. */
+    suspend fun sendRegistrationCode(email: String): MagisSession.PendingRegistration =
+        withContext(Dispatchers.IO) {
+            when (val r = session.sendRegistrationCode(email)) {
+                is MagisResult.Ok -> r.data
+                is MagisResult.RedError -> throw MagisException("Xuper no disponible")
+                is MagisResult.PortalError -> {
+                    Log.w(TAG, "sendRegistrationCode rejected: code=${r.code}, message=${r.msg}")
+                    throw MagisException("No se pudo enviar el código: revisa el email")
+                }
+            }
+        }
+
+    /** Second step: see [MagisSession.confirmRegistration]. */
+    suspend fun confirmRegistration(
+        pending: MagisSession.PendingRegistration,
+        email: String,
+        password: String,
+        code: String,
+    ) = withContext(Dispatchers.IO) {
+        when (val r = session.confirmRegistration(pending, email, password, code)) {
+            is MagisResult.Ok -> _state.value = MagisAccountState.Linked(email)
+            is MagisResult.RedError -> throw MagisException("Xuper no disponible")
+            is MagisResult.PortalError -> {
+                Log.w(TAG, "confirmRegistration rejected: code=${r.code}, message=${r.msg}")
+                throw MagisException("Código inválido o cuenta ya registrada")
+            }
+        }
     }
 
     private companion object {

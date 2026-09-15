@@ -27,16 +27,16 @@ class MagisDownloadStrategy(
         onProgress: (Long, Long) -> Unit,
     ): DownloadOutcome {
         val ref = repo.magisRefForEpisode(episodeId)
-            ?: return DownloadOutcome.Failed("No se encontró la fuente de Magis")
+            ?: return DownloadOutcome.Failed("No se encontró la fuente de Xuper")
 
         val playable = runCatching { gateway.resolve(ref) }.getOrElse {
             return DownloadOutcome.Failed(
-                it.message ?: "No se pudo resolver la fuente de Magis",
+                it.message ?: "No se pudo resolver la fuente de Xuper",
                 transient = DownloadRetryPolicy.isTransient(it),
             )
         }
         if (playable.url.isBlank()) {
-            return DownloadOutcome.Failed("Magis no devolvió un archivo descargable")
+            return DownloadOutcome.Failed("Xuper no devolvió un archivo descargable")
         }
 
         // The extension comes from the CDN URL (`..._media.ts` / `..._media.mp4`): the container

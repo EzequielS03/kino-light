@@ -170,7 +170,7 @@ fun SourceRow(source: PlaySource, enabled: Boolean, download: RowDownload? = nul
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        MetaChip("Magis", ArkivMagisBlue)
+                        MetaChip("Xuper", ArkivMagisBlue)
                         if (r.extra["program_type"] == "teleplay") MetaChip("Serie")
                         if (r.year.isNotBlank()) MetaChip(r.year)
                         if (r.lang.isNotBlank()) MetaChip(r.lang)
@@ -248,7 +248,7 @@ fun SourceCard(source: PlaySource, enabled: Boolean, onClick: () -> Unit) {
         ) {
             when (source) {
                 is PlaySource.Magis -> {
-                    MetaChip("Magis", ArkivMagisBlue)
+                    MetaChip("Xuper", ArkivMagisBlue)
                     if (source.result.extra["program_type"] == "teleplay") MetaChip("Serie")
                     if (source.result.year.isNotBlank()) MetaChip(source.result.year)
                 }

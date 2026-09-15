@@ -250,9 +250,9 @@ fun LiveScreen(
             }
             state.visible.isEmpty() -> {
                 val (title, subtitle) = when {
-                    state.search.isNotBlank() -> "Sin resultados" to "Probá con otro nombre o número de canal."
+                    state.search.isNotBlank() -> "Sin resultados" to "Prueba con otro nombre o número de canal."
                     state.activeCategory == CATEGORY_FAVORITES -> "Sin favoritos todavía" to
-                        "Mantené pulsado un canal para agregarlo."
+                        "Mantén pulsado un canal para agregarlo."
                     else -> "Sin canales" to "No encontramos canales en esta categoría."
                 }
                 EmptyState(title, subtitle, modifier = Modifier.fillMaxSize())

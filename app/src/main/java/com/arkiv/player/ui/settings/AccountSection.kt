@@ -76,7 +76,7 @@ private fun LinkedSection(account: MagisAccount, state: MagisAccountState.Linked
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
 
-    Text("Magis vinculado como ${state.email}", style = MaterialTheme.typography.bodyMedium)
+    Text("Xuper vinculado como ${state.email}", style = MaterialTheme.typography.bodyMedium)
 
     OutlinedButton(
         enabled = !busy,
@@ -95,7 +95,7 @@ private fun LinkedSection(account: MagisAccount, state: MagisAccountState.Linked
             }
         },
         modifier = Modifier.padding(top = 8.dp),
-    ) { Text(if (busy) "Desvinculando…" else "Desvincular Magis") }
+    ) { Text(if (busy) "Desvinculando…" else "Desvincular Xuper") }
 }
 
 /** Sub-block for linking an already-existing Magis account -with no Kino account to pull the
@@ -111,22 +111,22 @@ private fun UnlinkedSection(account: MagisAccount) {
 
     if (!expanded) {
         OutlinedButton(onClick = { expanded = true }, modifier = Modifier.padding(top = 8.dp)) {
-            Text("Vincular Magis")
+            Text("Vincular Xuper")
         }
         return
     }
 
     Column(Modifier.padding(top = 8.dp)) {
-        OutlinedTextField(email, { email = it; error = null }, label = { Text("Email de Magis") },
+        OutlinedTextField(email, { email = it; error = null }, label = { Text("Email de Xuper") },
             singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             modifier = Modifier.fillMaxWidth())
-        PasswordField(password, { password = it; error = null }, "Contraseña de Magis",
+        PasswordField(password, { password = it; error = null }, "Contraseña de Xuper",
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
         // "Registrar en Magis" is no longer here: creating the account needed the back-and-forth
         // of the email code, which the server used to orchestrate. Here an ALREADY existing
         // account gets linked.
         Text(
-            "Tiene que ser una cuenta de Magis que ya exista.",
+            "Tiene que ser una cuenta de Xuper que ya exista.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 4.dp),

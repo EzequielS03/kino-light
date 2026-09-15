@@ -85,7 +85,7 @@ object DuplicateDownloadPolicy {
      */
     fun skippedNotice(skipped: Int): String? = when {
         skipped <= 0 -> null
-        skipped == 1 -> "Ya lo tenés descargado en el dispositivo"
+        skipped == 1 -> "Ya lo tienes descargado en el dispositivo"
         else -> "$skipped capítulos ya estaban descargados en el dispositivo"
     }
 

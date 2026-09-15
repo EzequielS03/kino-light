@@ -54,7 +54,7 @@ fun MarkersDialog(
         text = {
             Column {
                 Text(
-                    "Definí los tiempos en mm:ss. Aplican a todos los episodios de esta serie.",
+                    "Define los tiempos en mm:ss. Aplican a todos los episodios de esta serie.",
                     color = ArkivTextSecondary,
                     modifier = Modifier.padding(bottom = 12.dp),
                 )

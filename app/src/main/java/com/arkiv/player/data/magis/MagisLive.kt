@@ -26,7 +26,7 @@ internal class MagisLive(
         if (!session.hasAccountLinked) {
             return MagisResult.PortalError(
                 NO_ACCOUNT,
-                "el canal en vivo exige una cuenta de Magis vinculada: la sesión anónima no alcanza",
+                "el canal en vivo exige una cuenta de Xuper vinculada: la sesión anónima no alcanza",
             )
         }
         val sessionResult = session.ensureSession()

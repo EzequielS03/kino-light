@@ -141,7 +141,7 @@ fun TvChannelDrawer(
         Column(Modifier.width(CATEGORIES_WIDTH).fillMaxHeight().padding(end = 12.dp)) {
             if (focus == DrawerFocus.KEYBOARD) {
                 Text(
-                    search.ifBlank { "Escribí para buscar…" },
+                    search.ifBlank { "Escribe para buscar…" },
                     style = MaterialTheme.typography.bodySmall,
                     color = if (search.isBlank()) ArkivTextSecondary else Color.White,
                     maxLines = 2,

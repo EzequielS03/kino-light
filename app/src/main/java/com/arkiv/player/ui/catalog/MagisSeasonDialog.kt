@@ -83,7 +83,7 @@ fun MagisSeasonDialog(
     // can't find the `ref`.
     onSave: ((all: List<GatewayEpisode>, chosen: List<GatewayEpisode>, GatewaySeries?) -> Unit)? = null,
     // The source's name and color. The window also opens Caracol series.
-    sourceLabel: String = "Magis",
+    sourceLabel: String = "Xuper",
     accent: Color = ArkivMagisBlue,
 ) {
     var chapters by remember(season.ref) { mutableStateOf<List<GatewayEpisode>?>(null) }

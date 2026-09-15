@@ -592,7 +592,7 @@ fun TvHomeScreen(
                     )
                     TvNavButton(
                         icon = Icons.Default.PlayCircle,
-                        label = "Magis",
+                        label = "Xuper",
                         onClick = onOpenCategorias,
                     )
                     TvNavButton(

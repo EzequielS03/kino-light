@@ -468,7 +468,7 @@ private fun stateLabel(row: DownloadRow): String = when (row.state) {
 private fun sourceBadge(source: String): String = when (source) {
     "torrent" -> "TORRENT"
     "web" -> "WEB"
-    "magis" -> "MAGIS"
+    "magis" -> "XUPER"
     else -> "ARCHIVE"
 }
 

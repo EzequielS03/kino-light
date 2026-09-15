@@ -171,7 +171,7 @@ class DuplicateDownloadPolicyTest {
     fun `the notice only shows up if something got skipped`() {
         assertNull(DuplicateDownloadPolicy.skippedNotice(0))
         assertNull(DuplicateDownloadPolicy.skippedNotice(-1))
-        assertEquals("Ya lo tenés descargado en el dispositivo", DuplicateDownloadPolicy.skippedNotice(1))
+        assertEquals("Ya lo tienes descargado en el dispositivo", DuplicateDownloadPolicy.skippedNotice(1))
         assertEquals(
             "12 capítulos ya estaban descargados en el dispositivo",
             DuplicateDownloadPolicy.skippedNotice(12),

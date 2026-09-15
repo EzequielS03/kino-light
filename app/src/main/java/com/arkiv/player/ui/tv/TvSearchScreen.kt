@@ -1312,7 +1312,7 @@ private fun TvMagisSeasonContent(
     // Null = no save button (Caracol: doesn't download to the device, see `DownloadSource`).
     onSaveAll: ((List<com.arkiv.player.data.gateway.GatewayEpisode>, com.arkiv.player.data.gateway.GatewaySeries?) -> Unit)?,
     // The source's name, in the data line above.
-    label: String = "Magis",
+    label: String = "Xuper",
 ) {
     var chapters by remember(season.ref) { mutableStateOf<List<com.arkiv.player.data.gateway.GatewayEpisode>?>(null) }
     // The `series` block from the same response: that's where the `tmdbId` comes from that

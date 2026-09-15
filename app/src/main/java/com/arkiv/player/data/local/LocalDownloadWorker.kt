@@ -135,7 +135,7 @@ class LocalDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
                 // there's no downloaded file to clean up (`NeedsConfirmation` is returned before any
                 // bytes come down), and Room's `UPDATE`s on a row that's already been deleted don't
                 // fail or have any effect (the WHERE matches nothing). What WOULD be misleading is
-                // "Confirmá en Descargas para bajarla" over a row the user already removed — there's
+                // "Confirma en Descargas para bajarla" over a row the user already removed — there's
                 // nothing to confirm.
                 if (dao.get(entity.episodeId) != null) {
                     dao.updateProgress(entity.episodeId, 0f, 0, outcome.fileSizeBytes)

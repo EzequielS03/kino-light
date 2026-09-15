@@ -179,7 +179,7 @@ fun TvLibraryScreen(
                         count = filtered.size,
                         groups = filtered,
                         subtitleFor = { g -> seriesSubtitle(g) },
-                        empty = "Todavía no guardaste nada acá.\nBuscá algo y dale Guardar.",
+                        empty = "Todavía no guardaste nada acá.\nBusca algo y dale Guardar.",
                         onClick = ::open,
                         onLongClick = { menuFor = it },
                     )
@@ -339,7 +339,7 @@ private fun TvLibraryItemDialog(
             )
             if (confirmRemove) {
                 Text(
-                    "Se quita de tu biblioteca en todos tus aparatos. Si tenías capítulos descargados en este aparato y querés liberar espacio, borralos desde Descargas ANTES de confirmar: una vez que la quitás de acá, esos archivos quedan en el aparato pero ya no vas a poder borrarlos desde la app.",
+                    "Se quita de tu biblioteca en todos tus aparatos. Si tenías capítulos descargados en este aparato y quieres liberar espacio, bórralos desde Descargas ANTES de confirmar: una vez que la quitas de acá, esos archivos quedan en el aparato pero ya no vas a poder borrarlos desde la app.",
                     style = MaterialTheme.typography.bodySmall,
                     color = ArkivTextSecondary,
                 )

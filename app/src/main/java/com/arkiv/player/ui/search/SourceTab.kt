@@ -11,7 +11,7 @@ import com.arkiv.player.ui.catalog.PlaySource
  */
 enum class SourceTab(val label: String) {
     ALL("Todo"),
-    MAGIS("Magis"),
+    MAGIS("Xuper"),
     CARACOL("Caracol"),
 }
 

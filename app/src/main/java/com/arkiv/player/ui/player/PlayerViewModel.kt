@@ -195,7 +195,7 @@ fun liveErrorMessage(
     channelName: String,
 ): String =
     if (!hasMagisAccount) {
-        "El canal en vivo necesita una cuenta de Magis vinculada (con el VOD alcanza sin ella). " +
+        "El canal en vivo necesita una cuenta de Xuper vinculada (con el VOD alcanza sin ella). " +
             "Vincúlala en Ajustes, Cuenta."
     } else {
         "No se pudo abrir $channelName"
@@ -700,7 +700,7 @@ class PlayerViewModel internal constructor(
     }
 
     fun onMagisExoError(message: String) {
-        _error.value = "Magis: $message"
+        _error.value = "Xuper: $message"
     }
 
     /**
@@ -806,7 +806,7 @@ class PlayerViewModel internal constructor(
         val ephemeral = MagisEphemeral.take(episodeId)
         val ref = ephemeral?.ref ?: repo.magisRefForEpisode(episodeId)
         Log.w(PLAY, "loadMagis() episodeId=$episodeId ephemeral=${ephemeral != null} ref=${ref?.take(12)}…")
-        if (ref.isNullOrBlank()) { _error.value = "No se encontró la fuente de Magis"; return }
+        if (ref.isNullOrBlank()) { _error.value = "No se encontró la fuente de Xuper"; return }
 
         _playlist.value = null
         _webExtras.value = null
@@ -824,7 +824,7 @@ class PlayerViewModel internal constructor(
         val play = resolved.getOrNull()
         if (play == null) {
             Log.w(PLAY, "loadMagis() failed: ${resolved.exceptionOrNull()?.message}")
-            _error.value = "No se pudo resolver esta fuente de Magis"
+            _error.value = "No se pudo resolver esta fuente de Xuper"
             return
         }
 
@@ -898,7 +898,7 @@ class PlayerViewModel internal constructor(
         val item = PlayerData(
             episodeId = episodeId,
             itemId = episodeId.substringBefore("::"),
-            title = header?.itemTitle ?: ephemeral?.titulo?.takeIf { it.isNotBlank() } ?: "Magis",
+            title = header?.itemTitle ?: ephemeral?.titulo?.takeIf { it.isNotBlank() } ?: "Xuper",
             subtitle = header?.episodeLabel.orEmpty(),
             mediaUrl = localUrl,
             // NOT the url the receiver is given -- `castUrl` is the raw CDN, which answers 401

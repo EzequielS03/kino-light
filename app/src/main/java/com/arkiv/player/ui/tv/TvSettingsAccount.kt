@@ -32,7 +32,7 @@ internal fun TvSettingsAccount(account: MagisAccount, onLinkMagis: () -> Unit) {
     Text("Cuenta", style = MaterialTheme.typography.titleMedium, color = Color.White)
     when (val s = state) {
         is MagisAccountState.Linked -> TvLinkedSection(account, s)
-        MagisAccountState.None -> TvActionOption(label = "Vincular Magis", onClick = onLinkMagis)
+        MagisAccountState.None -> TvActionOption(label = "Vincular Xuper", onClick = onLinkMagis)
     }
 }
 
@@ -42,9 +42,9 @@ private fun TvLinkedSection(account: MagisAccount, state: MagisAccountState.Link
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
 
-    Text("Magis vinculado como ${state.email}", color = Color.White)
+    Text("Xuper vinculado como ${state.email}", color = Color.White)
     TvActionOption(
-        label = if (busy) "Desvinculando…" else "Desvincular Magis",
+        label = if (busy) "Desvinculando…" else "Desvincular Xuper",
         onClick = {
             if (!busy) {
                 scope.launch {
