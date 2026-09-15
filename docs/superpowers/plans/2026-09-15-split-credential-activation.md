@@ -1458,8 +1458,21 @@ git commit -m "feat: add the activation screens and gate app startup behind them
 
 ## Task 9: AppGraph wiring -- replace BuildConfig reads with RemoteCredentialsStore
 
+**This task is what actually achieves the feature's stated goal ("ship a release APK with none of
+these five values compiled in") -- not just Task 9's original steps 1-5 below, but also removing
+the now-dead `buildConfigField` declarations themselves (Step 6) and the `BuildConfig` defaults
+still sitting in three other files (Step 7). Skipping those would leave the real secret values
+compiled into `BuildConfig` in the release APK exactly as before, with the new split-credential
+mechanism running alongside them for nothing.**
+
 **Files:**
 - Modify: `app/src/main/java/com/arkiv/player/AppGraph.kt`
+- Modify: `app/build.gradle.kts`
+- Modify: `app/src/main/java/com/arkiv/player/data/catalog/TmdbApi.kt`
+- Modify: `app/src/main/java/com/arkiv/player/data/magis/MagisResolve.kt`
+- Modify: `app/src/main/java/com/arkiv/player/data/magis/MagisLive.kt`
+- Modify: `app/src/main/java/com/arkiv/player/data/magis/MagisPortalClient.kt` (KDoc only)
+- Modify: `app/src/main/java/com/arkiv/player/data/magis/MagisCrypto.kt` (KDoc only)
 
 **Interfaces:**
 - Consumes: `EncryptedRemoteCredentialsStore` (Task 3), `CredentialsActivator` (Task 5).
@@ -1592,16 +1605,120 @@ to:
     }
 ```
 
-- [ ] **Step 6: Build**
+- [ ] **Step 6: Remove the now-dead `buildConfigField` declarations**
+
+In `app/build.gradle.kts`'s `defaultConfig { ... }` block, delete these five lines entirely (leave
+`CAST_RECEIVER_ID`, `VERSION_CODE`, `VERSION_NAME` exactly as they are -- unrelated to this
+feature):
+
+```kotlin
+        buildConfigField("String", "IPTV_3DES_KEY", "\"${readEnv("IPTV_3DES_KEY")}\"")
+        buildConfigField("String", "IPTV_HOSTS", "\"${readEnv("IPTV_HOSTS")}\"")
+        buildConfigField("String", "IPTV_APP_ID", "\"${readEnv("IPTV_APP_ID")}\"")
+        buildConfigField("String", "IPTV_APK_VERSION", "\"${readEnv("IPTV_APK_VERSION")}\"")
+        buildConfigField("String", "TMDB_API_KEY", "\"${readEnv("API_KEY")}\"")
+```
+
+Do NOT remove the `.env`/secret keys themselves (`IPTV_3DES_KEY`, `IPTV_HOSTS`, `IPTV_APP_ID`,
+`IPTV_APK_VERSION`, `API_KEY`) from `.env`, `.env.example`, or `release.yml` -- those five raw
+values are still read directly by name via `readEnv()`, just by Task 6's native-header codegen and
+Task 12's publishing script now, never by a `buildConfigField`.
+
+- [ ] **Step 7: Remove the three orphaned `BuildConfig` defaults this leaves behind**
+
+Removing Step 6's fields breaks compilation wherever a default parameter still reads them. Neither
+of the two affected files' many test call sites pass `appId`/`apkVersion` explicitly (only one, in
+`MagisResolveTest.kt`, does) -- verified before this task was dispatched -- so replacing the
+default with a plain empty string changes no test's behavior; it only removes the compile-time
+dependency on `BuildConfig`.
+
+In `app/src/main/java/com/arkiv/player/data/catalog/TmdbApi.kt`, change:
+
+```kotlin
+    private val apiKey: String = BuildConfig.TMDB_API_KEY,
+```
+
+to:
+
+```kotlin
+    private val apiKey: String = "",
+```
+
+In `app/src/main/java/com/arkiv/player/data/magis/MagisResolve.kt`, change:
+
+```kotlin
+    private val appId: String = BuildConfig.IPTV_APP_ID,
+    private val apkVersion: String = BuildConfig.IPTV_APK_VERSION,
+```
+
+to:
+
+```kotlin
+    private val appId: String = "",
+    private val apkVersion: String = "",
+```
+
+In `app/src/main/java/com/arkiv/player/data/magis/MagisLive.kt`, change:
+
+```kotlin
+    private val apkVersion: String = BuildConfig.IPTV_APK_VERSION,
+```
+
+to:
+
+```kotlin
+    private val apkVersion: String = "",
+```
+
+In all three files, remove the now-unused `import com.arkiv.player.BuildConfig` line if nothing
+else in that file still references `BuildConfig` (check with `grep -n BuildConfig` on each file
+after the edit -- if the only remaining hits are inside comments, the import is safe to remove).
+
+- [ ] **Step 8: Update two now-stale KDoc comments**
+
+In `app/src/main/java/com/arkiv/player/data/magis/MagisCrypto.kt`, the comment "`[keyHex] is the
+24-byte master key in hex (BuildConfig.IPTV_3DES_KEY).`" now names a field that no longer exists --
+change it to say the value comes from `RemoteCredentialsStore` instead (see
+`com.arkiv.player.data.credentials.RemoteCredentials.iptv3desKey`).
+
+In `app/src/main/java/com/arkiv/player/data/magis/MagisPortalClient.kt`, the comment "`the real
+wiring passes it BuildConfig.IPTV_HOSTS.split(",")`" is now wrong for the same reason -- update it
+to say the real wiring passes it from `RemoteCredentialsStore` (see `AppGraph.magisPortal`).
+
+- [ ] **Step 9: Build**
 
 Run: `./gradlew :app:compileDebugKotlin`
 Expected: BUILD SUCCESSFUL.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 10: Run the full unit test suite**
+
+Run: `./gradlew :app:testDebugUnitTest`
+Expected: BUILD SUCCESSFUL, same test count as this task's baseline (no test relies on the
+defaults just changed -- this run confirms that empirically, not just by the grep already done).
+
+- [ ] **Step 11: Confirm no compiled secret remains**
 
 ```bash
-git add app/src/main/java/com/arkiv/player/AppGraph.kt
-git commit -m "feat: wire AppGraph's Magis/TMDB clients from RemoteCredentialsStore"
+./gradlew :app:assembleDebug
+command grep -c "buildConfigField" app/build.gradle.kts
+```
+
+The `grep -c` count must be exactly 1 (only `CAST_RECEIVER_ID`'s remains -- it is not a secret, see
+the spec's Context section).
+
+- [ ] **Step 12: Commit**
+
+```bash
+git add app/src/main/java/com/arkiv/player/AppGraph.kt app/build.gradle.kts \
+        app/src/main/java/com/arkiv/player/data/catalog/TmdbApi.kt \
+        app/src/main/java/com/arkiv/player/data/magis/MagisResolve.kt \
+        app/src/main/java/com/arkiv/player/data/magis/MagisLive.kt \
+        app/src/main/java/com/arkiv/player/data/magis/MagisPortalClient.kt \
+        app/src/main/java/com/arkiv/player/data/magis/MagisCrypto.kt
+git commit -m "feat: wire AppGraph's Magis/TMDB clients from RemoteCredentialsStore
+
+Removes the five now-dead BuildConfig fields these values used to compile
+into -- this is what actually stops the release APK from shipping them."
 ```
 
 ---
