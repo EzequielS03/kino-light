@@ -117,8 +117,14 @@ class PreWarmSeekTest {
         // where the background pre-warm thread (a raw Thread, not awaitable from here -- see
         // ArchiveCacheProxy.preWarmSeek) can take longer than 2.5s to finish. Measured needing
         // this after the fixed 2.5s sleep flaked on a GitHub Actions runner but never locally.
+        //
+        // Widened from 15s to 30s on 2026-09-15: the release workflow's CI job now compiles a
+        // native (NDK/CMake/mbedTLS) module in the same job, right before this test task runs --
+        // real, measured extra CPU contention that wasn't there when 15s was tuned. This test's
+        // own subject (ArchiveCacheProxy) is untouched by that change; only the CI machine's
+        // available headroom during the poll window is.
         var bytesByDeviation = emptyMap<Long, ByteArray>()
-        val deadline = System.currentTimeMillis() + 15_000
+        val deadline = System.currentTimeMillis() + 30_000
         do {
             requestsToOrigin.set(0)
             bytesByDeviation = deviations.associateWith { deviation -> probe(proxyUrl, target + deviation, 16 * 1024) }
