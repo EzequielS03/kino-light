@@ -748,6 +748,39 @@ that), and it does not check local variables inside function bodies exhaustively
 regex used was declaration-line-only, not full-body-aware) — a genuinely exhaustive local-variable
 pass would need a real Kotlin parser, not regex.
 
+**Update, same session: a fourth angle, comment-BODY scanning (not just identifiers).** The user
+asked directly "¿ya estamos seguros de que tenemos todo en inglés?" — rather than answer from the
+prior checks alone, ran one more scan: every `//`/KDoc/block-comment LINE (not identifiers) across
+all of `app/src`, word-tokenized and matched against the same Spanish word list, flagging lines
+with 2+ hits to cut noise. Of 39 flagged lines, 37 were correct as-is (quoted UI-facing text,
+verbatim historical references to removed backend endpoints/functions, or real-world titles used
+as test fixture data — e.g. `TvMagisLinkOffer.kt`'s `registro_enviar_codigo`/`registro_confirmar`
+documents actual old gateway endpoint names, `MagisSearch.kt` quotes real movie titles for its
+normalization examples). **Two genuine files found, fixed in commit `f2967906`**:
+- `TvButtonStyle.kt` — 4 one-line KDoc comments ("Colores para...", "Borde para..."), never caught
+  because they have zero accented characters and are short standalone files with no class/function
+  NAME in Spanish (the earlier identifier scan only checks names, not doc comments attached to
+  them).
+- `AnimeMapping.kt` — despite already being "fixed" earlier this session (its class-level KDoc
+  was translated), the file had THREE MORE Spanish comments further down (`FribbAnimeListParser`'s
+  own KDoc + two inline `//` comments) that were missed because the earlier fix only looked at the
+  first flagged block, not the whole file. **Lesson repeated from `PlayerScreen.kt` in a much
+  earlier session: fixing the first hit found in a file is not the same as reading the whole
+  file** — always re-scan the complete file after a fix, don't assume one comment block means the
+  whole file is clean.
+
+Also found a second instance of the "stale test-name cross-reference" failure mode (first seen in
+`RecomendacionDao.reemplazar`, see near the top of this doc): `MediaReusePolicy.kt` cited a test
+by its old Spanish name `playlist_del_capitulo_anterior_espera`; the actual current name is
+`the_previous_chapter_s_playlist_waits`. **Whenever a test method gets renamed, grep the WHOLE
+repo for its OLD name in comments** — this is now the second time a stale cross-reference to a
+since-renamed test survived a "done" declaration.
+
+**Combined confidence after four independent angles** (accents, non-`.kt` files, package names,
+identifier camelCase-splitting, and now comment-body word-splitting): high, but see the running
+tally of "declared done and later found wrong" above (now past a dozen instances across two
+sessions) before treating this as a final, un-revisitable answer.
+
 **Lessons worth keeping for any future rename/translation work in this repo:**
 
 1. **Before any blanket regex rename touching a file with `const val KEY_* = "literal"`-style
