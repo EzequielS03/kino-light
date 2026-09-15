@@ -114,6 +114,41 @@ of it. Two things follow, both to land in the implementation plan itself:
    the native module" without the user first supplying the current source
    will be editing from scratch, not from what's actually deployed.
 
+## String obfuscation of the embedded constants
+
+Confirmed with the user directly: decrypting `credentials.enc` alone never
+yields a complete, usable credential -- only the five file-halves. But
+since the native-halves live in the *same* `.so` a reverse engineer already
+had to open to find the AES blob key, finding them too, once already
+inside that binary, is not meaningfully harder in practice -- both are
+otherwise just plain, readable C string constants sitting in the binary's
+data section, indistinguishable from one another to whoever's looking. This
+closes that gap a little further, still within the already-stated ceiling
+(nothing here stops a determined disassembler-based analysis; it stops the
+*next* tier down: opening the `.so` in a hex editor or running `strings` on
+it and reading the secrets directly).
+
+**Mechanism**: every constant this native module embeds -- the AES blob
+key AND the five native-halves -- is XORed byte-for-byte against a mask
+before being written into the generated header (the same per-build codegen
+step already described above), instead of being written as plain,
+human-readable text. The static `.cpp` file (already gitignored and hidden
+per the section above) holds the small de-obfuscation routine: at the
+moment a `resolve*` function actually needs a constant, it XORs the masked
+bytes back into a short-lived local buffer, uses it, and the buffer goes
+out of scope immediately after. Nothing is ever written back to a
+long-lived global in cleartext.
+
+This is deliberately simple -- a fixed XOR mask, not a second real
+cipher -- because its job is narrow: defeat a **naive, automated
+string-scan** of the compiled binary (exactly the kind of tool that would
+otherwise find `IPTV_3DES_KEY`'s value with a single `strings app.so | grep`
+pass), not to add cryptographic strength the design doesn't already have
+elsewhere. The mask itself lives in the native module too, so it doesn't
+survive someone actually tracing the code in a disassembler -- consistent
+with every other layer in this spec, this raises the floor, not the
+ceiling.
+
 ## Anti-instrumentation check: the realistic attack none of the above stops
 
 Everything above -- the split, the native module, hiding its source --
@@ -241,10 +276,11 @@ this needs a new codegen step before the NDK build compiles, parallel to how
 different files kept out of git for two different reasons:
 
 - A **generated header** holding the AES blob key and the five native
-  halves as C string constants -- regenerated from secrets before every
-  single build (never committed, same posture as the existing `.env`),
-  because its *content* changes with whatever's currently in `.env`/GitHub
-  Secrets.
+  halves as **XOR-masked** byte arrays, not plain C string constants (see
+  "String obfuscation of the embedded constants" above) -- regenerated from
+  secrets before every single build (never committed, same posture as the
+  existing `.env`), because its *content* changes with whatever's currently
+  in `.env`/GitHub Secrets.
 - A **static `.cpp` file** holding the actual algorithm -- five JNI
   functions, one per credential: `resolveIptv3desKey`, `resolveIptvHosts`,
   `resolveIptvAppId`, `resolveIptvApkVersion`, `resolveTmdbApiKey` -- each
@@ -256,10 +292,11 @@ different files kept out of git for two different reasons:
   field can be added without changing every other field's call site. Each
   function internally: runs the Frida/tracer check first (see
   "Anti-instrumentation check" above) and bails with an empty result if it
-  trips; otherwise AES-GCM-decrypts the blob (once per call is wasteful but
+  trips; otherwise de-obfuscates the masked AES blob key into a short-lived
+  buffer, AES-GCM-decrypts the blob with it (once per call is wasteful but
   this runs at most a few times a day, never in a hot path -- simplicity
-  wins here) to get the JSON of five file-halves, reads its own field's
-  file-half, and interleaves it with its own field's native-embedded half.
+  wins here) to get the JSON of five file-halves, de-obfuscates its own
+  field's masked native-half, and interleaves the two.
   This file is kept out of git for a *different* reason than the header
   above: not because its content varies, but to keep the algorithm itself
   off the public repo -- see "Native module source stays out of the public
