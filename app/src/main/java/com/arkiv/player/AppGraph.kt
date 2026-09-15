@@ -243,6 +243,19 @@ class AppGraph(context: Context) {
         if (info != null) _updateInfo.value = info
     }
 
+    /**
+     * Silent periodic refresh (see [com.arkiv.player.data.update.UpdateWorker]): only re-applies
+     * credentials for a device that already activated once -- never prompts, never activates a
+     * fresh install on its own. Recovers a lost/corrupted local copy or a same-version blob fix;
+     * does NOT survive an actual credential-value rotation (see the spec's "Consequence accepted"
+     * section -- that needs a new app release).
+     */
+    suspend fun refreshCredentialsIfActivated() {
+        if (credentialsStore.read() == null) return
+        val refreshed = credentialsActivator.activate() ?: return
+        credentialsStore.save(refreshed)
+    }
+
     // --- Downloads to the device itself (see docs/superpowers/specs/2026-08-07-...) ---
     val httpRangeDownloader: com.arkiv.player.data.local.HttpRangeDownloader by lazy {
         com.arkiv.player.data.local.HttpRangeDownloader(

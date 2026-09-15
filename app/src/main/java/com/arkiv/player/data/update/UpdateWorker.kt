@@ -9,6 +9,9 @@ import com.arkiv.player.ArkivApp
 class UpdateWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val graph = (applicationContext as ArkivApp).graph
-        return runCatching { graph.checkForUpdate() }.fold({ Result.success() }, { Result.retry() })
+        return runCatching {
+            graph.checkForUpdate()
+            graph.refreshCredentialsIfActivated()
+        }.fold({ Result.success() }, { Result.retry() })
     }
 }
