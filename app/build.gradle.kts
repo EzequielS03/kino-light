@@ -17,6 +17,7 @@ fun readEnv(key: String, default: String = ""): String {
 android {
     namespace = "com.arkiv.player"
     compileSdk = 35
+    ndkVersion = "26.1.10909125"
 
     defaultConfig {
         applicationId = "com.arkiv.player.light" // own id: full Arkiv and Arkiv Light coexist on the same device
@@ -48,6 +49,11 @@ android {
         ndk {
             // Only real-device ABIs (phone arm64, Fire Stick armeabi-v7a).
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+        externalNativeBuild {
+            cmake {
+                cppFlags += "-std=c++17"
+            }
         }
     }
 
@@ -82,6 +88,13 @@ android {
         }
         debug {
             isMinifyEnabled = false
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
         }
     }
 
