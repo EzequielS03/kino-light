@@ -20,7 +20,15 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 
 env_value() {
-  command grep "^$1=" "$ENV_FILE" | cut -d= -f2-
+  local key="$1"
+  local required="${2:-required}"
+  local value
+  value="$(command grep -m1 "^$key=" "$ENV_FILE" | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//")"
+  if [ "$required" = "required" ] && [ -z "$value" ]; then
+    echo "Missing or empty $key in $ENV_FILE -- aborting." >&2
+    exit 1
+  fi
+  printf '%s' "$value"
 }
 
 # Piped via stdin, not --body: gh reads an empty value fine this way (needed
@@ -36,7 +44,7 @@ set_secret MAGIS_3DES_KEY "$(env_value IPTV_3DES_KEY)"
 set_secret MAGIS_HOSTS "$(env_value IPTV_HOSTS)"
 set_secret MAGIS_APP_ID "$(env_value IPTV_APP_ID)"
 set_secret MAGIS_APK_VERSION "$(env_value IPTV_APK_VERSION)"
-set_secret CAST_RECEIVER_ID "$(env_value CAST_RECEIVER_ID)"
+set_secret CAST_RECEIVER_ID "$(env_value CAST_RECEIVER_ID optional)"
 set_secret RELEASE_KEYSTORE_BASE64 "$(base64 -i "$(env_value RELEASE_KEYSTORE_PATH)")"
 set_secret RELEASE_KEYSTORE_PASSWORD "$(env_value RELEASE_KEYSTORE_PASSWORD)"
 set_secret RELEASE_KEY_ALIAS "$(env_value RELEASE_KEY_ALIAS)"

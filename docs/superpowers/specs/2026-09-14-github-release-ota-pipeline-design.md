@@ -139,15 +139,25 @@ If any `.env` value is empty (e.g. `CAST_RECEIVER_ID`), the corresponding
 `gh secret set` command still runs and sets an empty secret, which is fine —
 `readEnv()` already treats a missing/empty key as `""` today.
 
+`scripts/upload-github-secrets.sh` (added after this spec was written) wraps
+these same ten commands into a reusable script for future key rotations —
+prefer running it over copy-pasting the individual commands above.
+
 ## App-side changes
 
 **`app/build.gradle.kts`** — `versionCode`/`versionName` become overridable,
 defaulting to today's values so local `assembleDebug` never changes behavior:
 
 ```kotlin
-versionCode = readEnv("VERSION_CODE", "48").toInt()
-versionName = readEnv("VERSION_NAME", "0.9.17")
+versionCode = readEnv("VERSION_CODE").toIntOrNull() ?: 48
+versionName = readEnv("VERSION_NAME").ifBlank { "0.9.17" }
 ```
+
+These were hardened after implementation: `.toInt()` on a blank `.env` value
+(e.g. `VERSION_CODE=` with nothing after it, as opposed to the key being
+absent entirely) throws instead of falling back, and a plain `readEnv(..,
+"0.9.17")` default is never reached once the key exists but is blank — a real
+bug found and fixed during implementation, not by this review.
 
 **`UpdateChecker.kt`** — new default URL, and the Cloudflare-specific
 `)]}'\n`-stripping hack goes away (that was a workaround for the old server's
@@ -190,9 +200,18 @@ pre-existing undocumented "servidor propio" gap rather than opening a new one.
    step 4).
 6. `./gradlew :app:assembleRelease`.
 7. Extract the annotated tag's message as release notes:
-   `git for-each-ref refs/tags/$TAG --format='%(contents)'` (falls back to a
+   `gh api repos/$REPO/git/ref/tags/$TAG` (singular `ref`, exact match — the
+   plural `refs/tags/$TAG` does prefix matching and can return an array, e.g.
+   `v0.9` matching `v0.9.19`), then follow `.object.sha` into
+   `gh api repos/$REPO/git/tags/$TAG_SHA` for `.message` (falls back to a
    generic "Release $TAG" line if the tag has no message, e.g. a lightweight
-   tag).
+   tag). The original design here used
+   `git for-each-ref refs/tags/$TAG --format='%(contents)'`, which turned out
+   to be WRONG: it returns the tip commit's message, not the tag's own
+   annotation, because `actions/checkout` doesn't reliably preserve the tag as
+   an annotated object locally. This was discovered live when the first real
+   release (`v0.9.19`) shipped with the wrong notes, not caught by any review
+   before that first tag push, and fixed via the GitHub API approach above.
 8. Build `latest.json`:
    ```json
    {
@@ -202,7 +221,7 @@ pre-existing undocumented "servidor propio" gap rather than opening a new one.
      "notes": "<extracted notes, JSON-escaped>"
    }
    ```
-9. `gh release create <tag> app/build/outputs/apk/release/app-release.apk latest.json --title <tag> --notes-file <notes file>`.
+9. `gh release create <tag> app/build/outputs/apk/release/app-release.apk latest.json --title <tag> --notes "$NOTES"` (a shell variable, not `--notes-file`).
 10. Delete the decoded keystore file and the generated `.env` (belt-and-braces;
     the runner is ephemeral and destroyed after the job regardless).
 

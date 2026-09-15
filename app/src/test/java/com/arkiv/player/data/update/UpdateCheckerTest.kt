@@ -58,10 +58,9 @@ class UpdateCheckerTest {
 
     @Test
     fun `default url points at the GitHub Release manifest, not the old server`() {
-        val checker = UpdateChecker(OkHttpClient())
         assertEquals(
             "https://github.com/lordmacu/kino-light/releases/latest/download/latest.json",
-            checker.url,
+            UpdateChecker.DEFAULT_URL,
         )
     }
 }

@@ -8,14 +8,16 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref_name }}
+
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Validate tag shape and compute version
         run: |
@@ -47,7 +49,7 @@ jobs:
 
       - name: Write the .env the build reads
         run: |
-          cat > .env <<EOF
+          cat > .env <<'EOF'
           API_KEY=${{ secrets.TMDB_API_KEY }}
           IPTV_3DES_KEY=${{ secrets.MAGIS_3DES_KEY }}
           IPTV_HOSTS=${{ secrets.MAGIS_HOSTS }}
@@ -63,15 +65,16 @@ jobs:
           EOF
 
       - name: Build the signed release APK
-        run: ./gradlew :app:assembleRelease
+        run: ./gradlew :app:testDebugUnitTest :app:assembleRelease
 
       - name: Extract release notes from the tag's message
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG_OBJECT_TYPE="$(gh api "repos/$REPO/git/refs/tags/$TAG" --jq '.object.type')"
+          REF_JSON="$(gh api "repos/$REPO/git/ref/tags/$TAG")"
+          TAG_OBJECT_TYPE="$(echo "$REF_JSON" | jq -r '.object.type')"
           if [ "$TAG_OBJECT_TYPE" = "tag" ]; then
-            TAG_SHA="$(gh api "repos/$REPO/git/refs/tags/$TAG" --jq '.object.sha')"
+            TAG_SHA="$(echo "$REF_JSON" | jq -r '.object.sha')"
             NOTES="$(gh api "repos/$REPO/git/tags/$TAG_SHA" --jq '.message')"
           else
             NOTES=""
@@ -111,7 +114,11 @@ jobs:
             app/build/outputs/apk/release/app-release.apk \
             latest.json \
             --title "$TAG" \
-            --notes "$NOTES"
+            --notes "$NOTES" \
+          || gh release upload "$TAG" \
+            app/build/outputs/apk/release/app-release.apk \
+            latest.json \
+            --clobber
 
       - name: Remove secrets from the runner
         if: always()

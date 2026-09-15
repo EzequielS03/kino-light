@@ -36,8 +36,10 @@ android {
         // .env because it is registered per developer account in the Cast Developer Console, so a
         // checkout without one still builds and still casts what the default receiver can handle.
         buildConfigField("String", "CAST_RECEIVER_ID", "\"${readEnv("CAST_RECEIVER_ID")}\"")
-        versionCode = readEnv("VERSION_CODE", "48").toIntOrNull() ?: 48
-        versionName = readEnv("VERSION_NAME", "0.9.17").ifBlank { "0.9.17" }
+        // Frozen on purpose: CI always overrides both via .env for a real release build (see
+        // .github/workflows/release.yml). These are only what a plain local `assembleDebug` gets.
+        versionCode = readEnv("VERSION_CODE").toIntOrNull() ?: 48
+        versionName = readEnv("VERSION_NAME").ifBlank { "0.9.17" }
         // Task 8 (Step 3): `ARKIV_API_KEY` used to live here, the last build-time credential still
         // left in the APK -- a compiled-in constant, the same for every device, that anyone who
         // opened the APK could extract. Gone entirely: the app now authenticates with the PER-DEVICE
@@ -68,6 +70,7 @@ android {
 
     buildTypes {
         release {
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // R8 is ON. It was off for years because libVLC reached classes and fields through JNI
             // that the shrinker could not see referenced and would strip; libVLC is deleted, so the
             // reason went with it. Measured 2026-09-12, same build type both ways: the release APK

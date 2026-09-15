@@ -9,8 +9,12 @@ import org.json.JSONObject
 
 class UpdateChecker(
     private val client: OkHttpClient,
-    internal val url: String = "https://github.com/lordmacu/kino-light/releases/latest/download/latest.json",
+    private val url: String = DEFAULT_URL,
 ) {
+    companion object {
+        const val DEFAULT_URL = "https://github.com/lordmacu/kino-light/releases/latest/download/latest.json"
+    }
+
     suspend fun check(currentVersionCode: Int): UpdateInfo? = withContext(Dispatchers.IO) {
         runCatching {
             val raw = client.newCall(Request.Builder().url(url).cacheControl(CacheControl.FORCE_NETWORK).build()).execute()

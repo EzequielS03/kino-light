@@ -94,10 +94,32 @@ no le da a nadie una credencial que usar: sin una sesión propia, el gateway dev
 `require_sesion`, Task 8 Paso 1).
 
 **Lo que sigue siendo público, porque nunca fue secreto:** la URL del gateway
-(`api.comparadorinternet.co`) y la URL de distribución del APK (`apk.comparadorinternet.co`). Ninguna
-de las dos necesita protegerse -- son endpoints públicos que exigen autenticación por sesión, no
-por conocer la URL.
+(`api.comparadorinternet.co`) y la URL de distribución del APK, que ya no es
+`apk.comparadorinternet.co` sino `github.com/lordmacu/kino-light/releases`
+(pipeline de OTA vía GitHub Releases, ver
+`docs/superpowers/specs/2026-09-14-github-release-ota-pipeline-design.md`).
+Ninguna de las dos necesita protegerse -- son endpoints públicos que exigen
+autenticación por sesión, no por conocer la URL.
 
 **Rotar credenciales ya no obliga a redistribuir.** Antes, cambiar `ARKIV_API_KEY` en el gateway
 dejaba fuera a todo aparato que no recibiera un APK nuevo. Ahora cada aparato tiene la suya: se
 revoca una sesión (o se saca un aparato de la cuenta) sin tocar a los demás ni publicar nada.
+
+---
+
+## Hueco conocido, sin mitigar: el repo (y el APK) ya son públicos
+
+Con el pipeline de OTA por GitHub Releases (2026-09-14) el repo pasó a público y el APK de
+release quedó como una descarga pública sin autenticación (`github.com/lordmacu/kino-light/releases`).
+Este inventario documenta qué NO viaja en el APK como sesión/credencial de servidor propio, pero
+las llaves que sí quedan en `BuildConfig` -- la 3DES de Magis (`IPTV_3DES_KEY`), la de TMDB
+(`API_KEY`), y el resto de `IPTV_*` -- ahora son extraíbles por cualquiera con `apktool` o `jadx`
+sobre el APK publicado, sin necesitar acceso al repo ni a `.env`. Antes esto ya era cierto en
+teoría (cualquiera con el APK podía decompilarlo), pero en la práctica el APK solo se distribuía
+por un canal propio poco descubrible; ahora es un asset público de GitHub, un paso más fácil de
+encontrar y bajar.
+
+Esto es un hueco conocido y **sin mitigar**, fuera del alcance del trabajo de OTA que acaba de
+aterrizar -- ese trabajo cambió CÓMO se distribuye el APK, no QUÉ lleva adentro. Sacar estas
+credenciales del binario (moverlas a un servicio propio, o a un esquema donde cada instalación
+reciba la suya) es trabajo futuro, todavía sin diseñar.

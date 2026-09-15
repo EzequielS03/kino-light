@@ -16,7 +16,7 @@ completo. Si vas a agregar una llamada de red, una dependencia o una feature, le
   2. Directo a **TMDB** (`api.themoviedb.org` para datos, `image.tmdb.org` para pósters/stills) con
      una API key propia embebida en el build de esta rama. **Hecho** (sub-proyecto 2A).
   3. Al **CDN de Magis** para bajar los bytes de video (como ya es hoy).
-  4. Al **OTA** (`github.com`/`objects.githubusercontent.com`, `UpdateChecker` apunta a
+  4. Al **OTA** (`github.com`/`release-assets.githubusercontent.com`, `UpdateChecker` apunta a
      `github.com/lordmacu/kino-light/releases/latest/download/latest.json`), para avisar de una
      versión nueva del APK y bajar el APK firmado. Reemplazó a un servidor propio
      (`apk.comparadorinternet.co`) que era una violación no documentada de la regla de arriba —
