@@ -66,8 +66,16 @@ jobs:
         run: ./gradlew :app:assembleRelease
 
       - name: Extract release notes from the tag's message
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="$(git for-each-ref "refs/tags/$TAG" --format='%(contents)')"
+          TAG_OBJECT_TYPE="$(gh api "repos/$REPO/git/refs/tags/$TAG" --jq '.object.type')"
+          if [ "$TAG_OBJECT_TYPE" = "tag" ]; then
+            TAG_SHA="$(gh api "repos/$REPO/git/refs/tags/$TAG" --jq '.object.sha')"
+            NOTES="$(gh api "repos/$REPO/git/tags/$TAG_SHA" --jq '.message')"
+          else
+            NOTES=""
+          fi
           if [ -z "$NOTES" ]; then
             NOTES="Release $TAG"
           fi
