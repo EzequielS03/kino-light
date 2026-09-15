@@ -354,7 +354,8 @@ private fun MagisOfferChoice(onLogIn: () -> Unit, onCreateAccount: () -> Unit, o
             )
             Text(
                 "Da acceso a tu plan de Xuper desde Kino, y hace falta para el canal en vivo. " +
-                    "Puedes omitir esto por ahora -queda disponible en Ajustes.",
+                    "Es opcional: puedes seguir viendo películas y series sin vincular tu cuenta, " +
+                    "y hacerlo más adelante desde Ajustes cuando quieras.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = ArkivTextSecondary,
                 modifier = Modifier.padding(top = 8.dp),
