@@ -533,3 +533,35 @@ of bug silently. Worth a follow-up hardening pass someday: a
 `requireActivated()`-style accessor, or making those four lazies return a
 nullable/`Result` instead of asserting, so the compiler -- not a whole-branch
 review -- catches the next instance of this.
+
+## Certificate pinning: considered, deliberately not done
+
+Raised after this feature shipped, prompted by a direct question: is the app hardened against
+someone installing their own CA on-device and reading network traffic? Two candidate targets were
+evaluated and both rejected, for different reasons -- worth recording so a future session doesn't
+re-propose either without this context.
+
+**`credentials.enc`'s download (GitHub/`release-assets.githubusercontent.com`): no real security
+value.** The file is a PUBLIC GitHub release asset -- anyone can `curl` it directly with zero
+interception needed, so pinning doesn't hide anything that wasn't already exposed by design. Its
+integrity is already covered independently of TLS: AES-256-GCM is authenticated encryption, so a
+tampered download simply fails to decrypt (the auth tag check in `decryptBlob()` catches it) with
+or without certificate pinning. Pinning this target would add real operational risk (the leaf
+certs on both `github.com` and `release-assets.githubusercontent.com` are CA-issued on short
+rotation cycles) for approximately zero marginal protection.
+
+**The Magis portal (`IPTV_HOSTS`): real value, but a direct conflict with a mechanism this same
+feature just built.** Unlike `credentials.enc`, Magis portal traffic (login email/password,
+session tokens) genuinely would benefit from pinning -- a device with a user-installed CA can read
+it in plaintext today. But `IPTV_HOSTS` is deliberately designed to change WITHOUT a new app
+release (it's one of the five split credentials, refreshed via `credentials.enc` every 6h by
+`UpdateWorker`) -- exactly because this portal's own hosts are reverse-engineered infrastructure
+Magis can rotate at will to evade blocking, not something this project controls or can predict.
+Hardcoding certificate pins for today's hosts (`osuhk.m3x8o50te.com`, `oogoy.f30c96w8.com`, both
+issued by Google Trust Services on ~90-day leaf rotation, measured 2026-09-15) into compiled
+Kotlin would reintroduce exactly the release-coupling this feature exists to remove: if Magis
+rotates hosts (or CAs) and `IPTV_HOSTS` updates correctly through the already-working 6h refresh,
+the app would still break immediately, because the pinner would keep expecting the old
+host/certificate until a new release ships new pins. The user was told this plainly and chose not
+to pin, accepting the plaintext-over-TLS exposure as the standing risk rather than couple this
+volatile third party's infrastructure into compiled, hard-to-rotate app code.
