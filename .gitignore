@@ -3,6 +3,14 @@
 .env.*
 !.env.example
 
+# Native module (app/src/main/cpp/): the algorithm that resolves split third-party credentials
+# at runtime. Gitignored on purpose -- see
+# docs/superpowers/specs/2026-09-15-split-credential-activation-design.md, "Native module source
+# stays out of the public repo". CMakeLists.txt (which only says which files to compile, not what's
+# in them) is NOT ignored and stays public.
+app/src/main/cpp/*.cpp
+app/src/main/cpp/*.h
+
 # superpowers subagent-driven-development scratch (ledgers, briefs, review packages)
 .superpowers/sdd/
 
