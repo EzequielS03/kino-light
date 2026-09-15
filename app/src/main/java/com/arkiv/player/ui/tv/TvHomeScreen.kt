@@ -437,6 +437,22 @@ fun TvHomeScreen(
         }
     }
 
+    // The "Canales en vivo" row itself is conditionally included in this rows list (see
+    // `if (channelsRow.isNotEmpty())` below) -- it doesn't exist there at all until this arrives.
+    // Same root cause as `countryChannels`' own fix for `channelsRowState` above, one level up: if
+    // it appears late (country channels can come from the network) after the rows region already
+    // settled below where it now sits, the newly-inserted row ends up above what's currently
+    // visible instead of on screen. Snap the whole rows region back to the top the first time it
+    // appears -- once only, so it doesn't keep fighting someone who's been browsing discovery rows
+    // since.
+    var channelsRowAppeared by remember { mutableStateOf(false) }
+    LaunchedEffect(channelsRow.isNotEmpty()) {
+        if (channelsRow.isNotEmpty() && !channelsRowAppeared) {
+            channelsRowAppeared = true
+            runCatching { rowsListState.scrollToItem(0) }
+        }
+    }
+
     // Initial focus. Used to land on the library's first card; those rows don't exist anymore, and
     // leaving focus loose is exactly the bug that cost the long comment below: Android handed it to
     // whatever got composed next —the discovery rows—, and bringing those into view scrolled the
