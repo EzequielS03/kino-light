@@ -55,7 +55,7 @@ object MediaReusePolicy {
     ): Decision {
         // What arrived is for another episode: nothing to decide yet. Checked first, because
         // loading it would play the wrong episode from any source. See the test
-        // `playlist_del_capitulo_anterior_espera`.
+        // `the_previous_chapter_s_playlist_waits`.
         if (requested != episodeId) return Decision.WAIT
         // The episode's identity is NOT enough to reuse: where it comes from has to be checked too.
         // A torrent is served on 127.0.0.1:<ephemeral port>, and `startStream()` kills the previous

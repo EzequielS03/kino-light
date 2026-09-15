@@ -13,7 +13,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import com.arkiv.player.ui.theme.ArkivRed
 import com.arkiv.player.ui.theme.ArkivSurfaceHigh
 
-/** Colores para `androidx.tv.material3.Button(...)`. */
+/** Colors for `androidx.tv.material3.Button(...)`. */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun arkivTvButtonColors() = ButtonDefaults.colors(
@@ -27,7 +27,7 @@ fun arkivTvButtonColors() = ButtonDefaults.colors(
     disabledContentColor = Color.White.copy(alpha = 0.4f),
 )
 
-/** Borde para `androidx.tv.material3.Button(...)`. */
+/** Border for `androidx.tv.material3.Button(...)`. */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun arkivTvButtonBorder() = ButtonDefaults.border(
@@ -36,7 +36,7 @@ fun arkivTvButtonBorder() = ButtonDefaults.border(
     pressedBorder = Border.None,
 )
 
-/** Colores para botones de acción hechos con `androidx.tv.material3.Surface(...)`. */
+/** Colors for action buttons made with `androidx.tv.material3.Surface(...)`. */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun arkivTvSurfaceColors() = ClickableSurfaceDefaults.colors(
@@ -48,7 +48,7 @@ fun arkivTvSurfaceColors() = ClickableSurfaceDefaults.colors(
     pressedContentColor = Color.White,
 )
 
-/** Borde para botones de acción hechos con `androidx.tv.material3.Surface(...)`. */
+/** Border for action buttons made with `androidx.tv.material3.Surface(...)`. */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun arkivTvSurfaceBorder() = ClickableSurfaceDefaults.border(

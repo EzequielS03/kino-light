@@ -19,7 +19,7 @@ data class AnimeMapping(
     val episodeOffset: Int? = null,
 )
 
-/** Parser del `anime-list-full.json` de Fribb → mapa indexado por `anilist_id`. */
+/** Parser for Fribb's `anime-list-full.json` → map indexed by `anilist_id`. */
 object FribbAnimeListParser {
     fun parse(json: String): Map<Long, AnimeMapping> = try {
         val arr = JSONArray(json)
@@ -44,21 +44,21 @@ object FribbAnimeListParser {
         emptyMap()
     }
 
-    // imdb_id puede ser un array (["tt..."]) o un string suelto.
+    // imdb_id can be an array (["tt..."]) or a bare string.
     private fun imdbOf(o: JSONObject): String? = when (val v = o.opt("imdb_id")) {
         is JSONArray -> v.optString(0).ifBlank { null }
         is String -> v.ifBlank { null }
         else -> null
     }
 
-    // themoviedb_id puede ser {"tv":id} / {"movie":id} o un int suelto.
+    // themoviedb_id can be {"tv":id} / {"movie":id} or a bare int.
     private fun tmdbOf(o: JSONObject): Int? = when (val v = o.opt("themoviedb_id")) {
         is JSONObject -> (v.optInt("tv", 0).takeIf { it > 0 } ?: v.optInt("movie", 0)).takeIf { it > 0 }
         is Number -> v.toInt().takeIf { it > 0 }
         else -> null
     }
 
-    // season / episode_offset vienen como {"tvdb":n,"tmdb":n}; tomamos el de tvdb.
+    // season / episode_offset come as {"tvdb":n,"tmdb":n}; we take tvdb's.
     private fun intInObj(v: Any?): Int? = when (v) {
         is JSONObject -> if (v.has("tvdb")) v.optInt("tvdb") else null
         is Number -> v.toInt()
