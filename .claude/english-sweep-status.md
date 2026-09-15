@@ -776,10 +776,34 @@ by its old Spanish name `playlist_del_capitulo_anterior_espera`; the actual curr
 repo for its OLD name in comments** — this is now the second time a stale cross-reference to a
 since-renamed test survived a "done" declaration.
 
-**Combined confidence after four independent angles** (accents, non-`.kt` files, package names,
-identifier camelCase-splitting, and now comment-body word-splitting): high, but see the running
-tally of "declared done and later found wrong" above (now past a dozen instances across two
-sessions) before treating this as a final, un-revisitable answer.
+**Update, same session: a fifth angle, local bindings a val/var-only regex can't see.** The
+identifier scan's `val`/`var` regex already caught most local variables (it's not anchored to
+column 0, so it matches deeply-nested locals fine), but structurally cannot match destructuring
+(`val (a, b) = ...`), `when (val x = ...)`, `catch (e: ...)`, `for (x in ...)`, or function/lambda
+PARAMETER names (no `val`/`var` keyword at all in those). Extended the scan with dedicated regexes
+for each shape. Of ~31 hits, all but three were parameter names mirroring already-documented
+frozen Room bare properties (`tipo`, `titulo`, `porque`, `orden`, `episodiosVistosEnLista`,
+`tituloCanonico`, `episodio`) — correct to leave. **Three genuine findings, fixed in commit
+`0bd72615`**:
+- `NewChapterFinder.kt`'s destructured local `gatewaySerie` → `gatewaySeries` — survived the
+  `GatewaySerie`→`GatewaySeries` CLASS rename earlier this session because that was a case-exact
+  literal sed and this lowercase instance-name spelling is a different string entirely. **Lesson:
+  a class rename's ripple search must also grep for the lowercase-first variable-name spelling of
+  the old class name, not just the class name itself** — Kotlin's own convention of naming a local
+  after its type (`val fooBar = FooBar(...)`) means this pattern will recur for any class rename.
+- `ArkivTvRoot.kt`'s lambda parameter `canal` → `channel`.
+- `DownloadDisplayState.kt`'s function parameter `fila` → `row` (matching this session's own
+  `*Row` naming for this exact DTO shape).
+
+**Combined confidence after FIVE independent angles** (accents, non-`.kt` files, package names,
+identifier camelCase-splitting, comment-body word-splitting, and now every local-binding shape):
+high — this was the deepest audit this repo has had. But see the running tally of "declared done
+and later found wrong" above (now well past a dozen instances across two sessions) before treating
+this as a final, un-revisitable answer. If a sixth angle is ever worth trying, the two remaining
+theoretical gaps are: (1) the curated Spanish word list is not a real dictionary, so an
+uncommon word could still slip through; (2) same-line multiple declarations
+(`val a = 1; val b = 2`) were never specifically handled, though none were found to exist in this
+codebase's style.
 
 **Lessons worth keeping for any future rename/translation work in this repo:**
 
