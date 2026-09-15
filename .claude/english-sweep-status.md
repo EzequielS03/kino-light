@@ -795,15 +795,47 @@ frozen Room bare properties (`tipo`, `titulo`, `porque`, `orden`, `episodiosVist
 - `DownloadDisplayState.kt`'s function parameter `fila` → `row` (matching this session's own
   `*Row` naming for this exact DTO shape).
 
-**Combined confidence after FIVE independent angles** (accents, non-`.kt` files, package names,
-identifier camelCase-splitting, comment-body word-splitting, and now every local-binding shape):
-high — this was the deepest audit this repo has had. But see the running tally of "declared done
-and later found wrong" above (now well past a dozen instances across two sessions) before treating
-this as a final, un-revisitable answer. If a sixth angle is ever worth trying, the two remaining
-theoretical gaps are: (1) the curated Spanish word list is not a real dictionary, so an
-uncommon word could still slip through; (2) same-line multiple declarations
-(`val a = 1; val b = 2`) were never specifically handled, though none were found to exist in this
-codebase's style.
+**Update, same session: a SIXTH angle — invert the check, whitelist English instead of
+blocklisting Spanish.** The user asked to run yet another pass. Every prior identifier-name check
+used a hand-curated Spanish word list, which by construction can never be complete. Flipped the
+approach: load macOS's full system dictionary (`/usr/share/dict/web2`, ~235k English words),
+allowlist technical/brand jargon on top of it, and flag every identifier word-part recognized by
+NEITHER — i.e. don't hunt for Spanish, hunt for "not a real English word and not known jargon".
+Of ~496 raw hits (dominated by modern tech words missing from a 1913-era dictionary: `download`,
+`catalog`, `dialog`, `prefs`, `crypto`, `metadata`, `remux`, etc. — all false positives, tune the
+`TECH_ALLOW` set before reusing this rather than re-deriving it), **two genuine, previously
+invisible mismatches surfaced, fixed in commit `c6df514e`**:
+- `data/NumeracionCodificada.kt` → `data/EncodedNumbering.kt`: the FILE's own name was still 100%
+  Spanish even though the `object` declared inside it has been called `EncodedNumbering` (English)
+  the whole time. Every earlier pass missed this for a different reason each: the accent sweep
+  because there are no accented characters; the class-name scan because it correctly saw
+  `EncodedNumbering` was already English and had no reason to flag it — nothing before this checked
+  whether a file's OWN NAME still matches what's declared inside it once the declaration itself
+  gets or already is renamed.
+- `ui/tv/TvCategoriasScreen.kt`/`TvCategoriasScreen()` → `TvCategoriesScreen` (file + composable +
+  ripple into `ArkivTvRoot.kt`): imports the already-English `CategoriesViewModel` but its own name
+  was never fixed — "categorias" simply wasn't a word in the hand-curated Spanish list from the
+  earlier identifier scan.
+
+**Checked and correctly left alone**: `Latino`/`Castellano` in `TrackLanguage.kt` — these are real
+audio-track dialect labels the code has to recognize from actual release file names in the wild
+(same category as a literal language tag: data, not prose).
+
+**This dictionary-inversion method is a strong complement to the blocklist approach and should be
+the FIRST check run in any future audit of this kind** — it needs zero Spanish-specific knowledge
+to build (a system dictionary ships on the machine already) and it directly caught a
+class-content/file-name mismatch that a purely name-based Spanish-word check structurally cannot
+detect (the class name inside was already fine; only the file wrapping it was stale). Expect a
+large false-positive rate from modern jargon missing in an old dictionary — grow `TECH_ALLOW`
+rather than lowering the bar.
+
+**Combined confidence after SIX independent angles** (accents, non-`.kt` files, package names,
+identifier camelCase-splitting against a Spanish blocklist, comment-body word-splitting, every
+local-binding shape, and now English-dictionary inversion): very high — this is by a wide margin
+the deepest audit this repo has had. Still, given the running tally of "declared done and later
+found wrong" (now well past a dozen instances across two sessions, including two file-name-only
+mismatches this exact sixth angle needed to catch), don't present a future "done" claim as
+final/un-revisitable without re-running at least the dictionary-inversion check fresh.
 
 **Lessons worth keeping for any future rename/translation work in this repo:**
 
