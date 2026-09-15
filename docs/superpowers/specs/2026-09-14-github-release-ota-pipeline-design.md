@@ -52,10 +52,11 @@ git tag v0.9.18 && git push origin v0.9.18
         │  .env exactly — same readEnv() helper, zero new read path)
         ├─ compute versionCode from the tag (see "Version numbering" below)
         ├─ decode the release keystore secret to a file
-        ├─ ./gradlew :app:assembleRelease
+        ├─ ./gradlew :app:testDebugUnitTest :app:assembleRelease
+        ├─ extract release notes from the annotated tag's message (via the
+        │  GitHub API, not local git -- see "Version numbering" below)
         ├─ build latest.json (versionCode, versionName, apk url, notes)
-        ├─ extract release notes from the annotated tag's message
-        └─ gh release create <tag> --notes-file <notes>
+        └─ gh release create <tag> --notes "$NOTES"
                app-release.apk  latest.json
         │
         ▼
@@ -179,9 +180,12 @@ existing `RELEASE_*` section, so a local `assembleRelease` test build can set
 them without needing a real tag.
 
 **`.claude/reglas.md`** — host #4 changes from `apk.comparadorinternet.co` to
-`github.com`/`objects.githubusercontent.com` (the actual domains a release
-download redirects through), with a note that this migration closes a
-pre-existing undocumented "servidor propio" gap rather than opening a new one.
+`github.com`/`release-assets.githubusercontent.com` (the actual domains a
+release download redirects through, corrected after the real live redirect
+was checked with `curl -sIL` — an earlier draft of this migration had guessed
+`objects.githubusercontent.com`, which turned out to be wrong), with a note
+that this migration closes a pre-existing undocumented "servidor propio" gap
+rather than opening a new one.
 
 ## The workflow file
 

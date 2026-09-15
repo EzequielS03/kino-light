@@ -39,15 +39,20 @@ set_secret() {
   printf '%s' "$2" | gh secret set "$1" --repo "$REPO"
 }
 
-set_secret TMDB_API_KEY "$(env_value API_KEY)"
-set_secret MAGIS_3DES_KEY "$(env_value IPTV_3DES_KEY)"
-set_secret MAGIS_HOSTS "$(env_value IPTV_HOSTS)"
-set_secret MAGIS_APP_ID "$(env_value IPTV_APP_ID)"
-set_secret MAGIS_APK_VERSION "$(env_value IPTV_APK_VERSION)"
-set_secret CAST_RECEIVER_ID "$(env_value CAST_RECEIVER_ID optional)"
-set_secret RELEASE_KEYSTORE_BASE64 "$(base64 -i "$(env_value RELEASE_KEYSTORE_PATH)")"
-set_secret RELEASE_KEYSTORE_PASSWORD "$(env_value RELEASE_KEYSTORE_PASSWORD)"
-set_secret RELEASE_KEY_ALIAS "$(env_value RELEASE_KEY_ALIAS)"
-set_secret RELEASE_KEY_PASSWORD "$(env_value RELEASE_KEY_PASSWORD)"
+# Each value is captured in its own plain assignment, not inline as another
+# command's argument: `set -e` only actually catches a failing command
+# substitution when it's the whole right-hand side of a bare assignment.
+# env_value()'s `exit 1` on a missing key silently gets swallowed if the
+# substitution instead sits inline inside `set_secret NAME "$(env_value ...)"`.
+val="$(env_value API_KEY)"; set_secret TMDB_API_KEY "$val"
+val="$(env_value IPTV_3DES_KEY)"; set_secret MAGIS_3DES_KEY "$val"
+val="$(env_value IPTV_HOSTS)"; set_secret MAGIS_HOSTS "$val"
+val="$(env_value IPTV_APP_ID)"; set_secret MAGIS_APP_ID "$val"
+val="$(env_value IPTV_APK_VERSION)"; set_secret MAGIS_APK_VERSION "$val"
+val="$(env_value CAST_RECEIVER_ID optional)"; set_secret CAST_RECEIVER_ID "$val"
+val="$(env_value RELEASE_KEYSTORE_PATH)"; b64="$(base64 -i "$val")"; set_secret RELEASE_KEYSTORE_BASE64 "$b64"
+val="$(env_value RELEASE_KEYSTORE_PASSWORD)"; set_secret RELEASE_KEYSTORE_PASSWORD "$val"
+val="$(env_value RELEASE_KEY_ALIAS)"; set_secret RELEASE_KEY_ALIAS "$val"
+val="$(env_value RELEASE_KEY_PASSWORD)"; set_secret RELEASE_KEY_PASSWORD "$val"
 
 echo "Done. Verify with: gh secret list --repo $REPO"
