@@ -114,6 +114,57 @@ of it. Two things follow, both to land in the implementation plan itself:
    the native module" without the user first supplying the current source
    will be editing from scratch, not from what's actually deployed.
 
+## Anti-instrumentation check: the realistic attack none of the above stops
+
+Everything above -- the split, the native module, hiding its source --
+defends against **static** analysis: someone inspecting the APK/`.so`/blob
+at rest. There is a more direct attack that defeats all of it in one step
+regardless of how well the static data is hidden: **dynamic
+instrumentation** (Frida, typically via a rooted device or a repackaged
+APK) hooking the five `resolve*` JNI functions themselves and reading their
+**return values**. It doesn't matter how obscure the algorithm is or how
+well the constants are hidden if an attacker can simply intercept the
+function the instant it hands back the real, final, combined credential --
+no decryption, no disassembly, no understanding of the scheme required.
+
+This app already has a sophisticated root-detection module
+(`app/src/main/java/com/arkiv/player/security/RootDetection.kt`), including
+mount-table-inconsistency detection specifically resistant to
+Magisk/Shamiko hiding itself. **It's deliberately disabled**
+(`MainActivity.kt`'s `BLOCK_ON_ROOT = false`) so the app keeps working on
+rooted devices -- an existing, considered product decision this spec does
+not reopen. Root alone isn't the threat here anyway (plenty of legitimate
+users root their devices for unrelated reasons); the specific threat is
+**active instrumentation**, a narrower and rarer condition.
+
+**Decision: add a targeted, native, Frida-signal check that runs only around
+credential resolution**, not a whole-app gate:
+
+- Checked from **inside the native module**, not Kotlin -- if the check
+  itself lived in Kotlin, Frida could simply hook the check function and
+  force it to report "clean," defeating the entire point. Each `resolve*`
+  function runs the check first and returns an empty/failure result instead
+  of the real value if instrumentation is detected -- the rest of the app
+  keeps working normally either way; only credential resolution refuses.
+- Signals checked (standard, well-documented techniques, no exotic
+  research needed): a local connection attempt to `127.0.0.1:27042`
+  (`frida-server`'s default port), `/proc/self/maps` scanned for
+  `frida`-named loaded libraries, and `/proc/self/status`'s `TracerPid`
+  line (nonzero means a debugger/tracer is attached -- catches ptrace-based
+  tools generally, not only Frida by name).
+- **This is not foolproof either** -- exactly like `RootDetection.kt`'s own
+  KDoc already says about itself, matching this project's established
+  practice of being honest about a defense's limits rather than
+  overselling it. Frida has known techniques to change its own default
+  port, hide its loaded libraries, and evade `TracerPid` checks. This
+  raises the bar against the common, off-the-shelf case; it does not stop
+  a specifically-motivated attacker who knows to route around it.
+- **Known false-positive edge case, stated plainly**: a developer debugging
+  their own rooted device with Frida for something unrelated to this app
+  would also fail to activate credentials. Accepted as reasonable given the
+  security goal -- this only blocks the activation/resolve step, never the
+  rest of the app.
+
 ## Consequence accepted: rotation of a split value needs a new app release
 
 Splitting couples each value's *content* to the currently-installed APK's
@@ -198,12 +249,15 @@ different files kept out of git for two different reasons:
   functions, one per credential: `resolveIptv3desKey`, `resolveIptvHosts`,
   `resolveIptvAppId`, `resolveIptvApkVersion`, `resolveTmdbApiKey` -- each
   taking the raw downloaded `credentials.enc` bytes and returning that one
-  field's fully combined, ready-to-use `String`. Five small, independently
+  field's fully combined, ready-to-use `String`, or an empty string if the
+  anti-instrumentation check (below) trips. Five small, independently
   testable functions rather than one function returning a bundle: matches
   this spec's "smaller well-bounded units" preference, and means a future
   field can be added without changing every other field's call site. Each
-  function internally: AES-GCM-decrypts the blob (once per call is wasteful
-  but this runs at most a few times a day, never in a hot path -- simplicity
+  function internally: runs the Frida/tracer check first (see
+  "Anti-instrumentation check" above) and bails with an empty result if it
+  trips; otherwise AES-GCM-decrypts the blob (once per call is wasteful but
+  this runs at most a few times a day, never in a hot path -- simplicity
   wins here) to get the JSON of five file-halves, reads its own field's
   file-half, and interleaves it with its own field's native-embedded half.
   This file is kept out of git for a *different* reason than the header
@@ -290,6 +344,12 @@ combine(fileHalf, nativeHalf):
   a new device): `EncryptedPrefs.openOrRepair`'s existing discard-and-retry
   behavior applies -- treated the same as "never activated," which means
   the Activation screen reappears and the user re-consents once.
+- **Anti-instrumentation check trips** (a `resolve*` function detects Frida
+  or a tracer): returns an empty result, indistinguishable from a
+  decrypt/combine failure above -- the Activation screen shows the same
+  generic retry message, deliberately not a distinct "instrumentation
+  detected" error. Telling an attacker exactly which defense caught them
+  only helps them route around it next time.
 
 ## Testing
 
@@ -300,13 +360,18 @@ combine(fileHalf, nativeHalf):
 - `RemoteCredentialsStore` follows `MagisCredentialStore`'s existing test
   pattern (this codebase already has JVM-testable coverage for the
   Keystore-repair path via `EncryptedPrefsTest`).
-- The native module itself (JNI glue, actual AES-GCM correctness) is **not**
-  unit-testable in this project's existing pure-JVM test setup (no
-  Robolectric, no device in CI). Verification here means: a real device
-  test after the first build that includes the native module, checked
-  manually against a real `credentials.enc` produced by the publishing
-  script -- this is the same "first tag push IS the test" posture already
-  established for the OTA pipeline's own CI-only logic.
+- The native module itself (JNI glue, actual AES-GCM correctness, and the
+  anti-instrumentation check) is **not** unit-testable in this project's
+  existing pure-JVM test setup (no Robolectric, no device in CI).
+  Verification here means: a real device test after the first build that
+  includes the native module, checked manually against a real
+  `credentials.enc` produced by the publishing script -- this is the same
+  "first tag push IS the test" posture already established for the OTA
+  pipeline's own CI-only logic. The anti-instrumentation check specifically
+  should be verified twice on a real device: once clean (credentials
+  resolve normally) and once with `frida-server` actually running against
+  it (resolution fails), the same way `RootDetection`'s own KDoc documents
+  having been measured against a real device rather than assumed correct.
 - `CredentialsActivator`'s orchestration (download → call the five native
   functions → store) is testable with `MockWebServer`, following
   `UpdateCheckerTest`'s existing pattern, using **fake** implementations of
