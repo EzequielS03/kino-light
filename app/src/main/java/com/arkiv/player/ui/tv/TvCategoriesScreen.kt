@@ -61,7 +61,7 @@ private const val HERO_DRIFT_MS = 14_000
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun TvCategoriasScreen(
+fun TvCategoriesScreen(
     onBrowseRow: (rowId: String, title: String) -> Unit,
     onOpenSearchRoute: (String) -> Unit,
     onBack: () -> Unit,

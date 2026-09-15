@@ -215,7 +215,7 @@ fun ArkivTvRoot(
             )
         }
         composable("categorias_home") {
-            TvCategoriasScreen(
+            TvCategoriesScreen(
                 onBrowseRow = { rowId, title ->
                     navController.navigate("row_browse/$rowId?title=${android.net.Uri.encode(title)}")
                 },
