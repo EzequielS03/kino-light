@@ -172,6 +172,23 @@ not reopen. Root alone isn't the threat here anyway (plenty of legitimate
 users root their devices for unrelated reasons); the specific threat is
 **active instrumentation**, a narrower and rarer condition.
 
+This app also already has `app/src/main/java/com/arkiv/player/security/ApkSignature.kt`,
+which checks the running APK's own signing certificate against a hardcoded
+expected fingerprint and refuses to start (in release builds) if it doesn't
+match -- already gating `MainActivity` today, unconditionally, alongside
+root detection. This closes a path the new anti-instrumentation check would
+otherwise be exposed to: without it, someone could decompile the app,
+delete the Frida check this section adds, and redistribute a re-signed
+copy where Frida works freely. With it, that patched copy simply refuses to
+run, and the only way left to defeat the check is evading it **live**
+against the genuine, unmodified, correctly-signed binary -- a strictly
+harder task than editing a hex dump. No new work needed here: the plan just
+needs to confirm this existing check isn't accidentally bypassed by
+whatever entry point ends up calling the new `resolve*` functions (i.e.
+credential resolution should only ever be reachable from the same
+already-signature-gated app process, never from a path `ApkSignature`
+doesn't already cover).
+
 **Decision: add a targeted, native, Frida-signal check that runs only around
 credential resolution**, not a whole-app gate:
 
@@ -182,11 +199,33 @@ credential resolution**, not a whole-app gate:
   of the real value if instrumentation is detected -- the rest of the app
   keeps working normally either way; only credential resolution refuses.
 - Signals checked (standard, well-documented techniques, no exotic
-  research needed): a local connection attempt to `127.0.0.1:27042`
-  (`frida-server`'s default port), `/proc/self/maps` scanned for
-  `frida`-named loaded libraries, and `/proc/self/status`'s `TracerPid`
-  line (nonzero means a debugger/tracer is attached -- catches ptrace-based
-  tools generally, not only Frida by name).
+  research needed):
+  1. A local connection attempt to `127.0.0.1:27042` (`frida-server`'s
+     default port).
+  2. `/proc/self/maps` scanned for `frida`-named loaded libraries.
+  3. `/proc/self/status`'s `TracerPid` line (nonzero means a
+     debugger/tracer is already attached -- catches ptrace-based tools
+     generally, not only Frida by name).
+  4. **Self-trace**: call `ptrace(PTRACE_TRACEME, 0, 0, 0)` on itself. A
+     process can only ever have one tracer; if something is already
+     tracing this process (Frida attaches via ptrace under the hood on
+     most setups), this call fails. Complements signal 3 -- `TracerPid`
+     can read `0` in some indirect-injection setups where this still
+     catches it, and vice versa.
+  5. **Timing check**: measure the wall-clock cost of a trivial, fixed
+     computation. Actively-traced code runs measurably slower (breakpoint
+     and step overhead). Treated as the **weakest** signal and never a
+     sole trigger by itself -- a busy or thermal-throttled low-end device
+     (the Fire TV Stick this project already measures against elsewhere)
+     can look slow for entirely innocent reasons. Combined with signals
+     1-4, not standalone.
+
+  **Combination rule**: any one of signals 1-4 alone is enough to refuse
+  resolution -- each is a specific, deliberate indicator with a low false-
+  positive rate on its own. Signal 5 (timing) never triggers by itself; it
+  only counts when at least one of 1-4 is also borderline/inconclusive
+  (e.g., a read that failed rather than cleanly returning "not present"),
+  as a tie-breaker rather than an independent trigger.
 - **This is not foolproof either** -- exactly like `RootDetection.kt`'s own
   KDoc already says about itself, matching this project's established
   practice of being honest about a defense's limits rather than
