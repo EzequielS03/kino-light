@@ -91,16 +91,38 @@ class TailOnDiskTest {
      * budget. The oldest one gets dropped, since it's the least likely to be reopened.
      */
     @Test fun `it does not save more tails than the cap`() {
-        val c = TailOnDisk(folder.root, maxTails = 3)
-        repeat(5) { i ->
-            c.save("clave$i", i.toLong(), 999L, ByteArray(64) { i.toByte() })
-            // Dropping goes by modification date, which runs too fast within a test.
-            folder.root.listFiles()!!.forEach { it.setLastModified(1_000_000L + i * 1000L) }
+        // Seeded uncapped first: the old version of this test set each fake mtime AFTER its own
+        // save() call, racing against that SAME save's internal dropOld() pass -- which uses
+        // whatever mtimes exist at that exact moment, not the ones about to be set. On a
+        // filesystem where setLastModified silently doesn't take effect (observed on a GitHub
+        // Actions Linux runner; never reproduced locally on macOS), the real, near-simultaneous
+        // creation timestamps decide the order instead, which isn't guaranteed to match this
+        // test's assumption.
+        val seed = TailOnDisk(folder.root, maxTails = 100)
+        repeat(5) { i -> seed.save("clave$i", i.toLong(), 999L, ByteArray(64) { i.toByte() }) }
+
+        // Now that all 5 files exist, fix their recency order explicitly and verify it actually
+        // took: if this filesystem doesn't honor setLastModified, fail loudly here instead of
+        // producing a confusing assertion failure below.
+        folder.root.listFiles()!!.sortedBy { it.name }.forEachIndexed { i, f ->
+            val target = 1_000_000L + i * 1000L
+            check(f.setLastModified(target)) { "setLastModified not supported on this filesystem: ${f.path}" }
+            check(f.lastModified() == target) {
+                "setLastModified silently didn't take effect on this filesystem: " +
+                    "wanted $target, got ${f.lastModified()} for ${f.path}"
+            }
         }
+
+        // Re-saving the newest key both re-triggers dropOld() (now with a real, capped instance)
+        // and gives clave4 a fresh, real -- and therefore clearly the largest -- mtime, without
+        // adding a 6th distinct file to reason about.
+        val capped = TailOnDisk(folder.root, maxTails = 3)
+        capped.save("clave4", 4L, 999L, ByteArray(64) { 4 })
+
         assertEquals(3, folder.root.listFiles()!!.size)
         // The first two got dropped; the last ones remain.
-        assertNull(c.read("clave0"))
-        assertNull(c.read("clave1"))
+        assertNull(capped.read("clave0"))
+        assertNull(capped.read("clave1"))
     }
 
     @Test fun `saving an empty tail leaves nothing`() {

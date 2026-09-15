@@ -106,15 +106,29 @@ class PreWarmSeekTest {
         proxy.preWarm(url, waitForTail = true)   // leaves the file's size on hand
         val fraction = 0.5f
         proxy.preWarmSeek(url, emptyMap(), fraction)
-        waitForWindow()
 
         val proxyUrl = proxy.proxyUrl(url, emptyMap(), direct = true)
-        requestsToOrigin.set(0)
-
         // The exact target and the really measured deviations: -2.7 MB and +3.7 MB.
         val target = (TOTAL * fraction).toLong()
-        for (deviation in listOf(0L, -2_700_000L, 3_700_000L)) {
-            val bytes = probe(proxyUrl, target + deviation, 16 * 1024)
+        val deviations = listOf(0L, -2_700_000L, 3_700_000L)
+
+        // Polls instead of a single fixed sleep-then-try: fast on a quiet machine (the common
+        // case exits the loop on its first pass), but tolerant of a slow/contended CI runner
+        // where the background pre-warm thread (a raw Thread, not awaitable from here -- see
+        // ArchiveCacheProxy.preWarmSeek) can take longer than 2.5s to finish. Measured needing
+        // this after the fixed 2.5s sleep flaked on a GitHub Actions runner but never locally.
+        var bytesByDeviation = emptyMap<Long, ByteArray>()
+        val deadline = System.currentTimeMillis() + 15_000
+        do {
+            requestsToOrigin.set(0)
+            bytesByDeviation = deviations.associateWith { deviation -> probe(proxyUrl, target + deviation, 16 * 1024) }
+            val servedFromCache = requestsToOrigin.get() == 0 && bytesByDeviation.values.all { it.isNotEmpty() }
+            if (servedFromCache) break
+            Thread.sleep(200)
+        } while (System.currentTimeMillis() < deadline)
+
+        for (deviation in deviations) {
+            val bytes = bytesByDeviation.getValue(deviation)
             assertTrue("the probe at $deviation came back empty", bytes.isNotEmpty())
             assertEquals(
                 "delivered bytes from somewhere else in the file",
