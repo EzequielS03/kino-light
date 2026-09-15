@@ -46,7 +46,7 @@ jobs:
 
       - name: Install the NDK and CMake explicitly
         run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;26.1.10909125" "cmake;3.22.1"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;28.2.13676358" "cmake;3.22.1"
 
       - name: Decode the release keystore
         run: echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
