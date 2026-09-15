@@ -515,3 +515,21 @@ to be added to `.github/workflows/release.yml` before the native module can
 build there. This is exactly the kind of environment difference the OTA
 pipeline's own test-gate fix already caught once this session -- worth
 derisking before committing to the rest of the implementation plan's shape.
+
+## Follow-up flagged during the final whole-branch review
+
+`AppGraph.magisPortal`/`magisSource`/`magisLive`/`tmdbApi` each do
+`credentialsStore.read()!!`, correct only because nothing reachable before
+`MainActivity`'s activation gate ever touches them -- an invariant the final
+review confirmed by tracing every startup path (including two real
+violations it found and fixed: `AppGraph.init{}`'s eager `castSession`
+construction, and `lookForNewChapters()`'s unconditional call from
+`ArkivApp.onCreate()`, both of which crashed or near-crashed a fresh install
+on any Play-Services device before Task 14 shipped). That invariant is
+enforced today only by careful call-graph reading, not by the type system --
+nothing stops a FUTURE change (a new eager-init line in `AppGraph.init{}`,
+`ArkivApp.onCreate()`, or a new `Worker`) from reintroducing the same class
+of bug silently. Worth a follow-up hardening pass someday: a
+`requireActivated()`-style accessor, or making those four lazies return a
+nullable/`Result` instead of asserting, so the compiler -- not a whole-branch
+review -- catches the next instance of this.
