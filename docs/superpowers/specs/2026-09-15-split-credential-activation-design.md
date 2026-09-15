@@ -65,6 +65,55 @@ Every choice below is a **friction increase**, not a guarantee:
   server of the project's own, which this project's non-negotiable rule
   forbids.
 
+## Native module source stays out of the public repo
+
+The user asked, directly: can `credentials.enc` be decrypted on a PC? Yes,
+without ever running the app: extract the native `.so` from the public APK,
+disassemble it (Ghidra, IDA -- free, built for exactly this), read the
+embedded key and native-half strings out of its data section, then decrypt
+the downloaded blob locally with a throwaway script. This is the same
+ceiling stated above, made concrete.
+
+**What DOES help, incrementally**: keeping the native module's actual
+implementation (`.cpp`/`.h`, not the `CMakeLists.txt` build config, which
+reveals nothing) out of the public git history entirely. This does not
+protect the shipped, compiled `.so` -- that still ships in the public APK
+and remains reverse-engineerable regardless of whether its source was ever
+public. What it removes is the free, zero-effort version of the attack:
+reading the exact algorithm (AES-GCM, then character-position interleave)
+straight off GitHub before ever touching the APK. Knowing the algorithm in
+advance measurably speeds up disassembling the binary later (you know
+exactly what pattern to look for); not knowing it means reconstructing the
+scheme from raw machine code first. A real, if incremental, friction
+increase -- the user chose to add it knowing it doesn't change the ceiling.
+
+**Mechanism**: the same pattern this repo already uses for the release
+keystore. `app/src/main/cpp/*.cpp` and `app/src/main/cpp/*.h` (the actual
+algorithm) are gitignored and never committed; `CMakeLists.txt` (which only
+says "compile these two files," not what's in them) stays committed and
+public. A new GitHub Secret, `NATIVE_MODULE_SOURCE_BASE64` (a tarball of the
+`.cpp`/`.h` files, base64-encoded, alongside the existing
+`RELEASE_KEYSTORE_BASE64`), gets decoded into `app/src/main/cpp/` by
+`.github/workflows/release.yml` before the native build compiles -- mirrors
+the keystore-decode step already there.
+
+**Cost, stated plainly so it isn't rediscovered by surprise later**: a file
+that is never committed does not exist for anyone reading the repo from
+git alone -- including a future Claude Code session (this one, next week,
+with no memory of today). Neither the assistant nor a fresh contributor can
+read or modify this code from the repo; the user is the only durable holder
+of it. Two things follow, both to land in the implementation plan itself:
+1. Whoever writes this file (this session, when the plan reaches that task)
+   must hand the user a copy to keep somewhere outside git (a password
+   manager note, a local backup, anything durable) -- the working directory
+   alone is not enough, since `git clean -fdx` or a fresh clone would lose
+   it silently.
+2. Any FUTURE change to this specific file requires the user either pasting
+   its current content back into the conversation first, or making the
+   change themselves directly -- a plan or session that tries to "just edit
+   the native module" without the user first supplying the current source
+   will be editing from scratch, not from what's actually deployed.
+
 ## Consequence accepted: rotation of a split value needs a new app release
 
 Splitting couples each value's *content* to the currently-installed APK's
@@ -137,26 +186,33 @@ this needs a new codegen step before the NDK build compiles, parallel to how
 ## Components
 
 **`app/src/main/cpp/`** (new native module, JNI, `armeabi-v7a` +
-`arm64-v8a` only -- matches this app's existing `abiFilters`):
-- A generated header (never committed; regenerated from secrets before
-  every build, same posture as the existing `.env`) holding the AES blob
-  key and the five native halves as C string constants.
-- One small `.cpp` file exposing five JNI functions, one per credential --
-  `resolveIptv3desKey`, `resolveIptvHosts`, `resolveIptvAppId`,
-  `resolveIptvApkVersion`, `resolveTmdbApiKey` -- each taking the raw
-  downloaded `credentials.enc` bytes and returning that one field's fully
-  combined, ready-to-use `String`. Five small, independently testable
-  functions rather than one function returning a bundle: matches this
-  spec's "smaller well-bounded units" preference, and means a future field
-  can be added without changing every other field's call site. Each
+`arm64-v8a` only -- matches this app's existing `abiFilters`), with two
+different files kept out of git for two different reasons:
+
+- A **generated header** holding the AES blob key and the five native
+  halves as C string constants -- regenerated from secrets before every
+  single build (never committed, same posture as the existing `.env`),
+  because its *content* changes with whatever's currently in `.env`/GitHub
+  Secrets.
+- A **static `.cpp` file** holding the actual algorithm -- five JNI
+  functions, one per credential: `resolveIptv3desKey`, `resolveIptvHosts`,
+  `resolveIptvAppId`, `resolveIptvApkVersion`, `resolveTmdbApiKey` -- each
+  taking the raw downloaded `credentials.enc` bytes and returning that one
+  field's fully combined, ready-to-use `String`. Five small, independently
+  testable functions rather than one function returning a bundle: matches
+  this spec's "smaller well-bounded units" preference, and means a future
+  field can be added without changing every other field's call site. Each
   function internally: AES-GCM-decrypts the blob (once per call is wasteful
   but this runs at most a few times a day, never in a hot path -- simplicity
   wins here) to get the JSON of five file-halves, reads its own field's
   file-half, and interleaves it with its own field's native-embedded half.
-  AES-GCM decryption AND the interleave-recombine step both happen here, not
-  in Kotlin, per the user's choice to keep this off the easily-hookable
-  JVM/Kotlin call path.
-- `CMakeLists.txt` wiring it into the Gradle build.
+  This file is kept out of git for a *different* reason than the header
+  above: not because its content varies, but to keep the algorithm itself
+  off the public repo -- see "Native module source stays out of the public
+  repo" above for the mechanism (`NATIVE_MODULE_SOURCE_BASE64` secret) and
+  its cost.
+- `CMakeLists.txt` (committed, public -- it only says which files to
+  compile, not what's in them) wiring both into the Gradle build.
 
 **`com.arkiv.player.data.credentials`** (new Kotlin package):
 - `RemoteCredentials` -- a data class holding the five reconstructed
