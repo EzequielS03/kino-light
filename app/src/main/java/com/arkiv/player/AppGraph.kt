@@ -559,6 +559,10 @@ class AppGraph(context: Context) {
      * don't come out more often than that.
      */
     suspend fun lookForNewChapters() {
+        // Before activation there are no credentials, so the search would blow up forcing
+        // `repository`/`tmdbApi` -- and it would burn the throttle window below first, silently
+        // skipping the first REAL search for up to HOURS_BETWEEN_SEARCHES hours after activating.
+        if (credentialsStore.read() == null) return
         val prefs = appContext.getSharedPreferences("arkiv_nuevos", android.content.Context.MODE_PRIVATE)
         val last = prefs.getLong(KEY_LAST_SEARCH, 0L)
         val now = System.currentTimeMillis()
@@ -594,9 +598,15 @@ class AppGraph(context: Context) {
     init {
         // CastPlayer/CastContext demand the main thread. We force its construction there so the
         // manager exists from startup (and adopts an already-live session) without depending on
-        // who touches it first.
+        // who touches it first -- but ONLY once credentials exist (see below).
         android.os.Handler(android.os.Looper.getMainLooper()).post {
-            castSession
+            // Skipped pre-activation: a device that hasn't activated yet cannot have a pre-existing
+            // live Cast session to adopt (there is nothing to adopt on a fresh install), and forcing
+            // `castSession` here would force `repository` -> `tmdbApi` -> `credentialsStore.read()!!`,
+            // which is null before activation and crashes the app on startup on any Play-Services
+            // device. `castSession` stays a normal `by lazy` and initializes the first time real UI
+            // touches it, which can only happen post-activation anyway (MainActivity's gate).
+            if (credentialsStore.read() != null) castSession
         }
     }
 

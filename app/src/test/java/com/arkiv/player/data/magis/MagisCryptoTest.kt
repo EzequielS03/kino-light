@@ -5,8 +5,10 @@ import org.junit.Test
 
 class MagisCryptoTest {
 
-    // Real IPTV_3DES_KEY value (BuildConfig), vector computed with pycryptodome outside this
-    // repo so as not to circularly depend on the very code under test.
+    // Real IPTV_3DES_KEY value, hardcoded here as a test constant (it no longer comes from
+    // BuildConfig anywhere: at runtime it arrives through RemoteCredentialsStore). The vector was
+    // computed with pycryptodome outside this repo so as not to circularly depend on the very code
+    // under test.
     private val key = "e7af1ed7de1ffddd7bd3fe37ebdffde9ef3fe1ae39edfeb8"
 
     @Test

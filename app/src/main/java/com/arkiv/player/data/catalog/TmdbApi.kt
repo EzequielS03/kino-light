@@ -124,10 +124,15 @@ data class TmdbDetail(
  *
  * Talks DIRECTLY to `api.themoviedb.org` (sub-project 2A): it used to be a passthrough through the
  * gateway's `/v1/catalog/tmdb`, which was what set the key.
+ *
+ * The key is NOT compiled into the APK any more: `AppGraph.tmdbApi` reads it from
+ * `RemoteCredentialsStore`, which only holds a value after the person activates the app (see
+ * `docs/superpowers/specs/2026-09-15-split-credential-activation-design.md`).
  */
 class TmdbApi(
-    /** TMDB v3 key, embedded in this branch's build (`API_KEY` from `.env`). v3 is used and not
-     *  the v4 bearer, to avoid depending on a second secret. */
+    /** TMDB v3 key. The real value comes from `RemoteCredentialsStore` via `AppGraph.tmdbApi`;
+     *  this default is the empty string so the class stays constructible in tests. v3 is used and
+     *  not the v4 bearer, to avoid depending on a second secret. */
     private val apiKey: String = "",
     private val language: String = "es-MX",
     /** Parameterizable only for tests: production talks to TMDB. */

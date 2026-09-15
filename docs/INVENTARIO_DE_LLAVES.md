@@ -107,19 +107,44 @@ revoca una sesión (o se saca un aparato de la cuenta) sin tocar a los demás ni
 
 ---
 
-## Hueco conocido, sin mitigar: el repo (y el APK) ya son públicos
+## El repo (y el APK) son públicos: las llaves de terceros salieron del `BuildConfig` (2026-09-15)
 
 Con el pipeline de OTA por GitHub Releases (2026-09-14) el repo pasó a público y el APK de
 release quedó como una descarga pública sin autenticación (`github.com/lordmacu/kino-light/releases`).
-Este inventario documenta qué NO viaja en el APK como sesión/credencial de servidor propio, pero
-las llaves que sí quedan en `BuildConfig` -- la 3DES de Magis (`IPTV_3DES_KEY`), la de TMDB
-(`API_KEY`), y el resto de `IPTV_*` -- ahora son extraíbles por cualquiera con `apktool` o `jadx`
-sobre el APK publicado, sin necesitar acceso al repo ni a `.env`. Antes esto ya era cierto en
-teoría (cualquiera con el APK podía decompilarlo), pero en la práctica el APK solo se distribuía
-por un canal propio poco descubrible; ahora es un asset público de GitHub, un paso más fácil de
-encontrar y bajar.
+Hasta ese momento quedaban cinco llaves de terceros compiladas en `BuildConfig` -- la 3DES de Magis
+(`IPTV_3DES_KEY`), la de TMDB (`API_KEY`), y `IPTV_HOSTS` / `IPTV_APP_ID` / `IPTV_APK_VERSION` --
+extraíbles con `apktool` o `jadx` sobre el APK publicado, sin acceso al repo ni al `.env`.
 
-Esto es un hueco conocido y **sin mitigar**, fuera del alcance del trabajo de OTA que acaba de
-aterrizar -- ese trabajo cambió CÓMO se distribuye el APK, no QUÉ lleva adentro. Sacar estas
-credenciales del binario (moverlas a un servicio propio, o a un esquema donde cada instalación
-reciba la suya) es trabajo futuro, todavía sin diseñar.
+**Eso ya no es así.** Ninguno de esos cinco valores se compila más al binario: el `buildConfigField`
+que los inyectaba no existe. Ahora cada valor viaja **partido en dos mitades**
+(ver `docs/superpowers/specs/2026-09-15-split-credential-activation-design.md`):
+
+- Una mitad va en un blob cifrado, `credentials.enc`, publicado como asset del último release de
+  GitHub y descargado por la app.
+- La otra va dentro de una librería nativa (`.so`) cuyo código fuente (`app/src/main/cpp/*.cpp`,
+  `*.h`) está en `.gitignore` y nunca se commitea; el workflow de release lo decodifica desde un
+  secreto de GitHub justo antes de compilar.
+- Las dos mitades se recombinan **en el aparato**, y solo después de que la persona toque
+  "Activar": la pantalla de consentimiento que bloquea toda la navegación en el primer arranque.
+  El resultado queda en `EncryptedSharedPreferences` (`RemoteCredentialsStore`); nadie más lee esos
+  valores.
+
+### Qué sigue sin resolver
+
+Esto **sube el costo, no cierra la puerta**, y el propio spec lo dice sin adornos: si el código de
+la app puede descifrar algo, también puede hacerlo quien esté dispuesto a desensamblar ese mismo
+código. Concretamente:
+
+- El `.so` compilado viaja en el APK público. Con Ghidra o IDA se le puede sacar la llave AES y las
+  mitades nativas, y descifrar `credentials.enc` en un PC sin siquiera correr la app. Lo que se
+  ganó es que ya no alcanza con un `unzip` + `strings` ni con buscar una constante en `jadx`:
+  hacen falta dos extracciones distintas, y una de ellas es ingeniería inversa de binario.
+- El reparto no beneficia parejo a las cinco. `TMDB_API_KEY` viaja como parámetro de query en cada
+  request a TMDB, y `IPTV_HOSTS` / `IPTV_APP_ID` / `IPTV_APK_VERSION` muy probablemente también
+  aparezcan en las peticiones reales al portal: cualquiera con un proxy MITM las lee completas, sin
+  tocar el APK. La única que nunca viaja por la red es `IPTV_3DES_KEY`, y es por eso la única donde
+  este mecanismo protege contra algo que la captura de tráfico no resolvía ya. Aplicarlo a las cinco
+  fue una decisión consciente por consistencia, no un descuido.
+- Rotar los valores de verdad sigue exigiendo una release nueva: el refresco periódico solo
+  recupera una copia local perdida o corrupta, no sobrevive a un cambio de valor
+  (ver "Consequence accepted" en el spec).
