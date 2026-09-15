@@ -1,7 +1,15 @@
 # Kino
 
-Kino es la app para ver películas y series en el celular y en el televisor (Android TV / Fire TV),
-con el mismo catálogo en los dos aparatos.
+Kino es la app para ver películas y series en el celular y en el televisor (Android TV / Fire TV).
+Es el mismo APK para los dos: se instala igual en cualquiera de los dos aparatos, y él solo se
+acomoda a una pantalla grande con control remoto o a una pantalla de celular con los dedos, con el
+mismo catálogo y la misma cuenta en ambos.
+
+## Descargar
+
+**[Descargar el APK más reciente](https://github.com/lordmacu/kino-light/releases/latest/download/app-release.apk)**
+
+También puedes ver todas las versiones en la [página de releases](https://github.com/lordmacu/kino-light/releases).
 
 <p align="center">
   <img src="docs/screenshots/home.png" width="49%" alt="Pantalla de inicio" />
@@ -10,6 +18,10 @@ con el mismo catálogo en los dos aparatos.
 <p align="center">
   <img src="docs/screenshots/search.png" width="49%" alt="Buscador" />
   <img src="docs/screenshots/search-results.png" width="49%" alt="Resultados de búsqueda" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/live.png" width="49%" alt="Canales en vivo" />
+  <img src="docs/screenshots/categorias.png" width="49%" alt="Categorías" />
 </p>
 
 ## Sin virus, sin publicidad y sin rastreadores
