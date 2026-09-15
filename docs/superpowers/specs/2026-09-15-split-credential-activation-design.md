@@ -239,6 +239,35 @@ credential resolution**, not a whole-app gate:
   security goal -- this only blocks the activation/resolve step, never the
   rest of the app.
 
+**Precedent this decision is grounded in, not a hypothetical**: `RootDetection`
+already produces a real false positive on some Xiaomi Android TV sticks --
+exactly why `BLOCK_ON_ROOT` is `false` today, per the user directly. That
+history is why the same safety net gets built in here from the start rather
+than added reactively after a real device breaks:
+
+- **Kill switch, same shape as `BLOCK_ON_ROOT`**: a single
+  `BLOCK_ON_INSTRUMENTATION` constant (default `true`) gates whether a
+  detected signal actually refuses resolution. If a real device ever false-
+  positives, this flips to `false` in one line -- the detection code stays
+  exactly as built and tested, exactly how `BLOCK_ON_ROOT`'s own comment
+  already describes handling this same situation for root.
+- **Fail-safe on an unreadable signal**: consistent with
+  `ApkSignature.isOurs()`'s own stated rule ("`true` if no signature could
+  be read at all -- there's no proof of tampering, and locking someone out
+  over a failed read is worse than the risk this guards against"), each of
+  the four signals must **positively and cleanly** detect instrumentation
+  to count. A signal that can't be read at all (permission denied, an OEM
+  fork that doesn't expose `/proc/self/status` the usual way, etc.) reads
+  as "not detected," never as "detected." Ambiguity must never fail closed
+  here.
+- **The user explicitly kept the sensitive combination rule** (any one of
+  the four stronger signals is enough) rather than requiring two or more,
+  given active instrumentation is a deliberate runtime action a legitimate
+  user's device state doesn't stumble into by accident -- unlike the static
+  device/firmware properties (`su` binaries, build tags, mount overlays)
+  that actually produced the Xiaomi false positive. The kill switch above
+  is the chosen mitigation for the residual risk, not reduced sensitivity.
+
 ## Consequence accepted: rotation of a split value needs a new app release
 
 Splitting couples each value's *content* to the currently-installed APK's
