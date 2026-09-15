@@ -28,7 +28,7 @@ jobs:
           MAJOR="$(echo "$VERSION_NAME" | cut -d. -f1)"
           MINOR="$(echo "$VERSION_NAME" | cut -d. -f2)"
           PATCH="$(echo "$VERSION_NAME" | cut -d. -f3)"
-          VERSION_CODE=$((MAJOR * 1000000 + MINOR * 1000 + PATCH))
+          VERSION_CODE=$((10#$MAJOR * 1000000 + 10#$MINOR * 1000 + 10#$PATCH))
           {
             echo "TAG=$TAG"
             echo "VERSION_NAME=$VERSION_NAME"
