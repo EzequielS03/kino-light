@@ -1,0 +1,110 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag shape and compute version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag '$TAG' does not match vMAJOR.MINOR.PATCH -- aborting before touching secrets."
+            exit 1
+          fi
+          VERSION_NAME="${TAG#v}"
+          MAJOR="$(echo "$VERSION_NAME" | cut -d. -f1)"
+          MINOR="$(echo "$VERSION_NAME" | cut -d. -f2)"
+          PATCH="$(echo "$VERSION_NAME" | cut -d. -f3)"
+          VERSION_CODE=$((MAJOR * 1000000 + MINOR * 1000 + PATCH))
+          {
+            echo "TAG=$TAG"
+            echo "VERSION_NAME=$VERSION_NAME"
+            echo "VERSION_CODE=$VERSION_CODE"
+            echo "REPO=${{ github.repository }}"
+          } >> "$GITHUB_ENV"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - name: Decode the release keystore
+        run: echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Write the .env the build reads
+        run: |
+          cat > .env <<EOF
+          API_KEY=${{ secrets.TMDB_API_KEY }}
+          IPTV_3DES_KEY=${{ secrets.MAGIS_3DES_KEY }}
+          IPTV_HOSTS=${{ secrets.MAGIS_HOSTS }}
+          IPTV_APP_ID=${{ secrets.MAGIS_APP_ID }}
+          IPTV_APK_VERSION=${{ secrets.MAGIS_APK_VERSION }}
+          CAST_RECEIVER_ID=${{ secrets.CAST_RECEIVER_ID }}
+          RELEASE_KEYSTORE_PATH=${{ runner.temp }}/release.jks
+          RELEASE_KEYSTORE_PASSWORD=${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS=${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD=${{ secrets.RELEASE_KEY_PASSWORD }}
+          VERSION_CODE=${{ env.VERSION_CODE }}
+          VERSION_NAME=${{ env.VERSION_NAME }}
+          EOF
+
+      - name: Build the signed release APK
+        run: ./gradlew :app:assembleRelease
+
+      - name: Extract release notes from the tag's message
+        run: |
+          NOTES="$(git for-each-ref "refs/tags/$TAG" --format='%(contents)')"
+          if [ -z "$NOTES" ]; then
+            NOTES="Release $TAG"
+          fi
+          {
+            echo "NOTES<<EOF_NOTES"
+            echo "$NOTES"
+            echo "EOF_NOTES"
+          } >> "$GITHUB_ENV"
+
+      - name: Build latest.json
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          manifest = {
+              "versionCode": int(os.environ["VERSION_CODE"]),
+              "versionName": os.environ["VERSION_NAME"],
+              "url": "https://github.com/{}/releases/download/{}/app-release.apk".format(
+                  os.environ["REPO"], os.environ["TAG"],
+              ),
+              "notes": os.environ["NOTES"],
+          }
+          with open("latest.json", "w") as f:
+              json.dump(manifest, f)
+          PY
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" \
+            app/build/outputs/apk/release/app-release.apk \
+            latest.json \
+            --title "$TAG" \
+            --notes "$NOTES"
+
+      - name: Remove secrets from the runner
+        if: always()
+        run: rm -f .env "$RUNNER_TEMP/release.jks"
