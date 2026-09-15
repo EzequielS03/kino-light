@@ -1,7 +1,23 @@
 # Kino
 
 Kino es la app para ver películas y series en el celular y en el televisor (Android TV / Fire TV),
-con la misma cuenta y el mismo catálogo en los dos aparatos.
+con el mismo catálogo en los dos aparatos.
+
+<p align="center">
+  <img src="docs/screenshots/home.png" width="49%" alt="Pantalla de inicio" />
+  <img src="docs/screenshots/player.png" width="49%" alt="Reproductor" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/search.png" width="49%" alt="Buscador" />
+  <img src="docs/screenshots/search-results.png" width="49%" alt="Resultados de búsqueda" />
+</p>
+
+## Sin virus, sin publicidad y sin rastreadores
+
+Kino solo habla con los servidores necesarios para traer las películas, las series y el catálogo:
+ni un byte más. No trae ningún rastreador que reporte lo que ves o cómo usas el celular, no muestra
+publicidad de ningún tipo, y no instala nada aparte de la app misma. Todo lo que se instala en el
+aparato es exactamente lo que ves en este repositorio, a la vista de cualquiera.
 
 ## Qué puedes hacer con Kino
 
@@ -35,6 +51,13 @@ Desde la propia app puedes:
 
 Usar contenido de terceros como Xuper es responsabilidad de quien activa la cuenta: Kino no
 promueve la piratería, solo facilita el acceso a lo que cada quien decida ver.
+
+## Cómo nació Kino
+
+La app original de Xuper trae, además del catálogo, publicidad, rastreadores y programas de fondo
+que no tienen nada que ver con ver una película. Kino nace de estudiar cómo esa app habla con los
+servidores de Xuper y reconstruir esa misma conexión desde cero, en una app propia: el mismo
+catálogo y los mismos servidores de siempre, pero sin nada de lo que la app original traía de más.
 
 ## En el televisor
 
