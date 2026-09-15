@@ -55,4 +55,13 @@ class UpdateCheckerTest {
         server.enqueue(MockResponse().setBody("not json"))
         assertNull(checker.check(currentVersionCode = 1))
     }
+
+    @Test
+    fun `default url points at the GitHub Release manifest, not the old server`() {
+        val checker = UpdateChecker(OkHttpClient())
+        assertEquals(
+            "https://github.com/lordmacu/kino-light/releases/latest/download/latest.json",
+            checker.url,
+        )
+    }
 }

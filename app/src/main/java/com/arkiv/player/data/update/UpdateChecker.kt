@@ -9,15 +9,13 @@ import org.json.JSONObject
 
 class UpdateChecker(
     private val client: OkHttpClient,
-    private val url: String = "https://apk.comparadorinternet.co/latest.json",
+    internal val url: String = "https://github.com/lordmacu/kino-light/releases/latest/download/latest.json",
 ) {
     suspend fun check(currentVersionCode: Int): UpdateInfo? = withContext(Dispatchers.IO) {
         runCatching {
             val raw = client.newCall(Request.Builder().url(url).cacheControl(CacheControl.FORCE_NETWORK).build()).execute()
                 .use { if (it.isSuccessful) it.body?.string() else null } ?: return@withContext null
-            // Cloudflare transforms JSON bodies; the server prepends )]}'\n to bypass it.
-            val body = raw.substringAfter("{", "").let { "{$it" }
-            val json = JSONObject(body)
+            val json = JSONObject(raw)
             val remote = UpdateInfo(
                 versionCode = json.getInt("versionCode"),
                 versionName = json.getString("versionName"),
@@ -40,8 +38,7 @@ class UpdateChecker(
         runCatching {
             val raw = client.newCall(Request.Builder().url(url).cacheControl(CacheControl.FORCE_NETWORK).build()).execute()
                 .use { if (it.isSuccessful) it.body?.string() else null } ?: return@withContext null
-            val body = raw.substringAfter("{", "").let { "{$it" }
-            JSONObject(body).getString("url")
+            JSONObject(raw).getString("url")
         }.getOrNull()
     }
 }

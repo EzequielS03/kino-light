@@ -36,8 +36,8 @@ android {
         // .env because it is registered per developer account in the Cast Developer Console, so a
         // checkout without one still builds and still casts what the default receiver can handle.
         buildConfigField("String", "CAST_RECEIVER_ID", "\"${readEnv("CAST_RECEIVER_ID")}\"")
-        versionCode = 48
-        versionName = "0.9.17"
+        versionCode = readEnv("VERSION_CODE", "48").toInt()
+        versionName = readEnv("VERSION_NAME", "0.9.17")
         // Task 8 (Step 3): `ARKIV_API_KEY` used to live here, the last build-time credential still
         // left in the APK -- a compiled-in constant, the same for every device, that anyone who
         // opened the APK could extract. Gone entirely: the app now authenticates with the PER-DEVICE

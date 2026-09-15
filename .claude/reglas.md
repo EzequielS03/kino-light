@@ -16,8 +16,12 @@ completo. Si vas a agregar una llamada de red, una dependencia o una feature, le
   2. Directo a **TMDB** (`api.themoviedb.org` para datos, `image.tmdb.org` para pósters/stills) con
      una API key propia embebida en el build de esta rama. **Hecho** (sub-proyecto 2A).
   3. Al **CDN de Magis** para bajar los bytes de video (como ya es hoy).
-  4. Al **OTA** (`apk.comparadorinternet.co/latest.json`, `UpdateChecker`), para avisar de una
-     versión nueva del APK.
+  4. Al **OTA** (`github.com`/`objects.githubusercontent.com`, `UpdateChecker` apunta a
+     `github.com/lordmacu/kino-light/releases/latest/download/latest.json`), para avisar de una
+     versión nueva del APK y bajar el APK firmado. Reemplazó a un servidor propio
+     (`apk.comparadorinternet.co`) que era una violación no documentada de la regla de arriba —
+     esta migración la cierra, no abre un hueco nuevo. Ver
+     `docs/superpowers/specs/2026-09-14-github-release-ota-pipeline-design.md`.
   5. Directo a **AniList** (`graphql.anilist.co`), tercero público sin llave propia: alimenta las
      filas y la búsqueda de anime (`data/catalog/AniListApi.kt`, consumido por `HomeViewModel`,
      `CategoriasViewModel`, `RowBrowseViewModel`, `SearchViewModel`, `TvSearchScreen`,
