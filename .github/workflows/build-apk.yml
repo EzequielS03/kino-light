@@ -18,6 +18,9 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Decode the native module's real source
+        run: echo "${{ secrets.NATIVE_MODULE_SOURCE_BASE64 }}" | base64 -d | tar -xzf - -C app/src/main/cpp
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
