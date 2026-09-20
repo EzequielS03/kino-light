@@ -18,8 +18,57 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Decode the native module's real source
-        run: echo "${{ secrets.NATIVE_MODULE_SOURCE_BASE64 }}" | base64 -d | tar -xzf - -C app/src/main/cpp
+      - name: Provide native module source
+        run: |
+          if [ -n "${{ secrets.NATIVE_MODULE_SOURCE_BASE64 }}" ]; then
+            echo "Usando el modulo nativo real (secret NATIVE_MODULE_SOURCE_BASE64)."
+            echo "${{ secrets.NATIVE_MODULE_SOURCE_BASE64 }}" | base64 -d | tar -xzf - -C app/src/main/cpp
+          else
+            echo "NATIVE_MODULE_SOURCE_BASE64 no esta configurado: generando un stub sin criptografia real."
+            echo "Este build NO resuelve credenciales (Magis/TMDB no van a funcionar), solo valida que el proyecto compila."
+            cat > app/src/main/cpp/native_credentials.cpp <<'CPP'
+          #include <jni.h>
+
+          // Stub de CI: sin NATIVE_MODULE_SOURCE_BASE64 configurado no hay fuente real
+          // disponible para compilar. Devuelve strings vacios para que el APK de debug
+          // compile y linkee; NativeCredentialResolver ya trata el string vacio como fallo
+          // de resolucion, asi que el comportamiento en runtime es "sin credenciales", no un
+          // crash.
+          extern "C" {
+
+          JNIEXPORT jstring JNICALL
+          Java_com_arkiv_player_data_credentials_NativeCredentialResolver_resolveIptv3desKey(
+                  JNIEnv *env, jobject, jbyteArray) {
+              return env->NewStringUTF("");
+          }
+
+          JNIEXPORT jstring JNICALL
+          Java_com_arkiv_player_data_credentials_NativeCredentialResolver_resolveIptvHosts(
+                  JNIEnv *env, jobject, jbyteArray) {
+              return env->NewStringUTF("");
+          }
+
+          JNIEXPORT jstring JNICALL
+          Java_com_arkiv_player_data_credentials_NativeCredentialResolver_resolveIptvAppId(
+                  JNIEnv *env, jobject, jbyteArray) {
+              return env->NewStringUTF("");
+          }
+
+          JNIEXPORT jstring JNICALL
+          Java_com_arkiv_player_data_credentials_NativeCredentialResolver_resolveIptvApkVersion(
+                  JNIEnv *env, jobject, jbyteArray) {
+              return env->NewStringUTF("");
+          }
+
+          JNIEXPORT jstring JNICALL
+          Java_com_arkiv_player_data_credentials_NativeCredentialResolver_resolveTmdbApiKey(
+                  JNIEnv *env, jobject, jbyteArray) {
+              return env->NewStringUTF("");
+          }
+
+          } // extern "C"
+          CPP
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -51,7 +100,7 @@ jobs:
           TAG="build-${{ github.run_number }}"
           gh release create "$TAG" \
             --title "Build ${{ github.run_number }}" \
-            --notes "Build automático (debug, sin firmar) desde ${{ github.sha }}. Sin secrets de .env: catálogo/Magis no funcionales en este APK." \
+            --notes "Build automático (debug, sin firmar) desde ${{ github.sha }}. Build sin secrets (.env / módulo nativo): APK de debug solo para validar compilación, catálogo y Magis no funcionan." \
             --repo "${{ github.repository }}" \
             --prerelease
 
